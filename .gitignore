@@ -1,0 +1,10 @@
+# Ignore all sub-repositories
+docker/
+dot-files/
+fusilli/
+iree/
+
+
+# Ignore IDE and cache directories
+.cursor/
+.cache/
