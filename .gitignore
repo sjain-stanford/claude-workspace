@@ -4,6 +4,7 @@ dot-files/
 fusilli/
 iree/
 cudnn-frontend/
+hipdnn/
 
 
 # Ignore IDE and cache directories
