@@ -8,6 +8,7 @@ Each subdirectory is an independent git repository (sub-repos are gitignored in 
 - `fusilli/` - Development repo
 - `iree/` - Dependency repo
 - `docker/` - Docker for development environment
+- `cudnn-frontend/` - Reference for C++ graph API
 - `dot-files/` - System configuration files
 
 ## Repository Overview
@@ -21,7 +22,10 @@ Each subdirectory is an independent git repository (sub-repos are gitignored in 
 - **Key Commands**: Check docker/README.md
 
 ### iree
-- **Purpose**: This is a good reference for C API interfaces used in Fusilli.
+- **Purpose**: This is a good reference for C API interfaces used in Fusilli
+
+### cudnn-frontend
+- **Purpose**: This is a reference for the C++ graph API in Fusilli
 
 ### dot-files
 - **Purpose**: System configuration files (.bashrc, .gitconfig) that are copied to $HOME
@@ -39,6 +43,7 @@ Each subdirectory is an independent git repository (sub-repos are gitignored in 
 ## Commits
 - Always use signed commits (git commit -s ...)
 - Always mention co-authorship if LLM assistance is used
+- Never `git push` commits without my explicit permission
 
 ## PR Reviews
 - When asked to review a PR, check if the branch is checked-out locally first and if not do it (might need to add fork as remote first)

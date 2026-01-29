@@ -3,6 +3,7 @@ docker/
 dot-files/
 fusilli/
 iree/
+cudnn-frontend/
 
 
 # Ignore IDE and cache directories
