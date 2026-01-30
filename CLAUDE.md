@@ -10,6 +10,9 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - This is the main project that depends on IREE compiler and runtime
   - Check `skills/fusilli_skills.md` for build, test, benchmark and lint commands
   - Check `projects/fusilli/README.md` for anything else
+- `projects/fusilli-benchmarks/` - Central location for running Fusilli benchmarks and tracking progress
+  - **CRITICAL**: Contains sensitive information, never make public
+  - See `projects/fusilli-benchmarks/README.md` for detailed benchmarking instructions
 - `projects/iree/` - MLIR enabled compiler and runtime stack
   - This serves as a reference for the compiler and runtime C API interfaces used in Fusilli
 - `projects/cudnn-frontend/` - cudNN frontend library for NVIDIA GPU acceleration
@@ -43,7 +46,8 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - Never `git push` commits without my explicit permission
 
 ## PR Reviews
-- When asked to review a PR, check if the branch is checked-out locally first (and if not, might need to add fork as remote first then fetch)
+- When asked to review a PR, fetch the PR details and diff (preferably using `gh` CLI)
 - Look for consistency, correctness, simplicity, presence of tests, and conformity to code standards
 - If the PR touches user-facing API (e.g. adds a new operation or method on fusilli::Graph), make sure it is consistent with cudnn-frontend / hipdnn API
 - Look for opportunities to replace verbose and unreadable code with simple and elegant constructs (C++20)
+- Please save the PR review comments and recommendations to an .md file for continuity

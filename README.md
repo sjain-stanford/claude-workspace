@@ -12,6 +12,7 @@ This workspace serves as a unified development environment for working on ML com
 claude-workspace/
 ├── projects/               # Relevant sub-repositories are cloned here
 │   ├── fusilli/
+│   ├── fusilli-benchmarks/
 │   ├── iree/
 │   ├── cudnn-frontend/
 │   ├── hipdnn/
@@ -49,6 +50,9 @@ claude-workspace/
    # Main project
    git clone https://github.com/iree-org/fusilli.git
 
+   # Benchmarks (private repo)
+   git clone https://github.com/nod-ai/fusilli-benchmarks.git
+
    # Dependencies and references
    git clone https://github.com/iree-org/iree.git
    git clone https://github.com/NVIDIA/cudnn-frontend.git
@@ -62,7 +66,7 @@ claude-workspace/
    ```
 
 3. **Launch development container:**
-   - Open Cursor IDE, launch docker container `./docker/run_docker.sh`
+   - Open Cursor IDE rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)
    - `Ctrl + Shift + P` and select  `Dev Containers: Attach to Running Container`
    - Open `claude-workspace` in Cursor IDE
    - Launch Claude Code from Cursor: `Claude Code: Open in Terminal`
