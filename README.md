@@ -13,10 +13,9 @@ claude-workspace/
 ├── projects/               # Relevant sub-repositories are cloned here
 │   ├── fusilli/
 │   ├── iree/
-│   ├── docker/
 │   ├── cudnn-frontend/
 │   ├── hipdnn/
-│   ├── dot-files/
+│   ├── docker/
 │   └── ...
 ├── skills/                 # Project specific skills for agents
 │   ├── fusilli_skills.md
@@ -54,7 +53,6 @@ claude-workspace/
    git clone https://github.com/iree-org/iree.git
    git clone https://github.com/NVIDIA/cudnn-frontend.git
    git clone https://github.com/sjain-stanford/docker.git
-   git clone https://github.com/sjain-stanford/dot-files.git
 
    # Sparse checkout of hipdnn from rocm-libraries
    git clone --filter=blob:none --sparse https://github.com/ROCm/rocm-libraries.git hipdnn

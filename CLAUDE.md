@@ -20,8 +20,6 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - Fusilli tries to match the frontend graph API as close as possible for portability reasons
 - `projects/hipdnn/` - Reference for C++ graph API
   - ROCm hipDNN library for AMD GPU acceleration (sparse checkout of projects/hipdnn)
-- `projects/dot-files/` - System configuration files
-  - System configuration files (.bashrc, .gitconfig) that are copied to $HOME
 
 
 ## Execution Environment
