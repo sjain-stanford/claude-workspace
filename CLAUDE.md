@@ -7,7 +7,7 @@ Meta workspace for Claude-assisted development across multiple repositories.
 Each subdirectory is an independent git repository (sub-repos are gitignored in the meta workspace repo):
 - `fusilli/` - C++ graph API and JIT engine powered by IREE
 - `iree/` - MLIR enabled compiler and runtime stack
-- `docker/` - Docker for development environment
+- `docker/` - Docker for ML compiler development environment
 - `cudnn-frontend/` - Reference for C++ graph API
 - `hipdnn/` - Reference for C++ graph API
 - `dot-files/` - System configuration files
@@ -19,8 +19,7 @@ Each subdirectory is an independent git repository (sub-repos are gitignored in 
 - **Key Commands**: Check fusilli/README.md
 
 ### docker
-- This is the unified development docker for all builds and tests
-- **Key Commands**: Check docker/README.md
+- This is the unified development docker for all ML compiler builds and tests
 
 ### iree
 - This is a good reference for C API interfaces used in Fusilli
@@ -34,6 +33,11 @@ Each subdirectory is an independent git repository (sub-repos are gitignored in 
 ### dot-files
 - System configuration files (.bashrc, .gitconfig) that are copied to $HOME
 
+
+## Execution Environment
+- **CRITICAL**: Always verify you're in the docker container before attempting to build
+- Building outside the docker container will fail due to missing dependencies
+- If not in a docker container, just display this message and stop: "Launch a dev-container on Cursor/VSCode then launch Claude from there".
 
 ## Code style
 - Reference LLVM coding standards (https://llvm.org/docs/CodingStandards.html) for any code in Fusilli / IREE
