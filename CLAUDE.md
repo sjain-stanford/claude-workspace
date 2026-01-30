@@ -8,18 +8,18 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 - `projects/fusilli/` - C++ graph API and JIT engine powered by IREE
   - This is the main project that depends on IREE compiler and runtime
-  - Check skills/fusilli_skills.md for build, test, benchmark and lint commands
-  - Check projects/fusilli/README.md for anything else
+  - Check `skills/fusilli_skills.md` for build, test, benchmark and lint commands
+  - Check `projects/fusilli/README.md` for anything else
 - `projects/iree/` - MLIR enabled compiler and runtime stack
   - This serves as a reference for the compiler and runtime C API interfaces used in Fusilli
+- `projects/cudnn-frontend/` - cudNN frontend library for NVIDIA GPU acceleration
+  - Fusilli tries to match the frontend API for portability reasons so treat this as the C++ graph API reference
+- `projects/hipdnn/` - ROCm hipDNN library for AMD GPU acceleration
+  - This is a sparse checkout of the `ROCm/rocm-libraries` monorepo
+  - Apart from serving as reference for the C++ graph API, we also integrate Fusilli as a plugin into the hipDNN kernel provider ecosystem.
 - `projects/docker/` - Docker for ML compiler development environment
   - This is the unified development docker for all builds and tests
   - Use as reference but expect agent is launched from a dev-container already
-- `projects/cudnn-frontend/` - Reference for C++ graph API
-  - cuDNN frontend library for NVIDIA GPU acceleration
-  - Fusilli tries to match the frontend graph API as close as possible for portability reasons
-- `projects/hipdnn/` - Reference for C++ graph API
-  - ROCm hipDNN library for AMD GPU acceleration (sparse checkout of projects/hipdnn)
 
 
 ## Execution Environment
