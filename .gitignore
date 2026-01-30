@@ -2,6 +2,9 @@
 projects/*
 !projects/.gitkeep
 
+# Ignore PR review contents but track the directory
+reviews/*
+!reviews/.gitkeep
 
 # Ignore IDE and docker cache directories
 .cursor/
