@@ -1,10 +1,6 @@
-# Ignore all sub-repositories
-docker/
-dot-files/
-fusilli/
-iree/
-cudnn-frontend/
-hipdnn/
+# Ignore all sub-repositories in projects/
+projects/*
+!projects/.gitkeep
 
 
 # Ignore IDE and cache directories

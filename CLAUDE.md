@@ -4,23 +4,23 @@ Meta workspace for Claude-assisted development across multiple repositories.
 
 ## Workspace Structure
 
-Each subdirectory is an independent git repository. Sub-repos are gitignored in the meta workspace repo.
+Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo.
 
-- `fusilli/` - C++ graph API and JIT engine powered by IREE
+- `projects/fusilli/` - C++ graph API and JIT engine powered by IREE
   - This is the main project that depends on IREE compiler and runtime
   - Check fusilli_skills.md for build, test, benchmark and lint commands
-  - Check fusilli/README.md for anything else
-- `iree/` - MLIR enabled compiler and runtime stack
+  - Check projects/fusilli/README.md for anything else
+- `projects/iree/` - MLIR enabled compiler and runtime stack
   - This serves as a reference for the compiler and runtime C API interfaces used in Fusilli
-- `docker/` - Docker for ML compiler development environment
+- `projects/docker/` - Docker for ML compiler development environment
   - This is the unified development docker for all builds and tests
   - Use as reference but expect agent is launched from a dev-container already
-- `cudnn-frontend/` - Reference for C++ graph API
+- `projects/cudnn-frontend/` - Reference for C++ graph API
   - cuDNN frontend library for NVIDIA GPU acceleration
   - Fusilli tries to match the frontend graph API as close as possible for portability reasons
-- `hipdnn/` - Reference for C++ graph API
+- `projects/hipdnn/` - Reference for C++ graph API
   - ROCm hipDNN library for AMD GPU acceleration (sparse checkout of projects/hipdnn)
-- `dot-files/` - System configuration files
+- `projects/dot-files/` - System configuration files
   - System configuration files (.bashrc, .gitconfig) that are copied to $HOME
 
 
