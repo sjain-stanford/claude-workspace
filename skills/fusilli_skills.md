@@ -1,23 +1,15 @@
 # Fusilli Skills
 
-## Build Commands
+## Commands
 
-### Standard Build
-```shell
-cmake -GNinja -S. -Bbuild \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
-    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DFUSILLI_SYSTEMS_AMDGPU=ON` \
-    -DIREE_SOURCE_DIR=/home/sambhav/claude-workspace/.cache/docker/iree
-cmake --build build --target all
-```
+### Build
 
-For CPU only builds: `-DFUSILLI_SYSTEMS_AMDGPU=OFF`
-Skip tests/samples: `-DFUSILLI_BUILD_TESTS=OFF`
-Skip benchmarks: `-DFUSILLI_BUILD_BENCHMARKS=OFF`
+Follow the build command from `projects/fusilli/README.md` with the following configuration:
+- For `-DIREE_SOURCE_DIR` point to my local docker cache at `/home/sambhav/claude-workspace/.cache/docker/iree` unless specified otherwise
+- Specify `-DFUSILLI_SYSTEMS_AMDGPU=ON` for AMDGPU build (based on `amd-smi` or when asked explcitly), else `-DFUSILLI_SYSTEMS_AMDGPU=OFF` for CPU build
+- Use `-DCMAKE_BUILD_TYPE=RelWithDebInfo` unless specified otherwise
 
-### Testing
+### Test
 ```shell
 # Run all tests in parallel
 ctest --test-dir build --output-on-failure -j $(nproc)
@@ -28,7 +20,7 @@ ctest --test-dir build --rerun-failed --output-on-failure --verbose
 
 Individual tests are built as standalone binaries in `build/bin/`.
 
-### Linting
+### Lint
 ```shell
 # Pre-commit hooks (auto-runs on git commit after `pre-commit install`)
 pre-commit run --all-files
@@ -90,7 +82,7 @@ rocprofv3 --output-format pftrace -r -- build/bin/benchmarks/fusilli_benchmark_d
 
 ### Dependencies
 
-**IREE**: Fusilli has a source dependency on IREE runtime but NOT the compiler.
+**IREE**: Fusilli has a source dependency on IREE runtime but expects the compiler to be pre-built
 - Runtime: Built from source and statically linked
 - Compiler: Side-loaded as prebuilt binary (`iree-compile`) or shared library
 - Controlled by env vars: `FUSILLI_EXTERNAL_IREE_COMPILE`, `FUSILLI_EXTERNAL_IREE_COMPILER_LIB`

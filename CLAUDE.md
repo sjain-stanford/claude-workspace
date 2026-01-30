@@ -53,4 +53,5 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - Look for opportunities to replace verbose and unreadable code with simple and elegant constructs (C++20)
 - Ensure any remaining work is documented with a `TODO` linking to the issue
 - Ensure `TODO`s follow the convention: `TODO(org/repo#issue)`, example: `TODO(iree-org/iree#123)` unless it's an issue in the same repo in which case just use the issue number: `TODO(#issue)`
+- Check copyright headers for new files use the correct year (present year) and not an older year based on files added earlier
 - Please save the detailed PR review summary as a markdown file the `reviews/` directory (add PR number in the format: `pr-repo-number.md`, example: `pr-fusilli-123.md`)
