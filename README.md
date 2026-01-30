@@ -45,11 +45,22 @@ claude-workspace/
 
 2. **Clone sub-repositories:**
    ```bash
-   # Clone the projects to work with
    cd projects/
-   git clone <fusilli-repo-url> fusilli
-   git clone <iree-repo-url> iree
-   # ... clone other repos as needed
+
+   # Main project
+   git clone https://github.com/iree-org/fusilli.git
+
+   # Dependencies and references
+   git clone https://github.com/iree-org/iree.git
+   git clone https://github.com/NVIDIA/cudnn-frontend.git
+   git clone https://github.com/sjain-stanford/docker.git
+   git clone https://github.com/sjain-stanford/dot-files.git
+
+   # Sparse checkout of hipdnn from rocm-libraries
+   git clone --filter=blob:none --sparse https://github.com/ROCm/rocm-libraries.git hipdnn
+   cd hipdnn
+   git sparse-checkout set projects/hipdnn
+   cd ..
    ```
 
 3. **Launch development container:**

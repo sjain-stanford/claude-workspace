@@ -3,6 +3,6 @@ projects/*
 !projects/.gitkeep
 
 
-# Ignore IDE and cache directories
+# Ignore IDE and docker cache directories
 .cursor/
 .cache/
