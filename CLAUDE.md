@@ -8,7 +8,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 - `projects/fusilli/` - C++ graph API and JIT engine powered by IREE
   - This is the main project that depends on IREE compiler and runtime
-  - Check fusilli_skills.md for build, test, benchmark and lint commands
+  - Check skills/fusilli_skills.md for build, test, benchmark and lint commands
   - Check projects/fusilli/README.md for anything else
 - `projects/iree/` - MLIR enabled compiler and runtime stack
   - This serves as a reference for the compiler and runtime C API interfaces used in Fusilli
