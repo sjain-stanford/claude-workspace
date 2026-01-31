@@ -9,3 +9,6 @@ reviews/*
 # Ignore IDE and docker cache directories
 .cursor/
 .cache/
+
+# Ignore machine-specific Claude settings
+.claude/settings.local.json
