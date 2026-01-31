@@ -10,7 +10,7 @@ This workspace serves as a unified development environment for working on ML com
 
 ```
 claude-workspace/
-├── projects/               # Relevant sub-repositories are cloned here
+├── projects/        # Relevant sub-repositories are cloned here
 │   ├── fusilli/
 │   ├── fusilli-benchmarks/
 │   ├── iree/
@@ -18,10 +18,11 @@ claude-workspace/
 │   ├── hipdnn/
 │   ├── docker/
 │   └── ...
-├── skills/                 # Project specific skills for agents
-│   ├── fusilli_skills.md
+├── skills/          # Project specific skills for agents
+│   ├── fusilli-skills.md
+│   ├── llvm-coding-standards.md
 │   └── ...
-├── CLAUDE.md               # Top level context for agents
+├── CLAUDE.md        # Top level context for agents
 └── README.md
 ```
 

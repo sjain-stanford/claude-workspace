@@ -8,7 +8,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 - `projects/fusilli/` - C++ graph API and JIT engine powered by IREE
   - This is the main project that depends on IREE compiler and runtime
-  - Refer `skills/fusilli_skills.md` for build, test, benchmark and lint commands
+  - Refer `skills/fusilli-skills.md` for build, test, benchmark and lint commands
   - Refer `projects/fusilli/README.md` for anything else
 - `projects/fusilli-benchmarks/` - Central location for Fusilli benchmarks
   - **CRITICAL**: Contains sensitive information (never make public)
@@ -32,10 +32,9 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - If not in a docker container simply display this message and stop: "Launch a dev-container on Cursor then launch Claude from there"
 
 ## Code style
-- Reference LLVM coding standards (https://llvm.org/docs/CodingStandards.html) for any code in Fusilli / IREE
+- If extending or bug-fixing existing code, use the style already in place to maintain uniformity
 - Always use punctuation for comments and docstrings (periods after sentences, start with uppercase)
-- Follow style of neighboring code when in doubt
-- Follow clang-tidy settings for naming conventions
+- Reference LLVM coding standards (`skills/llvm-coding-standards.md`) to ensure new code conforms to it
 
 ## Testing
 - Always add unit and/or integration tests for new or modified code
@@ -47,11 +46,13 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - Never `git push` without my explicit permission
 
 ## PR Reviews
-- When asked to review a PR, fetch the PR details and diff (preferably using `gh` CLI)
+- When asked to review a PR, fetch the PR details and diff preferably using `gh` CLI
 - Look for consistency, correctness, simplicity, presence of tests, and conformity to code standards
 - If the PR touches user-facing API (e.g. adds a new operation or method on fusilli::Graph), make sure it is consistent with cudnn-frontend / hipdnn API
-- Look for opportunities to replace verbose and unreadable code with simple and elegant constructs (C++20)
+- Look for opportunities to replace verbose and unreadable code with simple and elegant constructs (leverage C++20 features!)
 - Ensure any remaining work is documented with a `TODO` linking to the issue
 - Ensure `TODO`s follow the convention: `TODO(org/repo#issue)`, example: `TODO(iree-org/iree#123)` unless it's an issue in the same repo in which case just use the issue number: `TODO(#issue)`
 - Check copyright headers for new files use the correct year (present year) and not an older year based on files added earlier
-- Please save the detailed PR review summary as a markdown file the `reviews/` directory (add PR number in the format: `pr-repo-number.md`, example: `pr-fusilli-123.md`)
+- Flag braces for single line control flow (`skills/llvm-coding-standards.md`)
+- Flag include order issues (`skills/llvm-coding-standards.md`)
+- Save the detailed PR review summary as a markdown file the `reviews/` directory (add PR number in the format: `pr-repo-number.md`, example: `pr-fusilli-123.md`)
