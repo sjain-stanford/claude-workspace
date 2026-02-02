@@ -4,7 +4,7 @@ Meta workspace for Claude-assisted development across multiple repositories.
 
 ## Workspace Structure
 
-Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally to serve as context for Claude.
+Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally for development and/or serve as context for Claude.
 
 - `projects/fusilli/` - C++ graph API and JIT engine powered by IREE
   - This is the main project that depends on IREE compiler and runtime
@@ -35,6 +35,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - If extending or bug-fixing existing code, use the style already in place to maintain uniformity
 - Always use punctuation for comments and docstrings (periods after sentences, start with uppercase)
 - Reference LLVM coding standards (`skills/llvm-coding-standards.md`) to ensure new code conforms to it
+- Follow DRY (don't repeat yourself), YAGNI (you aren't gonna need it), KISS (keep it simple, stupid)
 
 ## Testing
 - Always add unit and/or integration tests for new or modified code
@@ -53,6 +54,8 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - Ensure any remaining work is documented with a `TODO` linking to the issue
 - Ensure `TODO`s follow the convention: `TODO(org/repo#issue)`, example: `TODO(iree-org/iree#123)` unless it's an issue in the same repo in which case just use the issue number: `TODO(#issue)`
 - Check copyright headers for new files use the correct year (present year) and not an older year based on files added earlier
-- Flag braces for single line control flow (`skills/llvm-coding-standards.md`)
-- Flag include order issues (`skills/llvm-coding-standards.md`)
+- Flag nit-picky issues with minor severity:
+  - avoid braces for single line control flow (`skills/llvm-coding-standards.md`)
+  - follow include order grouping and ordering (`skills/llvm-coding-standards.md`)
+- Report issues in decreasing order of severity (critical, major, minor)
 - Save the detailed PR review summary as a markdown file the `reviews/` directory (add PR number in the format: `pr-repo-number.md`, example: `pr-fusilli-123.md`)
