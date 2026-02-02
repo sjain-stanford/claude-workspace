@@ -56,6 +56,6 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - Check copyright headers for new files use the correct year (present year) and not an older year based on files added earlier
 - Flag nit-picky issues with minor severity:
   - avoid braces for single line control flow (`skills/llvm-coding-standards.md`)
-  - follow include order grouping and ordering (`skills/llvm-coding-standards.md`)
+  - follow include order grouping and ordering: main module headers then local/private headers then system headers, with each category sorted lexicographically by full path (`skills/llvm-coding-standards.md`)
 - Report issues in decreasing order of severity (critical, major, minor)
 - Save the detailed PR review summary as a markdown file the `reviews/` directory (add PR number in the format: `pr-repo-number.md`, example: `pr-fusilli-123.md`)
