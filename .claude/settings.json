@@ -13,8 +13,12 @@
       "Bash(cmake:*)",
       "Bash(ctest:*)",
       "Bash(cd:*)",
+      "Bash(curl:*)",
       "Bash(rm -i:*)",
       "Bash(mv -i:*)",
+      "Bash(echo:*)",
+      "Bash(env)",
+      "Bash([ -f /.dockerenv ])",
       "Bash(pre-commit run:*)",
       "WebSearch"
     ],

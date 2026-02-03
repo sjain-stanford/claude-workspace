@@ -55,6 +55,9 @@ Ensure TODOs follow the convention:
 ### Modern C++ Features
 Look for opportunities to simplify verbose code by leveraging C++17 or C++20 features when possible.
 
+### Test Includes
+Tests should include `<fusilli.h>` rather than separate low-level fusilli headers (e.g., `<fusilli/graph.h>`, `<fusilli/tensor.h>`) to verify the overall header bundling works correctly.
+
 ## Output Format
 
 Report issues in decreasing order of severity:
