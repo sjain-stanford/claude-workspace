@@ -6,6 +6,12 @@ Common review checklist and standards shared across code review skills.
 
 Evaluate code changes against these criteria in order of importance:
 
+### General Recommendations
+- Follow DRY (don't repeat yourself), YAGNI (you aren't gonna need it), KISS (keep it simple, stupid)
+- If extending or bug-fixing existing code, use the style already in place to maintain uniformity
+- Reference LLVM coding standards (`skills/llvm-coding-standards.md`) to ensure new code conforms to it
+- Always accompany each flagged issue with the proposed fix or refactoring suggestion (inline with the issue)
+
 ### Critical Issues
 - Security vulnerabilities (injection, XSS, buffer overflows)
 - Data corruption or loss potential
@@ -23,23 +29,17 @@ Evaluate code changes against these criteria in order of importance:
 ### Minor Issues
 - This includes code style or organization issues - generally nit picks but important for code readability and maintainability
 
-### General Recommendations
-- Follow DRY (don't repeat yourself), YAGNI (you aren't gonna need it), KISS (keep it simple, stupid)
-- If extending or bug-fixing existing code, use the style already in place to maintain uniformity
-- Reference LLVM coding standards (`skills/llvm-coding-standards.md`) to ensure new code conforms to it
-
 ## Code Standards
 
-Reference `skills/llvm-coding-standards.md` for detailed standards. Key checks:
-
+Reference `skills/llvm-coding-standards.md` for detailed standards but here are some common contenders:
 - **Braces**: Omit braces when body is a single simple statement with no preceding comment; use braces for multi-statement, commented, or nested blocks
-- **Include order**: Main module header first, then local/private, then project headers, then system headers (each category sorted lexicographically by full path)
 - **Early exits and continue**: Prefer early returns to reduce nesting
 - **Don't use else after return**: Reduces indentation
 - **Prefer preincrement**: Use `++i` over `i++`
 - **Auto usage**: Use `auto` only when type is obvious; prefer `auto &` for values, `auto *` for pointers
 - **Range-based for loops**: Use wherever possible
 - **Assertions**: Use `assert` liberally with descriptive messages
+- **Include order**: Main module header first, then local/private, then dependent project headers then system headers (each category sorted lexicographically by full path)
 - **Comments**: Write as English prose with proper capitalization and punctuation (start uppercase, end with period)
 
 ## Special Checks
@@ -56,7 +56,7 @@ Ensure TODOs follow the convention:
 Look for opportunities to simplify verbose code by leveraging C++17 or C++20 features when possible.
 
 ### Test Includes
-Tests should include `<fusilli.h>` rather than separate low-level fusilli headers (e.g., `<fusilli/graph.h>`, `<fusilli/tensor.h>`) to verify the overall header bundling works correctly.
+Tests should include main project header (i.e., `<fusilli.h>`) rather than the component level headers (e.g., `<fusilli/graph.h>`, `<fusilli/tensor.h>`) to verify the overall header bundling works correctly.
 
 ## Output Format
 
