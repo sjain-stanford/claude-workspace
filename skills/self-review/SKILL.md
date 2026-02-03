@@ -48,4 +48,6 @@ Use the standard output format from `skills/review-criteria.md` with:
 
 ### 4. Save Review
 
-Save the review to `reviews/` directory (already exists) with filename `self-review-<short-description>.md`, where `<short-description>` is a few words separated by dashes summarizing the changes (e.g., `self-review-add-auth-middleware.md`, `self-review-fix-cache-invalidation.md`).
+Save the review to `<workspace-root>/reviews/` with filename `self-review-<short-description>.md`, where `<short-description>` is a few words separated by dashes summarizing the changes (e.g., `self-review-add-auth-middleware.md`, `self-review-fix-cache-invalidation.md`).
+
+**IMPORTANT**: Always save reviews to the top-level `claude-workspace/reviews/` directory, not within sub-project directories.
