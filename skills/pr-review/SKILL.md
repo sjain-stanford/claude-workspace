@@ -15,53 +15,46 @@ Provides comprehensive pull request reviews following project coding standards.
 
 ## Review Process
 
-### 1. Fetch PR Details
+### 1. Fetch PR Branch
 
-Use one of the following methods in order of preference:
-
-#### Option A: `gh` CLI (preferred)
+Fetch and checkout the PR branch locally using git:
 
 ```shell
-# Get PR metadata
-gh pr view <PR-number> --repo <owner/repo> --json title,body,author,baseRefName,headRefName,files
+# Record the current branch to return to later
+ORIGINAL_BRANCH=$(git branch --show-current)
 
-# Get full diff
-gh pr diff <PR-number> --repo <owner/repo>
+# Navigate to the project directory
+cd projects/<repo>
+
+# Fetch the PR branch
+git fetch origin pull/<PR-number>/head:pr-<PR-number>
+
+# Checkout the PR branch
+git checkout pr-<PR-number>
 ```
 
-#### Option B: `curl` fallback
+### 2. Review the Code
 
-Use when `gh` is unavailable or not authenticated:
+With the PR branch checked out, you can:
 
 ```shell
-# Get PR metadata (public repos, no auth needed)
-curl -s "https://api.github.com/repos/<owner>/<repo>/pulls/<PR-number>"
+# View the diff against main
+git diff main...HEAD
 
-# Get raw diff directly
-curl -sL "https://github.com/<owner>/<repo>/pull/<PR-number>.diff"
+# List all changed files
+git diff main...HEAD --name-only
+
+# View commit history on this branch
+git log main..HEAD --oneline
 ```
 
-For private repos, add authentication header:
-```shell
-curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/<owner>/<repo>/pulls/<PR-number>"
-```
+Read the changed files directly using the Read tool with file-relative line numbers for any issues found.
 
-#### Option C: WebFetch tool
-
-For public repos, use Claude Code's WebFetch tool to fetch the raw diff:
-
-```
-WebFetch URL: https://github.com/<owner>/<repo>/pull/<PR-number>.diff
-Prompt: "Extract the complete diff content"
-```
-
-**Note**: WebFetch will fail for private/authenticated URLs. Use `curl` with a token for private repos.
-
-### 2. Apply Review Criteria
+### 3. Apply Review Criteria
 
 Reference `skills/review-criteria.md` for the complete review checklist, code standards, and output format.
 
-### 3. Output Format
+### 4. Output Format
 
 Use the standard output format from `skills/review-criteria.md` with:
 - **Review-Type**: "PR Review"
@@ -69,6 +62,18 @@ Use the standard output format from `skills/review-criteria.md` with:
 - **Author**: PR author from metadata
 - **Branch**: `<headRefName> -> <baseRefName>`
 
-### 4. Save Review
+### 5. Save Review
 
 Save the review to `reviews/` directory (already exists) with filename `pr-review-<repo>-<number>.md` (example: `pr-review-fusilli-123.md`). If the file already exists, check if the PR / diff was updated since last review and re-review if so, saving to a file of the same name with a suffix `-take-N.md` for the Nth attempt.
+
+### 6. Cleanup
+
+After the review is complete, switch back to the original branch and delete the PR branch:
+
+```shell
+# Switch back to the original branch
+git checkout $ORIGINAL_BRANCH
+
+# Delete the PR branch
+git branch -D pr-<PR-number>
+```

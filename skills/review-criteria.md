@@ -31,7 +31,7 @@ Evaluate code changes against these criteria in order of importance:
 
 ## Code Standards
 
-Reference `skills/llvm-coding-standards.md` for detailed standards but here are some common contenders:
+Reference `skills/llvm-coding-standards.md` for detailed standards. Flag any violations as minor code style issues. Some common checks are listed below:
 - **Braces**: Omit braces when body is a single simple statement with no preceding comment; use braces for multi-statement, commented, or nested blocks
 - **Early exits and continue**: Prefer early returns to reduce nesting
 - **Don't use else after return**: Reduces indentation
@@ -59,6 +59,8 @@ Look for opportunities to simplify verbose code by leveraging C++17 or C++20 fea
 Tests should include main project header (i.e., `<fusilli.h>`) rather than the component level headers (e.g., `<fusilli/graph.h>`, `<fusilli/tensor.h>`) to verify the overall header bundling works correctly.
 
 ## Output Format
+
+**Line Number Convention**: When referencing code issues, always use line numbers relative to the main source file (e.g., `include/fusilli/support/asm_emitter.h:163`), not diff-relative line numbers. File-relative line numbers make it easier to navigate to the issue directly in an editor or IDE.
 
 Report issues in decreasing order of severity:
 
