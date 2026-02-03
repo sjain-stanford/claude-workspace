@@ -22,10 +22,11 @@ Evaluate code changes against these criteria in order of importance:
 ### Major Issues
 - **Correctness**: Does the implementation match the stated intent?
 - **Test coverage**: Are there unit and/or integration tests for new/modified code?
-- **API consistency**: If touching user-facing API (e.g., `fusilli::Graph`), ensure consistency with cudnn-frontend / hipdnn API
-- **MLIR ASM compliance**: When adding or modifying the ASM emitters in Fusilli, ensure compliance with the `torch` dialect from `projects/torch-mlir`
 - **Error handling**: Are errors properly propagated and handled?
 - **No Exceptions**: We follow the no-exception policy from LLVM, so flag any uses of throw/catch exceptions
+- **Frontend API consistency**: If touching user-facing API (e.g., `fusilli::Graph`), ensure consistency with cudnn-frontend / hipdnn API (source code at `projects/cudnn-frontend` and `projects/hipdnn`)
+- **MLIR ASM compliance**: When adding or modifying the ASM emitters in Fusilli, ensure compliance with the `torch` dialect (source code at `projects/torch-mlir`)
+- **Backend C-API compliance**: If touching the backend API interfaces, ensure consistency with the IREE compiler and runtime C-API (source code at `projects/iree`)
 
 ### Minor Issues
 - This includes code style or organization issues - generally nit picks but important for code readability and maintainability
