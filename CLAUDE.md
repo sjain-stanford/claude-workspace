@@ -33,12 +33,8 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/fusilli-project/` - Use when adding new features or debugging issues to fusilli
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
+- `skills/stage-and-commit/` - Use when asked to commit changes (enforces signed commits and agent co-authorship)
 - `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
 - `skills/llvm-coding-standards.md` - Reference for C++ coding standards from LLVM (shared across skills)
 
 > **Note**: Skills and agents are symlinked from `.claude/` (`.claude/skills` -> `../skills`, `.claude/agents` -> `../agents`) so Claude Code can discover them while keeping the source files at the repo root for easier editing.
-
-## Commits
-- Always use signed commits (git commit -s ...)
-- Always mention co-authorship if Claude (or any other LLM agent) assistance is used
-- Never `git push` without my explicit permission

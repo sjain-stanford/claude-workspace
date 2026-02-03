@@ -22,6 +22,7 @@ claude-workspace/
 │   ├── fusilli-project/
 │   ├── pr-review/
 │   ├── self-review/
+│   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
 ├── agents/          # Sub-agent definitions
