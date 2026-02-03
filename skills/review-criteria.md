@@ -39,7 +39,7 @@ Reference `skills/llvm-coding-standards.md` for detailed standards but here are 
 - **Auto usage**: Use `auto` only when type is obvious; prefer `auto &` for values, `auto *` for pointers
 - **Range-based for loops**: Use wherever possible
 - **Assertions**: Use `assert` liberally with descriptive messages
-- **Include order**: Main module header first, then local/private, then dependent project headers then system headers (each category sorted lexicographically by full path)
+- **Include order**: Main module header first, then local/private, then dependent project headers, then system headers (each category sorted lexicographically by full path). For samples and tests, consider `<fusilli.h>` as the main module header.
 - **Comments**: Write as English prose with proper capitalization and punctuation (start uppercase, end with period)
 
 ## Special Checks
