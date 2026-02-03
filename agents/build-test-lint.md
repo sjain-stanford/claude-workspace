@@ -1,7 +1,7 @@
 ---
 name: build-test-lint
 description: "Use this agent when you need to build the Fusilli project, run its tests, and execute lint checks. This agent is ideal after making code changes to proactively verify the build integrity, test results, and code quality. It reports failures back to the main agent without attempting fixes."
-model: sonnet
+model: opus
 color: yellow
 ---
 
