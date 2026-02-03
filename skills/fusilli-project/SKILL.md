@@ -7,7 +7,7 @@ description: Comprehensive knowledge base for the Fusilli project - a C++ Graph 
 
 Fusilli is a C++ Graph API and JIT Frontend for IREE that leverages just-in-time compiled and code-generated kernels to accelerate training and inference workloads. Inspired by cuDNN's graph API, it exposes cuDNN-like primitives backed by the IREE compiler and runtime stack.
 
-Note: All paths in this document are relative within the `projects/fusilli` directory.
+Note: All paths in this document are relative within the `projects/fusilli` directory unless specified otherwise.
 
 ## Architecture Overview
 
@@ -141,12 +141,16 @@ Fusilli aims to match the frontend API of:
 
 When adding or modifying user-facing API (especially `fusilli::Graph`), ensure consistency with these libraries for portability.
 
+Fusilli generated Torch MLIR ASM as the interface with IREE, so ensure any changes to the ASM emitter are compatible with the `torch` dialect spec.
+
 Fusilli calls into the IREE compiler and runtime C-API, so ensure any changes to the backend interface are compatible with IREE.
 
-## Related Resources
+
+## Related Resources (paths are relative to claude-workspace root)
 
 - IREE documentation: https://iree.dev/
 - IREE codebase: `projects/iree`
+- Torch-MLIR codebase: `projects/torch-mlir`
 - cuDNN frontend codebase: `projects/cudnn-frontend`
 - hipDNN codebase: `projects/hipdnn`
 - LLVM coding standards: `skills/llvm-coding-standards.md`

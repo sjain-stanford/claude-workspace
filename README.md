@@ -14,6 +14,7 @@ claude-workspace/
 │   ├── fusilli/
 │   ├── fusilli-benchmarks/
 │   ├── iree/
+│   ├── torch-mlir/
 │   ├── cudnn-frontend/
 │   ├── hipdnn/
 │   ├── docker/
@@ -66,6 +67,7 @@ claude-workspace/
 
    # Dependencies and references
    git clone https://github.com/iree-org/iree.git
+   git clone https://github.com/llvm/torch-mlir.git
    git clone https://github.com/NVIDIA/cudnn-frontend.git
    git clone https://github.com/sjain-stanford/docker.git
 

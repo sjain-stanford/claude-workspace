@@ -14,6 +14,8 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - Refer `projects/fusilli-benchmarks/README.md` for benchmarking instructions
 - `projects/iree/` - MLIR enabled compiler and runtime stack
   - This serves as a reference for the compiler and runtime C API interfaces used in Fusilli
+- `projects/torch-mlir/` - Torch MLIR dialect and lowering passes
+  - This serves as reference for the Torch ASM emitter in Fusilli
 - `projects/cudnn-frontend/` - cudNN frontend library for NVIDIA GPU acceleration
   - Fusilli tries to match the frontend API for portability reasons so treat this as the C++ graph API reference
 - `projects/hipdnn/` - ROCm hipDNN library for AMD GPU acceleration
