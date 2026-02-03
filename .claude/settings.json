@@ -20,7 +20,8 @@
       "Bash(env)",
       "Bash([ -f /.dockerenv ])",
       "Bash(pre-commit run:*)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch"
     ],
     "deny": [
       "Bash(git push:*)"
