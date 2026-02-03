@@ -1,10 +1,10 @@
 # Claude Workspace
 
-A meta workspace for Claude-assisted development across multiple ML compiler projects.
+A meta workspace for Claude-assisted development across my current ML compiler projects.
 
 ## Overview
 
-This workspace serves as a unified development environment for working on ML compiler projects (such as Fusilli, IREE) alongside their dependencies and reference implementations.
+This workspace serves as a unified development environment for working on my current ML compiler projects (such as Fusilli, IREE) alongside their dependencies and reference implementations.
 
 ## Structure
 
@@ -18,10 +18,19 @@ claude-workspace/
 │   ├── hipdnn/
 │   ├── docker/
 │   └── ...
-├── skills/          # Project specific skills for agents
-│   ├── fusilli-skills.md
-│   ├── llvm-coding-standards.md
-│   └── ...
+├── skills/          # Project specific skills and shared references
+│   ├── fusilli-project/
+│   ├── pr-review/
+│   ├── self-review/
+│   ├── review-criteria.md
+│   └── llvm-coding-standards.md
+├── agents/          # Sub-agent definitions
+│   └── build-test-lint.md
+├── reviews/         # Saved PR and self reviews
+├── .claude/         # Claude Code configuration
+│   ├── settings.json
+│   ├── skills -> ../skills    # Symlink for skill discovery
+│   └── agents -> ../agents    # Symlink for agent discovery
 ├── CLAUDE.md        # Top level context for agents
 └── README.md
 ```
@@ -69,8 +78,7 @@ claude-workspace/
 3. **Launch development container:**
    - Open Cursor IDE rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)
    - `Ctrl + Shift + P` and select  `Dev Containers: Attach to Running Container`
-   - Open `claude-workspace` in Cursor IDE
-   - Launch Claude Code from Cursor: `Claude Code: Open in Terminal`
+   - From the new window again open `claude-workspace` and launch Claude Code from Cursor: `Claude Code: Open in Terminal`
 
 4. **Start developing:**
    - Use Claude Code for AI-assisted development

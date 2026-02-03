@@ -9,12 +9,17 @@
       "Bash(git log:*)",
       "Bash(git branch:*)",
       "Bash(git show:*)",
+      "Bash(git config user.name)",
+      "Bash(cmake:*)",
+      "Bash(ctest:*)",
+      "Bash(cd:*)",
+      "Bash(rm -i:*)",
+      "Bash(mv -i:*)",
+      "Bash(pre-commit run:*)",
       "WebSearch"
     ],
     "deny": [
-      "Bash(rm:*)",
-      "Bash(git push:*)",
-      "Bash(mv:*)"
+      "Bash(git push:*)"
     ]
   }
 }

@@ -4,15 +4,14 @@ Meta workspace for Claude-assisted development across multiple repositories.
 
 ## Workspace Structure
 
-Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally for development and/or serve as context for Claude.
+Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally for development and/or to serve as context for Claude.
 
 - `projects/fusilli/` - C++ graph API and JIT engine powered by IREE
   - This is the main project that depends on IREE compiler and runtime
-  - Refer `skills/fusilli-skills.md` for build, test, benchmark and lint commands
-  - Refer `projects/fusilli/README.md` for anything else
+  - Refer `projects/fusilli/README.md` for technical documentation
 - `projects/fusilli-benchmarks/` - Central location for Fusilli benchmarks
   - **CRITICAL**: Contains sensitive information (never make public)
-  - Refer `projects/fusilli-benchmarks/README.md` for detailed benchmarking instructions
+  - Refer `projects/fusilli-benchmarks/README.md` for benchmarking instructions
 - `projects/iree/` - MLIR enabled compiler and runtime stack
   - This serves as a reference for the compiler and runtime C API interfaces used in Fusilli
 - `projects/cudnn-frontend/` - cudNN frontend library for NVIDIA GPU acceleration
@@ -25,37 +24,21 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - This is the unified development docker for all builds and tests
   - Use as reference but expect Claude is launched from a dev-container already
 
+## Agents
 
-## Execution Environment
-- **CRITICAL**: Always verify you're in the docker container before attempting to build
-- Building outside the docker container will fail due to missing dependencies
-- If not in a docker container simply display this message and stop: "Launch a dev-container on Cursor then launch Claude from there"
+- `agents/build-test-lint.md` - Sub-agent for running builds, tests, and lint checks on Fusilli
 
-## Code style
-- If extending or bug-fixing existing code, use the style already in place to maintain uniformity
-- Always use punctuation for comments and docstrings (periods after sentences, start with uppercase)
-- Reference LLVM coding standards (`skills/llvm-coding-standards.md`) to ensure new code conforms to it
-- Follow DRY (don't repeat yourself), YAGNI (you aren't gonna need it), KISS (keep it simple, stupid)
+## Skills
 
-## Testing
-- Always add unit and/or integration tests for new or modified code
-- Never change or disable a test just to make it pass, instead triage why it's failing and propose a solution
+> **Note**: Skills and agents are symlinked from `.claude/` (`.claude/skills` -> `../skills`, `.claude/agents` -> `../agents`) so Claude Code can discover them while keeping the source files at the repo root for easier editing.
+
+- `skills/fusilli-project/` - Use when adding new features or debugging issues to fusilli
+- `skills/pr-review/` - Use when asked to review a PR from GitHub
+- `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
+- `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
+- `skills/llvm-coding-standards.md` - Reference for C++ coding standards from LLVM (shared across skills)
 
 ## Commits
 - Always use signed commits (git commit -s ...)
 - Always mention co-authorship if Claude (or any other LLM agent) assistance is used
 - Never `git push` without my explicit permission
-
-## PR Reviews
-- When asked to review a PR, fetch the PR details and diff preferably using `gh` CLI
-- Look for consistency, correctness, simplicity, presence of tests, and conformity to code standards
-- If the PR touches user-facing API (e.g. adds a new operation or method on fusilli::Graph), make sure it is consistent with cudnn-frontend / hipdnn API
-- Look for opportunities to replace verbose and unreadable code with simple and elegant constructs (leverage C++20 features!)
-- Ensure any remaining work is documented with a `TODO` linking to the issue
-- Ensure `TODO`s follow the convention: `TODO(org/repo#issue)`, example: `TODO(iree-org/iree#123)` unless it's an issue in the same repo in which case just use the issue number: `TODO(#issue)`
-- Check copyright headers for new files use the correct year (present year) and not an older year based on files added earlier
-- Flag nit-picky issues with minor severity:
-  - avoid braces for single line control flow (`skills/llvm-coding-standards.md`)
-  - follow include order grouping and ordering: main module headers then local/private headers then system headers, with each category sorted lexicographically by full path (`skills/llvm-coding-standards.md`)
-- Report issues in decreasing order of severity (critical, major, minor)
-- Save the detailed PR review summary as a markdown file the `reviews/` directory (add PR number in the format: `pr-repo-number.md`, example: `pr-fusilli-123.md`)
