@@ -10,7 +10,8 @@ Evaluate code changes against these criteria in order of importance:
 - Follow DRY (don't repeat yourself), YAGNI (you aren't gonna need it), KISS (keep it simple, stupid)
 - If extending or bug-fixing existing code, use the style already in place to maintain uniformity
 - Reference LLVM coding standards (`skills/llvm-coding-standards.md`) to ensure new code conforms to it
-- Always accompany each flagged issue with the proposed fix or refactoring suggestion (inline with the issue)
+- Always accompany each flagged issue with the proposed fix or refactoring suggestion, inline with the issue
+- Only flag actual issues that need to be addressed; do not include observations about correct behavior or analysis notes in the "Issues" sections
 
 ### Critical Issues
 - Security vulnerabilities (injection, XSS, buffer overflows)
@@ -29,7 +30,8 @@ Evaluate code changes against these criteria in order of importance:
 - **Backend C-API compliance**: If touching the backend API interfaces, ensure consistency with the IREE compiler and runtime C-API (source code at `projects/iree`)
 
 ### Minor Issues
-- This includes code style or organization issues - generally nit picks but important for code readability and maintainability
+- Report minor issues such as code style or code organization issues
+- These are generally nit picks but important for code readability and maintainability
 
 ## Code Standards
 
