@@ -59,18 +59,18 @@ claude-workspace/
    cd projects/
 
    # Main project
-   git clone https://github.com/iree-org/fusilli.git
+   git clone --single-branch --branch main https://github.com/iree-org/fusilli.git
 
    # Benchmarks (private repo)
-   git clone https://github.com/nod-ai/fusilli-benchmarks.git
+   git clone --single-branch --branch main https://github.com/nod-ai/fusilli-benchmarks.git
 
    # Dependencies and references
-   git clone https://github.com/iree-org/iree.git
-   git clone https://github.com/NVIDIA/cudnn-frontend.git
-   git clone https://github.com/sjain-stanford/docker.git
+   git clone --single-branch --branch main https://github.com/iree-org/iree.git
+   git clone --single-branch --branch main https://github.com/NVIDIA/cudnn-frontend.git
+   git clone --single-branch --branch main https://github.com/sjain-stanford/docker.git
 
-   # Sparse checkout of hipdnn from rocm-libraries
-   git clone --filter=blob:none --sparse https://github.com/ROCm/rocm-libraries.git hipdnn
+   # Sparse checkout of hipdnn from rocm-libraries (hipdnn is on develop branch)
+   git clone --single-branch --branch develop --filter=blob:none --sparse https://github.com/ROCm/rocm-libraries.git hipdnn
    cd hipdnn
    git sparse-checkout set projects/hipdnn
    cd ..
