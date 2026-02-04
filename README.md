@@ -27,6 +27,7 @@ claude-workspace/
 │   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
+├── plans/           # Implementation plans from plan mode
 ├── reviews/         # Saved PR and self reviews
 ├── .claude/         # Claude Code configuration
 │   ├── settings.json

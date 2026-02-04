@@ -6,6 +6,10 @@ projects/*
 reviews/*
 !reviews/.gitkeep
 
+# Ignore plan contents but track the directory
+plans/*
+!plans/.gitkeep
+
 # Ignore IDE and docker cache directories
 .cursor/
 .cache/

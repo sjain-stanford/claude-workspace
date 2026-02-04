@@ -146,9 +146,16 @@ Fusilli generated Torch MLIR ASM as the interface with IREE, so ensure any chang
 Fusilli calls into the IREE compiler and runtime C-API, so ensure any changes to the backend interface are compatible with IREE.
 
 
+## Plan Mode
+
+When entering plan mode for Fusilli feature development, save implementation plans to the `plans/` directory at the claude-workspace root.
+
+**Plan file naming convention:** `plans/<feature-or-task-name>.md`
+
+Example: `plans/external-transient-buffer-support.md`
+
 ## Related Resources (paths are relative to claude-workspace root)
 
-- IREE documentation: https://iree.dev/
 - IREE codebase: `projects/iree`
 - Torch-MLIR codebase: `projects/torch-mlir`
 - cuDNN frontend codebase: `projects/cudnn-frontend`

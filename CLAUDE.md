@@ -37,3 +37,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/llvm-coding-standards.md` - Reference for C++ coding standards from LLVM (shared across skills)
 
 > **Note**: Skills are symlinked from `.claude/` (`.claude/skills` -> `../skills`) so Claude Code can discover them while keeping the source files at the repo root for easier editing.
+
+## Plans
+
+Implementation plans created during plan mode are saved to `plans/` at claude-workspace root. These provide a record of design decisions and implementation strategies for non-trivial tasks.
