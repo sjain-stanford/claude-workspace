@@ -20,19 +20,17 @@ claude-workspace/
 │   ├── docker/
 │   └── ...
 ├── skills/          # Project specific skills and shared references
+│   ├── build-test-lint/
 │   ├── fusilli-project/
 │   ├── pr-review/
 │   ├── self-review/
 │   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
-├── agents/          # Sub-agent definitions
-│   └── build-test-lint.md
 ├── reviews/         # Saved PR and self reviews
 ├── .claude/         # Claude Code configuration
 │   ├── settings.json
-│   ├── skills -> ../skills    # Symlink for skill discovery
-│   └── agents -> ../agents    # Symlink for agent discovery
+│   └── skills -> ../skills    # Symlink for skill discovery
 ├── CLAUDE.md        # Top level context for agents
 └── README.md
 ```

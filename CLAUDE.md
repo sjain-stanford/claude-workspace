@@ -26,17 +26,14 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - This is the unified development docker for all builds and tests
   - Use as reference but expect Claude is launched from a dev-container already
 
-## Agents
-
-- `agents/build-test-lint.md` - Sub-agent for running builds, tests, and lint checks on Fusilli
-
 ## Skills
 
-- `skills/fusilli-project/` - Use when adding new features or debugging issues to fusilli
+- `skills/build-test-lint/` - Build, test, and lint for Fusilli; use after code changes to verify integrity
+- `skills/fusilli-project/` - Use when adding new features or debugging issues in Fusilli
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
-- `skills/stage-and-commit/` - Use when asked to commit changes (enforces signed commits and agent co-authorship)
+- `skills/stage-and-commit/` - Use when asked to commit local changes (enforces signed commits and agent co-authorship)
 - `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
 - `skills/llvm-coding-standards.md` - Reference for C++ coding standards from LLVM (shared across skills)
 
-> **Note**: Skills and agents are symlinked from `.claude/` (`.claude/skills` -> `../skills`, `.claude/agents` -> `../agents`) so Claude Code can discover them while keeping the source files at the repo root for easier editing.
+> **Note**: Skills are symlinked from `.claude/` (`.claude/skills` -> `../skills`) so Claude Code can discover them while keeping the source files at the repo root for easier editing.
