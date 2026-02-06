@@ -34,19 +34,17 @@ git diff <base>...HEAD
 git diff --name-only main...HEAD
 ```
 
-### 2. Apply Review Criteria
+### 2. Review the Changes against Review Criteria
 
-Reference `skills/review-criteria.md` for the complete review checklist, code standards, and output format.
+**CRITICAL**: Review the code referencing `skills/review-criteria.md` for the complete review checklist, code standards, and output format. Do not miss this step as otherwise the review is pointless.
 
-### 3. Output Format
+### 3. Save Review
 
 Use the standard output format from `skills/review-criteria.md` with:
 - **Review-Type**: "Self Review"
 - **Source**: Current branch name
 - **Author**: Current git user (`git config user.name`)
 - **Branch**: `<current-branch> -> <base-ref>`
-
-### 4. Save Review
 
 Save the review to `<workspace-root>/reviews/` with filename `self-review-<short-description>.md`, where `<short-description>` is a few words separated by dashes summarizing the changes (e.g., `self-review-add-auth-middleware.md`, `self-review-fix-cache-invalidation.md`).
 

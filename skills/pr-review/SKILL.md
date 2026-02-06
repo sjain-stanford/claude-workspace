@@ -15,9 +15,9 @@ Provides comprehensive pull request reviews following project coding standards.
 
 ## Review Process
 
-### 1. Fetch PR Branch
+### 1. Fetch PR Branch and Get Diff
 
-Fetch and checkout the PR branch locally using git:
+Fetch and checkout the PR branch locally using git, then collect diff:
 
 ```shell
 # Record the current branch to return to later
@@ -31,13 +31,7 @@ git fetch origin pull/<PR-number>/head:pr-<PR-number>
 
 # Checkout the PR branch
 git checkout pr-<PR-number>
-```
 
-### 2. Review the Code
-
-With the PR branch checked out, you can:
-
-```shell
 # View the diff against main
 git diff main...HEAD
 
@@ -48,13 +42,13 @@ git diff main...HEAD --name-only
 git log main..HEAD --oneline
 ```
 
-Read the changed files directly using the Read tool with file-relative line numbers for any issues found.
+Read the changed files directly using the Read tool and use file-relative line numbers when referencing code.
 
-### 3. Apply Review Criteria
+### 2. Review the Changes against Review Criteria
 
-Reference `skills/review-criteria.md` for the complete review checklist, code standards, and output format.
+**CRITICAL**: Review the code referencing `skills/review-criteria.md` for the complete review checklist, code standards, and output format. Do not miss this step as otherwise the review is pointless.
 
-### 4. Output Format
+### 3. Save Review
 
 Use the standard output format from `skills/review-criteria.md` with:
 - **Review-Type**: "PR Review"
@@ -62,13 +56,11 @@ Use the standard output format from `skills/review-criteria.md` with:
 - **Author**: PR author from metadata
 - **Branch**: `<headRefName> -> <baseRefName>`
 
-### 5. Save Review
-
 Save the review to `<workspace_root>/reviews/` with filename `pr-review-<repo>-<number>.md` (example: `pr-review-fusilli-123.md`). If the file already exists, check if the PR / diff was updated since last review and re-review if so, saving to a file of the same name with a suffix `-take-N.md` for the Nth attempt.
 
 **IMPORTANT**: Always save reviews to the top-level `claude-workspace/reviews/` directory, not within sub-project directories.
 
-### 6. Cleanup
+### 4. Cleanup
 
 After the review is complete, switch back to the original branch and delete the PR branch:
 

@@ -4,7 +4,7 @@ Common review checklist and standards shared across code review skills.
 
 ## Review Checklist
 
-Evaluate code changes against these criteria in order of importance:
+Evaluate code changes against these criteria:
 
 ### General Recommendations
 - Follow DRY (don't repeat yourself), YAGNI (you aren't gonna need it), KISS (keep it simple, stupid)
@@ -35,7 +35,7 @@ Evaluate code changes against these criteria in order of importance:
 
 ## Code Standards
 
-Reference `skills/llvm-coding-standards.md` for detailed standards. Flag any violations as minor code style issues. Some common checks are listed below:
+Reference `skills/llvm-coding-standards.md` for detailed standards. Flag any violations as code style issues. Some common checks are listed below:
 - **Braces**: Omit braces when body is a single simple statement with no preceding comment; use braces for multi-statement, commented, or nested blocks
 - **Early exits and continue**: Prefer early returns to reduce nesting
 - **Don't use else after return**: Reduces indentation
