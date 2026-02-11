@@ -30,6 +30,8 @@
       "Bash(rm -i:*)",
       "Bash(mv -i:*)",
       "Bash(echo:*)",
+      "Bash(sort:*)",
+      "Bash(find:*)",
       "Bash(env)",
       "Bash(ls:*)",
       "Bash([ -f /.dockerenv ])",
