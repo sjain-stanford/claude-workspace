@@ -27,6 +27,7 @@
       "Bash(ctest:*)",
       "Bash(cd:*)",
       "Bash(curl:*)",
+      "Bash(python3:*)",
       "Bash(rm -i:*)",
       "Bash(mv -i:*)",
       "Bash(echo:*)",
