@@ -59,15 +59,3 @@ Use the standard output format from `skills/review-criteria.md` with:
 Save the review to `<workspace_root>/reviews/` with filename `pr-review-<repo>-<number>.md` (example: `pr-review-fusilli-123.md`). If the file already exists, check if the PR / diff was updated since last review and re-review if so, saving to a file of the same name with a suffix `-take-N.md` for the Nth attempt.
 
 **IMPORTANT**: Always save reviews to the top-level `claude-workspace/reviews/` directory, not within sub-project directories.
-
-### 4. Cleanup
-
-After the review is complete, switch back to the original branch and delete the PR branch:
-
-```shell
-# Switch back to the original branch
-git checkout $ORIGINAL_BRANCH
-
-# Delete the PR branch
-git branch -D pr-<PR-number>
-```
