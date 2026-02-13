@@ -172,7 +172,7 @@ Before starting, verify the environment:
      git checkout -b bump-docker-YYYYMMDD
      ```
 
-8. **Update Fusilli Exec Script**
+8. **Update Fusilli Docker Digest**
    - File: `projects/fusilli/build_tools/docker/exec_docker_ci.sh`
    - Replace the old sha256 digest with the new one extracted in step 6
    - Example:
@@ -180,28 +180,41 @@ Before starting, verify the environment:
      ghcr.io/sjain-stanford/compiler-dev-ubuntu-24.04:main@sha256:NEW_DIGEST
      ```
 
-9. **Commit Fusilli Changes**
+9. **Update Fusilli IREE Version References**
+   - IREE version is pinned in multiple files across the fusilli codebase
+   - Update all references from OLD_IREE_VERSION to NEW_IREE_VERSION:
+     - `CMakeLists.txt`: Update `IREE_GIT_TAG` (line ~104)
+     - `.github/workflows/build-and-test-win.yml`: Update `iree-base-compiler` pip package version (line ~45)
+     - `plugins/hipdnn-plugin/build_tools/thepebble_config.toml`: Update `iree_git_tag` (line ~12)
+   - Use grep to find all instances:
+     ```bash
+     cd projects/fusilli
+     grep -r "3.11.0rc20260203" --include="*.txt" --include="*.yml" --include="*.toml"
+     ```
+
+10. **Commit Fusilli Changes**
    ```bash
    cd projects/fusilli
-   git add build_tools/docker/exec_docker_ci.sh
+   git add build_tools/docker/exec_docker_ci.sh CMakeLists.txt .github/workflows/build-and-test-win.yml plugins/hipdnn-plugin/build_tools/thepebble_config.toml
    git commit -s -m "$(cat <<'EOF'
    [Docker] Update CI container to MM/DD nightly
 
-   Updates docker container digest to pick up:
-   - IREE NEW_VERSION (from OLD_VERSION)
-   - TheRock NEW_VERSION (from OLD_VERSION)
+   Updates docker container digest and IREE version references:
+   - Docker digest: sha256:OLD_DIGEST -> sha256:NEW_DIGEST
+   - IREE: OLD_VERSION -> NEW_VERSION
+   - TheRock: OLD_VERSION -> NEW_VERSION (via docker container)
 
    Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
    EOF
    )"
    ```
 
-10. **Build and Test Fusilli** (optional)
+11. **Build and Test Fusilli** (optional)
     - Use the build-test-lint skill to verify changes
     - Only if running inside docker dev-container
     - If not in container, skip this step and let CI handle it
 
-11. **Push and Create Fusilli PR**
+12. **Push and Create Fusilli PR**
     - Ask user to push manually (same sandbox restriction as docker):
       ```
       Please run: cd projects/fusilli && git push -u origin bump-docker-YYYYMMDD
@@ -212,6 +225,7 @@ Before starting, verify the environment:
       gh pr create --title "[Docker] Update CI container to MM/DD nightly" --body "$(cat <<'EOF'
       ## Summary
       - Update docker container digest to use latest IREE and TheRock nightlies
+      - Update IREE version references across the codebase
       - IREE: OLD_VERSION → NEW_VERSION
       - TheRock: OLD_VERSION → NEW_VERSION
 
