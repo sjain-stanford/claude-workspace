@@ -71,7 +71,7 @@ pre-commit run --all-files
 Capture lint warnings and errors with file locations.
 
 **Stage 2: Clang-tidy**
-Build Fusilli with `-DFUSILLI_ENABLE_CLANG_TIDY=ON` and report any clang-tidy failures.
+Build Fusilli with `-DFUSILLI_ENABLE_CLANG_TIDY=ON` and report any clang-tidy failures. When done, switch back to `-DFUSILLI_ENABLE_CLANG_TIDY=OFF` (default) for future builds.
 
 ## Reporting Format
 
