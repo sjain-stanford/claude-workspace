@@ -180,22 +180,22 @@ Before starting, verify the environment:
      ghcr.io/sjain-stanford/compiler-dev-ubuntu-24.04:main@sha256:NEW_DIGEST
      ```
 
-9. **Update Fusilli IREE Version References**
-   - IREE version is pinned in multiple files across the fusilli codebase
-   - Update all references from OLD_IREE_VERSION to NEW_IREE_VERSION:
-     - `CMakeLists.txt`: Update `IREE_GIT_TAG` (line ~104)
-     - `.github/workflows/build-and-test-win.yml`: Update `iree-base-compiler` pip package version (line ~45)
-     - `plugins/hipdnn-plugin/build_tools/thepebble_config.toml`: Update `iree_git_tag` (line ~12)
-   - Use grep to find all instances:
-     ```bash
-     cd projects/fusilli
-     grep -r "3.11.0rc20260203" --include="*.txt" --include="*.yml" --include="*.toml"
+9. **Update Fusilli IREE Version**
+   - IREE version is pinned in a single file: `version.json` (the `iree-version` field)
+   - All other consumers (CMakeLists.txt, Windows CI workflow, ThePebble.py) read from this file automatically
+   - Update the `iree-version` field from OLD_IREE_VERSION to NEW_IREE_VERSION:
+     ```json
+     {
+       "package-version": "0.0.1.dev",
+       "iree-version": "iree-NEW_IREE_VERSION"
+     }
      ```
+   - The value uses the git tag format with the `iree-` prefix (e.g., `iree-3.11.0rc20260212`)
 
 10. **Commit Fusilli Changes**
    ```bash
    cd projects/fusilli
-   git add build_tools/docker/exec_docker_ci.sh CMakeLists.txt .github/workflows/build-and-test-win.yml plugins/hipdnn-plugin/build_tools/thepebble_config.toml
+   git add build_tools/docker/exec_docker_ci.sh version.json
    git commit -s -m "$(cat <<'EOF'
    [Docker] Update CI container to MM/DD nightly
 
