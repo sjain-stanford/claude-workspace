@@ -20,9 +20,6 @@ Provides comprehensive pull request reviews following project coding standards.
 Fetch and checkout the PR branch locally using git, then collect diff:
 
 ```shell
-# Record the current branch to return to later
-ORIGINAL_BRANCH=$(git branch --show-current)
-
 # Navigate to the project directory
 cd projects/<repo>
 
@@ -43,6 +40,8 @@ git log main..HEAD --oneline
 ```
 
 Read the changed files directly using the Read tool and use file-relative line numbers when referencing code.
+
+After the review, stay on the PR branch for follow-up discussion. Do NOT switch back or delete it.
 
 ### 2. Review the Changes against Review Criteria
 
