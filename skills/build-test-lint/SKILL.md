@@ -42,6 +42,11 @@ Navigate to `projects/fusilli` and configure the `cmake` build following `projec
 
 Capture all build output including warnings and errors.
 
+**IMPORTANT: Build output verification**
+- **NEVER** pipe build output through `tail`, `head`, or other truncating commands. Errors early in the output will be hidden.
+- **ALWAYS** explicitly verify the build exit code using `echo $?` or `&&` chaining after the build command.
+- Do not assume a build succeeded from lack of visible output — always confirm with the exit code.
+
 **If the build fails, stop immediately and report the build failure. Do not proceed to test or lint.**
 
 ### Step 2: Test and Lint
