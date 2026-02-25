@@ -18,9 +18,11 @@ claude-workspace/
 │   ├── cudnn-frontend/
 │   ├── hipdnn/
 │   ├── docker/
+│   ├── dot-files/
 │   └── ...
 ├── skills/          # Project specific skills and shared references
 │   ├── build-test-lint/
+│   ├── bump-fusilli-deps/
 │   ├── fusilli-project/
 │   ├── pr-review/
 │   ├── self-review/

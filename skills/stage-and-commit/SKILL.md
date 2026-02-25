@@ -74,7 +74,7 @@ EOF
 )"
 ```
 
-Replace `<model>` with the actual model name (e.g., `Opus 4.5`, `Sonnet 4`).
+Replace `<model>` with the actual model name (e.g., `Opus 4.6`, `Sonnet 4`).
 
 ### 5. Verify
 
