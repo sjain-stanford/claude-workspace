@@ -55,6 +55,26 @@ Before starting, verify the environment:
    > returns only formally published releases, which may be months behind the latest
    > nightly rc tags. Always use the git tags API.
 
+   **Verify IREE wheel availability** — After finding the latest tag, confirm that the
+   `iree-base-compiler` wheel for that version has been published. The git tag can exist
+   before the pip wheel is uploaded, and the docker build will fail without it.
+   ```bash
+   curl -sL https://iree.dev/pip-release-links.html | grep -q "iree_base_compiler-${IREE_VERSION}" \
+     && echo "OK: iree-base-compiler ${IREE_VERSION} is available" \
+     || echo "MISSING: iree-base-compiler ${IREE_VERSION} is NOT available"
+   ```
+   If the wheel is **not available**:
+   - Report the missing version to the user and **stop the workflow**.
+   - Suggest trying again later or falling back to the most recent version that has wheels
+     available:
+     ```bash
+     curl -sL https://iree.dev/pip-release-links.html \
+       | grep -oP 'iree_base_compiler-\K[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+' \
+       | sort -Vu | tail -1
+     ```
+   - If a fallback version is used, re-verify the corresponding git tag exists before
+     proceeding.
+
    **TheRock** — Use `curl` HEAD requests to check S3 bucket for the latest nightly:
    ```bash
    # Read current THEROCK_GIT_TAG from entrypoint.sh to extract the version prefix (e.g., "7.12.0a").
@@ -241,6 +261,7 @@ Before starting, verify the environment:
 ## Error Handling
 
 - If IREE or TheRock versions cannot be found, report error and stop
+- If the `iree-base-compiler` pip wheel is not available for the discovered IREE version, stop and suggest retrying later or using the latest version that has published wheels
 - If `git pull` fails with no tracking info, set upstream with `git branch --set-upstream-to=origin/main main`
 - If repo has uncommitted changes on a non-main branch, `git stash` before switching to main
 - If workflow doesn't complete within reasonable time, ask user to check manually
