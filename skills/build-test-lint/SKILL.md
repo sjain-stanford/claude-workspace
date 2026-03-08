@@ -5,7 +5,7 @@ description: Build the Fusilli project, run tests, and execute lint checks. Use 
 
 # Build, Test, and Lint Skill
 
-Executes the full build, test, and lint pipeline for the Fusilli project and reports results.
+Executes the full build, test, and lint pipeline for the Fusilli project using the scripts in `projects/fusilli/build_tools/scripts/` and reports results.
 
 ## Usage
 
@@ -30,15 +30,56 @@ Run this check first:
 If NOT in the container, immediately stop and report:
 > **ENVIRONMENT ERROR**: Not running inside docker dev-container. Launch a dev-container on Cursor then launch Claude from there.
 
+## Scripts Reference
+
+All build, test, and coverage operations use scripts in `projects/fusilli/build_tools/scripts/`:
+
+| Script | Purpose |
+|--------|---------|
+| `build.sh` | CMake configure + build with named configs |
+| `test.sh` | CTest runner with filtering, backend selection |
+| `coverage.sh` | Code coverage report generation (lcov/genhtml) |
+
+### build.sh configs
+
+| Config | Compiler | Build Type | AMDGPU | Extras |
+|--------|----------|------------|--------|--------|
+| `cpu-debug` | clang-18 | Debug | OFF | logging |
+| `cpu-debug-tidy` | clang-18 | Debug | OFF | logging, clang-tidy |
+| `cpu-release` | clang-18 | Release | OFF | logging |
+| `cpu-asan` | clang-18 | Debug | OFF | ASAN + UBSAN |
+| `cpu-codecov` | gcc-13 | Debug | OFF | code coverage |
+| `gpu-debug` | clang-22 | Debug | ON | logging |
+| `gpu-debug-tidy` | clang-22 | Debug | ON | logging, clang-tidy |
+| `gpu-release` | clang-22 | Release | ON | logging |
+| `gpu-asan` | clang-18 | Debug | ON | ASAN + UBSAN |
+
 ## Workflow
 
 ### Step 1: Build
 
-Navigate to `projects/fusilli` and configure the `cmake` build following `projects/fusilli/README.md` with these flags:
-- `-DIREE_SOURCE_DIR=<path/to/claude-workspace>/.cache/docker/iree` (local docker cache)
-- `-DFUSILLI_SYSTEMS_AMDGPU=ON` for AMDGPU (default) or `-DFUSILLI_SYSTEMS_AMDGPU=OFF` for CPU
-- `-DCMAKE_BUILD_TYPE=RelWithDebInfo` (default) unless debug build is requested
-- `-DFUSILLI_ENABLE_CLANG_TIDY=OFF` as this will be enabled later in the lint step
+Run the build from the `projects/fusilli` directory using `build.sh`:
+
+```bash
+# GPU build (default)
+./build_tools/scripts/build.sh gpu-debug \
+  --iree-source-dir <path/to/claude-workspace>/.cache/docker/iree
+
+# CPU build (when 'cpu' option is specified)
+./build_tools/scripts/build.sh cpu-debug \
+  --iree-source-dir <path/to/claude-workspace>/.cache/docker/iree
+```
+
+Default config selection:
+- GPU: `gpu-debug` (or `gpu-release` if release build is requested)
+- CPU: `cpu-debug` (or `cpu-release` if release build is requested)
+
+The `--iree-source-dir` flag should point to the local docker cache at `<path/to/claude-workspace>/.cache/docker/iree`.
+
+Extra CMake options can be passed after `--`:
+```bash
+./build_tools/scripts/build.sh gpu-debug --iree-source-dir ... -- -DSOME_OPTION=ON
+```
 
 Capture all build output including warnings and errors.
 
@@ -55,9 +96,26 @@ After a successful build, run test and lint steps. These are independent of each
 
 #### Test
 
-Run `ctest` following `projects/fusilli/README.md`:
-- Use `-j $(nproc)` for parallel execution
-- Use `--rerun-failed --output-on-failure --verbose` if there are failures
+Run tests using `test.sh` from the `projects/fusilli` directory:
+
+```bash
+./build_tools/scripts/test.sh --build-dir build
+```
+
+Key options:
+- `--build-dir DIR` - Build directory (default: `build/`)
+- `--timeout SECS` - Test timeout in seconds (default: 120)
+- `--parallel N` - Number of parallel tests (default: `$(nproc)`)
+- `--backend capi|cli` - Compile backend (default: `capi`)
+- `-R REGEX` - Only run tests matching regex
+- `-E REGEX` - Exclude tests matching regex
+- `--extra-verbose` - Print extra test output
+- `--validate-cache-cleanup` - Run cache cleanup validation after tests
+
+If tests fail, re-run the failed tests with extra verbosity:
+```bash
+./build_tools/scripts/test.sh --build-dir build --extra-verbose -R "failed_test_regex"
+```
 
 Report:
 - Total tests run
@@ -76,7 +134,18 @@ pre-commit run --all-files
 Capture lint warnings and errors with file locations.
 
 **Stage 2: Clang-tidy**
-Build Fusilli with `-DFUSILLI_ENABLE_CLANG_TIDY=ON` and report any clang-tidy failures. When done, switch back to `-DFUSILLI_ENABLE_CLANG_TIDY=OFF` (default) for future builds.
+Run a clang-tidy build using the `-tidy` config variant:
+```bash
+# GPU
+./build_tools/scripts/build.sh gpu-debug-tidy \
+  --iree-source-dir <path/to/claude-workspace>/.cache/docker/iree
+
+# CPU
+./build_tools/scripts/build.sh cpu-debug-tidy \
+  --iree-source-dir <path/to/claude-workspace>/.cache/docker/iree
+```
+
+Report any clang-tidy failures.
 
 ## Reporting Format
 

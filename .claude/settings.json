@@ -41,6 +41,9 @@
       "Bash(pre-commit run:*)",
       "Bash(rocminfo:*)",
       "Bash(iree-compile:*)",
+      "Bash(./build_tools/scripts/build.sh:*)",
+      "Bash(./build_tools/scripts/test.sh:*)",
+      "Bash(./build_tools/scripts/coverage.sh:*)",
       "WebSearch",
       "WebFetch"
     ],
