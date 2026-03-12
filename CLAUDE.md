@@ -41,9 +41,11 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 > **Note**: Skills are symlinked from `.claude/` (`.claude/skills` -> `../skills`) so Claude Code can discover them while keeping the source files at the repo root for easier editing.
 
-## Tool Usage
+## Compound Command Usage
 
-- Never chain commands with `&&` or `;` when each individual command is already allowed by `Bash(git:*)` or similar rules. Use separate parallel Bash tool calls instead — they run concurrently and don't trigger permission prompts.
+To run git commands in sub-repos, use `./scripts/git-in.sh <dir> <git-args...>` (e.g. `./scripts/git-in.sh projects/fusilli status`).
+- Do NOT use compound commands with `cd` and `git` as they require approval to prevent bare repository attacks.
+- Do NOT use `git -C` directly as it doesn't pick command allow/deny permissions.
 
 ## PR Preferences
 

@@ -44,6 +44,7 @@
       "Bash(pre-commit run:*)",
       "Bash(rocminfo:*)",
       "Bash(iree-compile:*)",
+      "Bash(./scripts/git-in.sh:*)",
       "Bash(./build_tools/scripts/build.sh:*)",
       "Bash(./build_tools/scripts/test.sh:*)",
       "Bash(./build_tools/scripts/coverage.sh:*)",
@@ -51,7 +52,9 @@
       "WebFetch"
     ],
     "deny": [
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(./scripts/git-in.sh * push *)",
+      "Bash(./scripts/git-in.sh * push)"
     ]
   },
   "hooks": {

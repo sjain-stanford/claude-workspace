@@ -137,14 +137,13 @@ done
    - If not in container, skip this step and let CI handle it
 
 5. **Push and Create PR**
-   - **IMPORTANT**: `git push` is blocked by the Bash tool sandbox. Ask the user to push manually:
+   - **IMPORTANT**: `git push` is blocked by the deny rules. Ask the user to push manually:
      ```
      Please run: cd projects/fusilli && git push -u origin bump-deps-YYYYMMDD
      ```
    - Once pushed, create PR:
      ```bash
-     cd projects/fusilli
-     gh pr create --title "Bump IREE and TheRock to MM/DD nightly" --body "$(cat <<'EOF'
+     gh pr create -R iree-org/fusilli --title "Bump IREE and TheRock to MM/DD nightly" --body "$(cat <<'EOF'
      ## Summary
      - IREE: OLD_VERSION → NEW_VERSION
      - TheRock: OLD_VERSION → NEW_VERSION
