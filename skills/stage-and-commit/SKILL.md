@@ -26,20 +26,22 @@ Stages and commits changes following workspace conventions: signed commits with 
 
 ## Process
 
+All git commands use `./scripts/git-in.sh <dir>` wrapper. Use `.` for the workspace root or `projects/<repo>` for sub-repos.
+
 ### 1. Gather Information
 
 Run these commands in parallel to understand the current state:
 
 ```bash
 # See all changes (never use -uall flag)
-git status
+./scripts/git-in.sh <dir> status
 
 # See staged and unstaged changes
-git diff
-git diff --cached
+./scripts/git-in.sh <dir> diff
+./scripts/git-in.sh <dir> diff --cached
 
 # See recent commit messages for style reference
-git log --oneline -5
+./scripts/git-in.sh <dir> log --oneline -5
 ```
 
 ### 2. Analyze and Draft Commit Message
@@ -58,7 +60,7 @@ Stage relevant files by name. Avoid staging:
 - Unrelated changes
 
 ```bash
-git add <specific-files>
+./scripts/git-in.sh <dir> add <specific-files>
 ```
 
 ### 4. Create Commit
@@ -66,7 +68,7 @@ git add <specific-files>
 Use HEREDOC format to ensure proper formatting of multi-line commit messages:
 
 ```bash
-git commit -s -m "$(cat <<'EOF'
+./scripts/git-in.sh <dir> commit -s -m "$(cat <<'EOF'
 <commit message>
 
 Co-Authored-By: Claude <model> <noreply@anthropic.com>
@@ -78,7 +80,7 @@ Replace `<model>` with the actual model name (e.g., `Opus 4.6`, `Sonnet 4`).
 
 ### 5. Verify
 
-Run `git status` after commit to confirm success.
+Run `./scripts/git-in.sh <dir> status` after commit to confirm success.
 
 ## Commit Message Format
 
@@ -96,8 +98,8 @@ Signed-off-by: <user name> <user email>
 ## Example
 
 ```bash
-git add skills/stage-and-commit/SKILL.md CLAUDE.md README.md
-git commit -s -m "$(cat <<'EOF'
+./scripts/git-in.sh . add skills/stage-and-commit/SKILL.md CLAUDE.md README.md
+./scripts/git-in.sh . commit -s -m "$(cat <<'EOF'
 feat: Add stage-and-commit skill for standardized commits
 
 Introduces /stage-and-commit skill that enforces signed commits
