@@ -16,3 +16,6 @@ plans/*
 
 # Ignore machine-specific Claude settings
 .claude/settings.local.json
+
+# Ignore beads local issue tracker
+.beads/

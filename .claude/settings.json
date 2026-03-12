@@ -37,6 +37,9 @@
       "Bash(find:*)",
       "Bash(env)",
       "Bash(ls:*)",
+      "Bash(ninja:*)",
+      "Bash(br:*)",
+      "Bash(xargs:*)",
       "Bash([ -f /.dockerenv ])",
       "Bash(pre-commit run:*)",
       "Bash(rocminfo:*)",
@@ -49,6 +52,30 @@
     ],
     "deny": [
       "Bash(git push:*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '--- BEADS STATUS ---'; br list --status=in_progress 2>/dev/null; echo '--- READY BEADS ---'; br ready 2>/dev/null | head -20; echo '---'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "br sync --flush-only 2>/dev/null; IN_PROGRESS=$(br list --status=in_progress 2>/dev/null | grep -c '.'); if [ \"$IN_PROGRESS\" -gt 0 ]; then echo \"WARNING: $IN_PROGRESS beads still in_progress. Close or update them.\"; fi"
+          }
+        ]
+      }
     ]
   },
   "sandbox": {
