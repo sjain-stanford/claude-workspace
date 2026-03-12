@@ -20,23 +20,20 @@ Provides comprehensive pull request reviews following project coding standards.
 Fetch and checkout the PR branch locally using git, then collect diff:
 
 ```shell
-# Navigate to the project directory
-cd projects/<repo>
-
 # Fetch the PR branch
-git fetch origin pull/<PR-number>/head:pr-<PR-number>
+./scripts/git-in.sh projects/<repo> fetch origin pull/<PR-number>/head:pr-<PR-number>
 
 # Checkout the PR branch
-git checkout pr-<PR-number>
+./scripts/git-in.sh projects/<repo> checkout pr-<PR-number>
 
 # View the diff against main
-git diff main...HEAD
+./scripts/git-in.sh projects/<repo> diff main...HEAD
 
 # List all changed files
-git diff main...HEAD --name-only
+./scripts/git-in.sh projects/<repo> diff main...HEAD --name-only
 
 # View commit history on this branch
-git log main..HEAD --oneline
+./scripts/git-in.sh projects/<repo> log main..HEAD --oneline
 ```
 
 Read the changed files directly using the Read tool and use file-relative line numbers when referencing code.

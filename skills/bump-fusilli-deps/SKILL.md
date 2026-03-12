@@ -90,18 +90,17 @@ done
 1. **Prepare Fusilli Repo**
    - The fusilli repo may NOT be on `main` when starting. Handle this:
      ```bash
-     cd projects/fusilli
-     git stash          # Save any in-progress work
-     git checkout main
+     ./scripts/git-in.sh projects/fusilli stash          # Save any in-progress work
+     ./scripts/git-in.sh projects/fusilli checkout main
      ```
    - If `git pull` fails with "no tracking information", set it first:
      ```bash
-     git branch --set-upstream-to=origin/main main
-     git pull
+     ./scripts/git-in.sh projects/fusilli branch --set-upstream-to=origin/main main
+     ./scripts/git-in.sh projects/fusilli pull
      ```
    - Create the bump branch:
      ```bash
-     git checkout -b bump-deps-YYYYMMDD
+     ./scripts/git-in.sh projects/fusilli checkout -b bump-deps-YYYYMMDD
      ```
 
 2. **Update `version.json`**
@@ -118,9 +117,8 @@ done
 
 3. **Commit Changes**
    ```bash
-   cd projects/fusilli
-   git add version.json
-   git commit -s -m "$(cat <<'EOF'
+   ./scripts/git-in.sh projects/fusilli add version.json
+   ./scripts/git-in.sh projects/fusilli commit -s -m "$(cat <<'EOF'
    Bump IREE and TheRock to MM/DD nightly
 
    - IREE: OLD_VERSION -> NEW_VERSION
@@ -168,11 +166,11 @@ Docker image rebuilds.
 
 2. **Create Docker Branch, Commit, and PR**
    ```bash
-   cd projects/docker
-   git checkout main && git pull
-   git checkout -b update-docker-YYYYMMDD
-   git add entrypoint.sh
-   git commit -s -m "Update docker image"
+   ./scripts/git-in.sh projects/docker checkout main
+   ./scripts/git-in.sh projects/docker pull
+   ./scripts/git-in.sh projects/docker checkout -b update-docker-YYYYMMDD
+   ./scripts/git-in.sh projects/docker add entrypoint.sh
+   ./scripts/git-in.sh projects/docker commit -s -m "Update docker image"
    ```
    - Ask user to push manually, then create PR
 
