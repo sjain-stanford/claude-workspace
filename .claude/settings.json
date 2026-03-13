@@ -54,7 +54,14 @@
     "deny": [
       "Bash(git push:*)",
       "Bash(./scripts/git-in.sh * push *)",
-      "Bash(./scripts/git-in.sh * push)"
+      "Bash(./scripts/git-in.sh * push)",
+      "Read(**/.env*)",
+      "Read(**/secrets/**)",
+      "Read(**/*credentials*)",
+      "Read(**/*secret*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.kube/**)"
     ]
   },
   "hooks": {
