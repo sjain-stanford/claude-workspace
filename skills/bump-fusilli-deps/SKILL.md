@@ -6,6 +6,7 @@ description: Bump IREE and TheRock to latest nightly versions in the fusilli rep
 # Bump Fusilli Dependencies Skill
 
 Bumps IREE and TheRock to the latest nightly versions in the fusilli repository.
+Each dependency gets its own branch and PR to isolate failures and simplify bisection.
 Also used for **Docker image updates** when system packages change (which is rare
 and separate from IREE/TheRock version bumps).
 
@@ -35,7 +36,7 @@ the image's `entrypoint.sh`. This decouples version bumps from Docker image rebu
 
 ## Workflow: Version Bump (Fusilli Only)
 
-This is the common case — bumping IREE and/or TheRock versions.
+This is the common case — bumping IREE and/or TheRock versions. Each dependency gets its own branch and PR to isolate failures and simplify bisection.
 
 ### Phase 0: Pre-flight Checks
 
@@ -64,13 +65,14 @@ curl -sL https://iree.dev/pip-release-links.html | grep -q "iree_base_compiler-$
   || echo "MISSING: iree-base-compiler ${IREE_VERSION} is NOT available"
 ```
 If the wheel is **not available**:
-- Report the missing version to the user and **stop the workflow**.
+- Report the missing version to the user and **stop the IREE portion of the workflow**.
 - Suggest trying again later or falling back to the most recent version that has wheels:
   ```bash
   curl -sL https://iree.dev/pip-release-links.html \
     | grep -oP 'iree_base_compiler-\K[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+' \
     | sort -Vu | tail -1
   ```
+- TheRock bump can still proceed independently.
 
 **TheRock** — Use `curl` HEAD requests to check for the latest nightly via the CDN:
 ```bash
@@ -85,7 +87,9 @@ for DATE in $(date +%Y%m%d) $(date -d yesterday +%Y%m%d) $(date -d '2 days ago' 
 done
 ```
 
-### Phase 2: Update Fusilli Repo
+### Phase 2: Update Fusilli Repo (Separate PRs)
+
+Each dependency that has a newer version gets its own branch, commit, and PR. If only one has changed, only one PR is created.
 
 1. **Prepare Fusilli Repo**
    - The fusilli repo may NOT be on `main` when starting. Handle this:
@@ -98,58 +102,92 @@ done
      ./scripts/git-in.sh projects/fusilli branch --set-upstream-to=origin/main main
      ./scripts/git-in.sh projects/fusilli pull
      ```
-   - Create the bump branch:
-     ```bash
-     ./scripts/git-in.sh projects/fusilli checkout -b bump-deps-YYYYMMDD
-     ```
 
-2. **Update `version.json`**
-   - Update both `iree-version` and `therock-version` fields:
-     ```json
-     {
-       "package-version": "0.0.1.dev",
-       "iree-version": "NEW_IREE_VERSION",
-       "therock-version": "NEW_THEROCK_VERSION"
-     }
+2. **IREE Bump** (if version changed)
+   - Create the IREE bump branch from main:
+     ```bash
+     ./scripts/git-in.sh projects/fusilli checkout -b bump-iree-YYYYMMDD
      ```
+   - Update only the `iree-version` field in `version.json`
    - The `iree-version` value is the bare version string (e.g., `3.11.0rc20260217`) without the `iree-` prefix — consumers prepend it as needed
-   - All consumers (CMakeLists.txt, build-and-test-win.yml, exec_docker_ci.sh, ThePebble.py) read from this file automatically
-
-3. **Commit Changes**
-   ```bash
-   ./scripts/git-in.sh projects/fusilli add version.json
-   ./scripts/git-in.sh projects/fusilli commit -s -m "$(cat <<'EOF'
-   Bump IREE and TheRock to MM/DD nightly
-
-   - IREE: OLD_VERSION -> NEW_VERSION
-   - TheRock: OLD_VERSION -> NEW_VERSION
-
-   Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
-   EOF
-   )"
-   ```
-
-4. **Build and Test** (optional)
-   - Use the build-test-lint skill to verify changes
-   - Only if running inside docker dev-container
-   - If not in container, skip this step and let CI handle it
-
-5. **Push and Create PR**
-   - **IMPORTANT**: `git push` is blocked by the deny rules. Ask the user to push manually:
-     ```
-     Please run: cd projects/fusilli && git push -u origin bump-deps-YYYYMMDD
-     ```
-   - Once pushed, create PR:
+   - Commit:
      ```bash
-     gh pr create -R iree-org/fusilli --title "Bump IREE and TheRock to MM/DD nightly" --body "$(cat <<'EOF'
+     ./scripts/git-in.sh projects/fusilli add version.json
+     ./scripts/git-in.sh projects/fusilli commit -s -m "$(cat <<'EOF'
+     Bump IREE to MM/DD nightly
+
+     IREE: OLD_VERSION -> NEW_VERSION
+
+     Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+     EOF
+     )"
+     ```
+   - **Push**: Ask the user to push manually:
+     ```
+     Please run: cd projects/fusilli && git push -u origin bump-iree-YYYYMMDD
+     ```
+   - Create PR:
+     ```bash
+     gh pr create -R iree-org/fusilli --title "Bump IREE to NEW_VERSION" --body "$(cat <<'EOF'
      ## Summary
-     - IREE: OLD_VERSION → NEW_VERSION
-     - TheRock: OLD_VERSION → NEW_VERSION
+     Automated IREE version bump.
+
+     | Dependency | Old | New |
+     |------------|-----|-----|
+     | IREE | `OLD_VERSION` | `NEW_VERSION` |
+
+     **IREE changelog**: https://github.com/iree-org/iree/compare/iree-OLD_VERSION...iree-NEW_VERSION
 
      🤖 Generated with [Claude Code](https://claude.com/claude-code)
      EOF
      )"
      ```
+   - Return to main for the next bump:
+     ```bash
+     ./scripts/git-in.sh projects/fusilli checkout main
+     ```
+
+3. **TheRock Bump** (if version changed)
+   - Create the TheRock bump branch from main:
+     ```bash
+     ./scripts/git-in.sh projects/fusilli checkout -b bump-therock-YYYYMMDD
+     ```
+   - Update only the `therock-version` field in `version.json`
+   - Commit:
+     ```bash
+     ./scripts/git-in.sh projects/fusilli add version.json
+     ./scripts/git-in.sh projects/fusilli commit -s -m "$(cat <<'EOF'
+     Bump TheRock to MM/DD nightly
+
+     TheRock: OLD_VERSION -> NEW_VERSION
+
+     Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+     EOF
+     )"
+     ```
+   - **Push**: Ask the user to push manually:
+     ```
+     Please run: cd projects/fusilli && git push -u origin bump-therock-YYYYMMDD
+     ```
+   - Create PR:
+     ```bash
+     gh pr create -R iree-org/fusilli --title "Bump TheRock to NEW_VERSION" --body "$(cat <<'EOF'
+     ## Summary
+     Automated TheRock version bump.
+
+     | Dependency | Old | New |
+     |------------|-----|-----|
+     | TheRock | `OLD_VERSION` | `NEW_VERSION` |
+
+     🤖 Generated with [Claude Code](https://claude.com/claude-code)
+     EOF
+     )"
+     ```
+
+4. **Build and Test** (optional)
+   - Use the build-test-lint skill to verify changes
+   - Only if running inside docker dev-container
+   - If not in container, skip this step and let CI handle it
 
 ## Workflow: Docker Image Update (Rare)
 
