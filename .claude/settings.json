@@ -50,7 +50,6 @@
       "WebSearch"
     ],
     "deny": [
-      "Bash(gh pr create:*)",
       "Bash(git push:*)",
       "Bash(./scripts/git-in.sh * push *)",
       "Bash(./scripts/git-in.sh * push)",
