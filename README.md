@@ -20,10 +20,12 @@ claude-workspace/
 │   ├── docker/
 │   ├── dot-files/
 │   └── ...
+├── scripts/         # Utility scripts (e.g. git-in.sh)
 ├── skills/          # Project specific skills and shared references
 │   ├── build-test-lint/
 │   ├── bump-fusilli-deps/
 │   ├── fusilli-project/
+│   ├── pr-create/
 │   ├── pr-review/
 │   ├── self-review/
 │   ├── stage-and-commit/

@@ -27,6 +27,8 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - Use as reference but expect Claude is launched from a dev-container already
 - `projects/dot-files/` - Personal configuration files (shell, editor, git, etc.)
   - Setup scripts and dotfile management
+- `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
+- `scripts/` - Utility scripts for the meta workspace (e.g. `git-in.sh`)
 
 ## Skills
 
@@ -58,14 +60,14 @@ Save implementation plans created during plan mode to `plans/` at claude-workspa
 
 ## Beads Workflow Integration
 
-This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`/`bd`) for issue tracking. A single central `.beads/` in claude-workspace tracks work across all sub-repos — there are no per-repo `.beads/` directories. Prefix bead titles with `[repo-name]` (e.g. `[fusilli]`, `[docker]`) to indicate which sub-repo the work relates to.
+This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking. A single central `.beads/` in claude-workspace tracks work across all sub-repos — there are no per-repo `.beads/` directories. Prefix bead titles with `[repo-name]` (e.g. `[fusilli]`, `[docker]`) to indicate which sub-repo the work relates to.
 CRITICAL: NEVER MENTION BEADS IN CODE. The beads are for your local work tracking only and do not persist. Always write proper TODOs or use github issues for long term/persistent tracking. 95% of all work you do should be tracked in beads. Think of it like a memory.
 
 ### Essential Commands
 
 ```bash
 # View ready issues (unblocked, not deferred)
-br ready              # or: bd ready
+br ready
 
 # List and search
 br list --status=open # All open issues
