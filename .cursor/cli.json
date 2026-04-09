@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(gh)",
+      "Shell(git)",
+      "Shell(grep)",
+      "Shell(tee)",
+      "Shell(cmake)",
+      "Shell(ctest)",
+      "Shell(cd)",
+      "Shell(python3)",
+      "Shell(rm:-i *)",
+      "Shell(mv:-i *)",
+      "Shell(echo)",
+      "Shell(sort)",
+      "Shell(find)",
+      "Shell(head)",
+      "Shell(tail)",
+      "Shell(env)",
+      "Shell(ls)",
+      "Shell(ninja)",
+      "Shell(br)",
+      "Shell(xargs)",
+      "Shell([ -f /.dockerenv ])",
+      "Shell(pre-commit)",
+      "Shell(rocminfo)",
+      "Shell(iree-compile)",
+      "Shell(./scripts/git-in.sh)",
+      "Shell(./build_tools/scripts/build.sh)",
+      "Shell(./build_tools/scripts/test.sh)",
+      "Shell(./build_tools/scripts/coverage.sh)"
+    ],
+    "deny": [
+      "Shell(git:push)",
+      "Shell(git:push *)",
+      "Shell(./scripts/git-in.sh:* push)",
+      "Shell(./scripts/git-in.sh:* push *)",
+      "Read(**/.env*)",
+      "Read(**/secrets/**)",
+      "Read(**/*credentials*)",
+      "Read(**/*secret*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.kube/**)"
+    ]
+  }
+}

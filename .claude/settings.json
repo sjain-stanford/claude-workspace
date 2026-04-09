@@ -35,6 +35,8 @@
       "Bash(echo:*)",
       "Bash(sort:*)",
       "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
       "Bash(env)",
       "Bash(ls:*)",
       "Bash(ninja:*)",
