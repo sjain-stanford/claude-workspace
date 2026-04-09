@@ -5,7 +5,7 @@ description: Create a GitHub pull request for a sub-repo branch. Use when asked 
 
 # PR Create Skill
 
-Creates GitHub pull requests following workspace conventions: succinct descriptions with co-authorship attribution.
+Creates GitHub pull requests following workspace conventions: succinct descriptions.
 
 ## Usage
 
@@ -54,17 +54,13 @@ cd projects/<repo> && git push -u origin HEAD
 
 - <bullet 1: what changed and why>
 - <bullet 2: additional context if needed>
-
-Co-Authored-By: Claude <model> <noreply@anthropic.com>
 ```
-
-Replace `<model>` with the actual model name (e.g., `Opus 4.6`, `Sonnet 4`).
 
 **Rules**:
 - Focus on *why*, not *what* — the diff shows what changed
 - One to three bullets maximum
 - Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
-- Always include the `Co-Authored-By` trailer at the end of the body
+- Do NOT include `Co-Authored-By` in the PR body — co-authorship is already tracked in commit messages
 
 ### 4. Create the PR
 
@@ -77,8 +73,6 @@ cd projects/<repo> && gh pr create \
 ## Summary
 
 - <bullet>
-
-Co-Authored-By: Claude <model> <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -95,18 +89,7 @@ EOF
 )"
 ```
 
-### 5. Remove Cursor Watermark
-
-Cursor's `gh` integration auto-appends a "Made with Cursor" line to the PR body. Remove it immediately after creation:
-
-```bash
-cd projects/<repo> && gh pr edit <number> --body "$(cat <<'EOF'
-<exact body from step 4>
-EOF
-)"
-```
-
-### 6. Report
+### 5. Report
 
 Return the PR URL to the user.
 
@@ -119,8 +102,6 @@ cd projects/docker && gh pr create \
 ## Summary
 
 - Mount `~/.cursor` so Cursor IDE settings and MCP configs are accessible inside the dev container.
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
 )"
 ```

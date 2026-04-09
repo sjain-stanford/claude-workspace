@@ -2,6 +2,7 @@
   "terminalAllowlist": [
     "gh pr view",
     "gh pr diff",
+    "gh pr list",
     "gh run view",
     "gh run list",
     "gh api",
