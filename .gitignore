@@ -10,8 +10,7 @@ reviews/*
 plans/*
 !plans/.gitkeep
 
-# Ignore IDE and docker cache directories
-.cursor/
+# Ignore docker cache directory
 .cache/
 
 # Ignore machine-specific Claude settings
