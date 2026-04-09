@@ -33,6 +33,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/build-test-lint/` - Build, test, and lint for Fusilli; use after code changes to verify integrity
 - `skills/bump-fusilli-deps/` - Automate bumping IREE and TheRock to latest nightly versions
 - `skills/fusilli-project/` - Use when adding new features or debugging issues in Fusilli
+- `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions and agent co-authorship)
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
 - `skills/stage-and-commit/` - Use when asked to commit local changes (enforces signed commits and agent co-authorship)
