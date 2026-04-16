@@ -12,6 +12,8 @@
       "Shell(rm:-i *)",
       "Shell(mv:-i *)",
       "Shell(echo)",
+      "Shell(cat)",
+      "Shell(nproc)",
       "Shell(sort)",
       "Shell(find)",
       "Shell(head)",

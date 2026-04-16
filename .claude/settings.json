@@ -33,6 +33,8 @@
       "Bash(rm -i:*)",
       "Bash(mv -i:*)",
       "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(nproc:*)",
       "Bash(sort:*)",
       "Bash(find:*)",
       "Bash(head:*)",
