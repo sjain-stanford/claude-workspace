@@ -56,7 +56,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 ## Sub-Repo Git Usage
 
-To run git commands in sub-repos from the workspace root, use `git -C projects/<repo> <git-args...>` (e.g. `git -C projects/fusilli status`).
+Run git commands from the relevant repository directory. For sub-repos under `projects/`, set the command working directory to `projects/<repo>` and use plain `git` commands.
 
 ## PR Preferences
 

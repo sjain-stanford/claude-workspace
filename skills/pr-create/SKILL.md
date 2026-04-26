@@ -18,17 +18,17 @@ Creates GitHub pull requests following workspace conventions: succinct descripti
 
 ## Process
 
-Run git commands from the sub-repo directory or use `git -C projects/<repo> ...` from the workspace root. The `gh` CLI must be run from inside the sub-repo directory using `cd projects/<repo> && gh ...`.
+Run git and `gh` commands from the sub-repo directory.
 
 ### 1. Gather Information
 
 Run these commands in parallel:
 
 ```bash
-git -C projects/<repo> status -sb
-git -C projects/<repo> log --oneline -5 --decorate
-git -C projects/<repo> diff origin/main...HEAD
-git -C projects/<repo> diff origin/main...HEAD --name-only
+git status -sb
+git log --oneline -5 --decorate
+git diff origin/main...HEAD
+git diff origin/main...HEAD --name-only
 ```
 
 Verify:

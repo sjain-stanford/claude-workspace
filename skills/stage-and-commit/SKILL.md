@@ -28,7 +28,7 @@ Stages and commits changes following workspace conventions: signed commits with 
 
 ## Process
 
-Run git commands from the target repository, or use `git -C <dir>` from the workspace root. Use `.` for the workspace root or `projects/<repo>` for sub-repos.
+Run git commands from the target repository directory.
 
 ### 1. Gather Information
 
@@ -36,14 +36,14 @@ Run these commands in parallel to understand the current state:
 
 ```bash
 # See all changes (never use -uall flag)
-git -C <dir> status
+git status
 
 # See staged and unstaged changes
-git -C <dir> diff
-git -C <dir> diff --cached
+git diff
+git diff --cached
 
 # See recent commit messages for style reference
-git -C <dir> log --oneline -5
+git log --oneline -5
 ```
 
 ### 2. Analyze and Draft Commit Message
@@ -62,7 +62,7 @@ Stage relevant files by name. Avoid staging:
 - Unrelated changes
 
 ```bash
-git -C <dir> add <specific-files>
+git add <specific-files>
 ```
 
 ### 4. Create Commit
@@ -70,7 +70,7 @@ git -C <dir> add <specific-files>
 Use HEREDOC format to ensure proper formatting of multi-line commit messages:
 
 ```bash
-git -C <dir> commit -s -m "$(cat <<'EOF'
+git commit -s -m "$(cat <<'EOF'
 <commit message>
 
 Co-Authored-By: <active agent and model> <agent email>
@@ -84,7 +84,7 @@ Replace the co-author trailer with the actual agent and model being used:
 
 ### 5. Verify
 
-Run `git -C <dir> status` after commit to confirm success.
+Run `git status` after commit to confirm success.
 
 ## Commit Message Format
 
@@ -102,8 +102,8 @@ Signed-off-by: <user name> <user email>
 ## Example
 
 ```bash
-git -C . add skills/stage-and-commit/SKILL.md CLAUDE.md README.md
-git -C . commit -s -m "$(cat <<'EOF'
+git add skills/stage-and-commit/SKILL.md CLAUDE.md README.md
+git commit -s -m "$(cat <<'EOF'
 feat: Add stage-and-commit skill for standardized commits
 
 Introduces /stage-and-commit skill that enforces signed commits

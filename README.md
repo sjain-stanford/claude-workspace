@@ -98,4 +98,4 @@ claude-workspace/
 
 4. **Start developing:**
    - Use Claude Code or Codex for AI-assisted development
-   - Use `git -C projects/<repo> <git-args...>` for git commands inside sub-repositories
+   - Run git commands from the relevant sub-repository directory under `projects/`

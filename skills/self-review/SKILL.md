@@ -22,16 +22,16 @@ Provides comprehensive review of local branch changes following project coding s
 
 ```shell
 # Get current branch name
-git -C <dir> branch --show-current
+git branch --show-current
 
 # Get diff against main (default) or specified base
-git -C <dir> diff main...HEAD
+git diff main...HEAD
 
 # Or with custom base
-git -C <dir> diff <base>...HEAD
+git diff <base>...HEAD
 
 # List changed files
-git -C <dir> diff --name-only main...HEAD
+git diff --name-only main...HEAD
 ```
 
 ### 2. Review the Changes against Review Criteria
@@ -43,7 +43,7 @@ git -C <dir> diff --name-only main...HEAD
 Use the standard output format from `skills/review-criteria.md` with:
 - **Review-Type**: "Self Review"
 - **Source**: Current branch name
-- **Author**: Current git user (`git -C <dir> config user.name`)
+- **Author**: Current git user (`git config user.name`)
 - **Branch**: `<current-branch> -> <base-ref>`
 
 Save the review to `<workspace-root>/reviews/` with filename `self-review-<short-description>.md`, where `<short-description>` is a few words separated by dashes summarizing the changes (e.g., `self-review-add-auth-middleware.md`, `self-review-fix-cache-invalidation.md`).

@@ -97,30 +97,31 @@ done
 ### Phase 2: Update Fusilli Repo (Separate PRs)
 
 Each dependency that has a newer version gets its own branch, commit, and PR. If only one has changed, only one PR is created.
+Run Fusilli repo commands from `projects/fusilli`.
 
 1. **Prepare Fusilli Repo**
    - The fusilli repo may NOT be on `main` when starting. Handle this:
      ```bash
-     git -C projects/fusilli stash          # Save any in-progress work
-     git -C projects/fusilli checkout main
+     git stash          # Save any in-progress work
+     git checkout main
      ```
    - If `git pull` fails with "no tracking information", set it first:
      ```bash
-     git -C projects/fusilli branch --set-upstream-to=origin/main main
-     git -C projects/fusilli pull
+     git branch --set-upstream-to=origin/main main
+     git pull
      ```
 
 2. **IREE Bump** (if version changed)
    - Create the IREE bump branch from main:
      ```bash
-     git -C projects/fusilli checkout -b bump-iree-YYYYMMDD
+     git checkout -b bump-iree-YYYYMMDD
      ```
    - Update only the `iree-version` field in `version.json`
    - The `iree-version` value is the bare version string (e.g., `3.11.0rc20260217`) without the `iree-` prefix — consumers prepend it as needed
    - Commit:
      ```bash
-     git -C projects/fusilli add version.json
-     git -C projects/fusilli commit -s -m "$(cat <<'EOF'
+     git add version.json
+     git commit -s -m "$(cat <<'EOF'
      Bump IREE to MM/DD nightly
 
      IREE: OLD_VERSION -> NEW_VERSION
@@ -151,19 +152,19 @@ Each dependency that has a newer version gets its own branch, commit, and PR. If
      ```
    - Return to main for the next bump:
      ```bash
-     git -C projects/fusilli checkout main
+     git checkout main
      ```
 
 3. **TheRock Bump** (if version changed)
    - Create the TheRock bump branch from main:
      ```bash
-     git -C projects/fusilli checkout -b bump-therock-YYYYMMDD
+     git checkout -b bump-therock-YYYYMMDD
      ```
    - Update only the `therock-version` field in `version.json`
    - Commit:
      ```bash
-     git -C projects/fusilli add version.json
-     git -C projects/fusilli commit -s -m "$(cat <<'EOF'
+     git add version.json
+     git commit -s -m "$(cat <<'EOF'
      Bump TheRock to MM/DD nightly
 
      TheRock: OLD_VERSION -> NEW_VERSION
@@ -210,12 +211,13 @@ Docker image rebuilds.
    - Make any structural changes needed
 
 2. **Create Docker Branch, Commit, and PR**
+   Run these commands from `projects/docker`:
    ```bash
-   git -C projects/docker checkout main
-   git -C projects/docker pull
-   git -C projects/docker checkout -b update-docker-YYYYMMDD
-   git -C projects/docker add entrypoint.sh
-   git -C projects/docker commit -s -m "Update docker image"
+   git checkout main
+   git pull
+   git checkout -b update-docker-YYYYMMDD
+   git add entrypoint.sh
+   git commit -s -m "Update docker image"
    ```
    - Ask user to push manually, then create PR
 
