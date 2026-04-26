@@ -1,10 +1,10 @@
 # Claude Workspace
 
-Meta workspace for Claude-assisted development across multiple repositories.
+Meta workspace for Claude Code and Codex-assisted development across multiple repositories.
 
 ## Workspace Structure
 
-Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally for development and/or to serve as context for Claude.
+Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally for development and/or to serve as context for local agents.
 
 - `projects/fusilli/` - C++ graph API and JIT engine powered by IREE
   - This is the main project that depends on IREE compiler and runtime
@@ -24,11 +24,21 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - Fusilli gets integrated as a plugin into the hipDNN kernel provider ecosystem
 - `projects/docker/` - Docker for ML compiler development environment
   - This is the unified development docker for all builds and tests
-  - Use as reference but expect Claude is launched from a dev-container already
+  - Use as reference but expect Claude/Codex is launched from a dev-container already
 - `projects/dot-files/` - Personal configuration files (shell, editor, git, etc.)
   - Setup scripts and dotfile management
+- `plans/` - Saved implementation plans from plan mode (gitignored contents, tracked directory)
 - `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
 - `scripts/` - Utility scripts for the meta workspace (e.g. `git-in.sh`)
+- `skills/` - Project-specific skills and shared references
+- `.agents/` - Agent configuration; includes `skills -> ../skills` symlink for Codex skill discovery
+- `.claude/` - Claude Code configuration; includes settings and `skills -> ../skills` symlink
+- `.codex/` - Codex rules and local configuration
+- `.cursor/` - Cursor local configuration
+- `.beads/` - Local issue tracker state for this workspace
+- `CLAUDE.md` - Top-level context for Claude Code
+- `AGENTS.md` - Top-level instructions shared with agents (symlink to CLAUDE.md)
+- `README.md` - Human-facing workspace overview and setup guide
 
 ## Skills
 
@@ -42,7 +52,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
 - `skills/llvm-coding-standards.md` - Reference for C++ coding standards from LLVM (shared across skills)
 
-> **Note**: Skills are symlinked from `.claude/` (`.claude/skills` -> `../skills`) so Claude Code can discover them while keeping the source files at the repo root for easier editing.
+> **Note**: Skills are symlinked from agent-specific config directories (`.claude/skills` -> `../skills`, `.agents/skills` -> `../skills`) so local agents can discover them while keeping the source files at the repo root for easier editing.
 
 ## Compound Command Usage
 

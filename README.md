@@ -1,26 +1,26 @@
 # Claude Workspace
 
-A meta workspace for Claude-assisted development across my current ML compiler projects.
+A meta workspace for Claude Code and Codex-assisted development across my current ML compiler projects.
 
 ## Overview
 
-This workspace serves as a unified development environment for working on my current ML compiler projects (such as Fusilli, IREE) alongside their dependencies and reference implementations.
+This workspace is the shared root for local agent configuration, reusable skills, saved plans/reviews, and the independent git repositories cloned under `projects/`. The main active project is Fusilli, with IREE, Torch-MLIR, cuDNN frontend, hipDNN, and related tooling checked out as dependencies or API references.
 
 ## Structure
 
 ```
 claude-workspace/
-├── projects/        # Relevant sub-repositories are cloned here
+├── projects/        # Independent git repositories cloned locally
 │   ├── fusilli/
 │   ├── fusilli-benchmarks/
-│   ├── iree/
-│   ├── torch-mlir/
 │   ├── cudnn-frontend/
-│   ├── hipdnn/
 │   ├── docker/
 │   ├── dot-files/
-│   └── ...
-├── scripts/         # Utility scripts (e.g. git-in.sh)
+│   ├── hipdnn/
+│   ├── iree/
+│   └── torch-mlir/
+├── scripts/         # Workspace utility scripts
+│   └── git-in.sh
 ├── skills/          # Project specific skills and shared references
 │   ├── build-test-lint/
 │   ├── bump-fusilli-deps/
@@ -31,12 +31,21 @@ claude-workspace/
 │   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
-├── plans/           # Implementation plans from plan mode
-├── reviews/         # Saved PR and self reviews
+├── plans/           # Saved implementation plans
+├── reviews/         # Saved PR and self-review outputs
+├── .agents/         # Agent configuration
+│   └── skills -> ../skills
+├── .beads/          # Local issue tracker state
 ├── .claude/         # Claude Code configuration
 │   ├── settings.json
-│   └── skills -> ../skills    # Symlink for skill discovery
-├── CLAUDE.md        # Top level context for agents
+│   ├── settings.local.json
+│   └── skills -> ../skills
+├── .codex/          # Codex rules and local configuration
+│   └── rules/
+├── .cursor/         # Cursor local configuration
+├── AGENTS.md        # Top-level instructions for agents
+├── CLAUDE.md        # Top-level context for Claude Code
+├── LICENSE
 └── README.md
 ```
 
@@ -72,7 +81,10 @@ claude-workspace/
    git clone https://github.com/iree-org/iree.git
    git clone https://github.com/llvm/torch-mlir.git
    git clone https://github.com/NVIDIA/cudnn-frontend.git
+
+   # Workspace support repos
    git clone https://github.com/sjain-stanford/docker.git
+   git clone https://github.com/sjain-stanford/dot-files.git
 
    # Sparse checkout of hipdnn from rocm-libraries (hipdnn is on develop branch)
    git clone --filter=blob:none --sparse https://github.com/ROCm/rocm-libraries.git hipdnn
@@ -87,4 +99,5 @@ claude-workspace/
    - From the new window again open `claude-workspace` and launch Claude Code from Cursor: `Claude Code: Open in Terminal`
 
 4. **Start developing:**
-   - Use Claude Code for AI-assisted development
+   - Use Claude Code or Codex for AI-assisted development
+   - Use `./scripts/git-in.sh <repo> <git-args...>` for git commands inside sub-repositories
