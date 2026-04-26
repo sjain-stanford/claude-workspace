@@ -29,7 +29,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - Setup scripts and dotfile management
 - `plans/` - Saved implementation plans from plan mode (gitignored contents, tracked directory)
 - `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
-- `scripts/` - Utility scripts for the meta workspace (e.g. `git-in.sh`)
+- `scripts/` - Utility scripts for the meta workspace
 - `skills/` - Project-specific skills and shared references
 - `.agents/` - Agent configuration; includes `skills -> ../skills` symlink for Codex skill discovery
 - `.claude/` - Claude Code configuration; includes settings and `skills -> ../skills` symlink
@@ -54,11 +54,9 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 > **Note**: Skills are symlinked from agent-specific config directories (`.claude/skills` -> `../skills`, `.agents/skills` -> `../skills`) so local agents can discover them while keeping the source files at the repo root for easier editing.
 
-## Compound Command Usage
+## Sub-Repo Git Usage
 
-To run git commands in sub-repos, use `./scripts/git-in.sh <dir> <git-args...>` (e.g. `./scripts/git-in.sh projects/fusilli status`).
-- Do NOT use compound commands with `cd` and `git` as they require approval to prevent bare repository attacks.
-- Do NOT use `git -C` directly as it doesn't pick command allow/deny permissions.
+To run git commands in sub-repos from the workspace root, use `git -C projects/<repo> <git-args...>` (e.g. `git -C projects/fusilli status`).
 
 ## PR Preferences
 

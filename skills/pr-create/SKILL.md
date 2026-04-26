@@ -18,17 +18,17 @@ Creates GitHub pull requests following workspace conventions: succinct descripti
 
 ## Process
 
-All git commands use `./scripts/git-in.sh <dir>` wrapper. The `gh` CLI must be run from inside the sub-repo directory using `cd projects/<repo> && gh ...`.
+Run git commands from the sub-repo directory or use `git -C projects/<repo> ...` from the workspace root. The `gh` CLI must be run from inside the sub-repo directory using `cd projects/<repo> && gh ...`.
 
 ### 1. Gather Information
 
 Run these commands in parallel:
 
 ```bash
-./scripts/git-in.sh projects/<repo> status -sb
-./scripts/git-in.sh projects/<repo> log --oneline -5 --decorate
-./scripts/git-in.sh projects/<repo> diff origin/main...HEAD
-./scripts/git-in.sh projects/<repo> diff origin/main...HEAD --name-only
+git -C projects/<repo> status -sb
+git -C projects/<repo> log --oneline -5 --decorate
+git -C projects/<repo> diff origin/main...HEAD
+git -C projects/<repo> diff origin/main...HEAD --name-only
 ```
 
 Verify:

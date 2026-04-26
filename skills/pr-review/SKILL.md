@@ -21,19 +21,19 @@ Fetch and checkout the PR branch locally using git, then collect diff:
 
 ```shell
 # Fetch the PR branch
-./scripts/git-in.sh projects/<repo> fetch origin pull/<PR-number>/head:pr-<PR-number>
+git -C projects/<repo> fetch origin pull/<PR-number>/head:pr-<PR-number>
 
 # Checkout the PR branch
-./scripts/git-in.sh projects/<repo> checkout pr-<PR-number>
+git -C projects/<repo> checkout pr-<PR-number>
 
 # View the diff against main
-./scripts/git-in.sh projects/<repo> diff main...HEAD
+git -C projects/<repo> diff main...HEAD
 
 # List all changed files
-./scripts/git-in.sh projects/<repo> diff main...HEAD --name-only
+git -C projects/<repo> diff main...HEAD --name-only
 
 # View commit history on this branch
-./scripts/git-in.sh projects/<repo> log main..HEAD --oneline
+git -C projects/<repo> log main..HEAD --oneline
 ```
 
 Read the changed files directly using the Read tool and use file-relative line numbers when referencing code.

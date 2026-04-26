@@ -28,7 +28,7 @@ Stages and commits changes following workspace conventions: signed commits with 
 
 ## Process
 
-All git commands use `./scripts/git-in.sh <dir>` wrapper. Use `.` for the workspace root or `projects/<repo>` for sub-repos.
+Run git commands from the target repository, or use `git -C <dir>` from the workspace root. Use `.` for the workspace root or `projects/<repo>` for sub-repos.
 
 ### 1. Gather Information
 
@@ -36,14 +36,14 @@ Run these commands in parallel to understand the current state:
 
 ```bash
 # See all changes (never use -uall flag)
-./scripts/git-in.sh <dir> status
+git -C <dir> status
 
 # See staged and unstaged changes
-./scripts/git-in.sh <dir> diff
-./scripts/git-in.sh <dir> diff --cached
+git -C <dir> diff
+git -C <dir> diff --cached
 
 # See recent commit messages for style reference
-./scripts/git-in.sh <dir> log --oneline -5
+git -C <dir> log --oneline -5
 ```
 
 ### 2. Analyze and Draft Commit Message
@@ -62,7 +62,7 @@ Stage relevant files by name. Avoid staging:
 - Unrelated changes
 
 ```bash
-./scripts/git-in.sh <dir> add <specific-files>
+git -C <dir> add <specific-files>
 ```
 
 ### 4. Create Commit
@@ -70,7 +70,7 @@ Stage relevant files by name. Avoid staging:
 Use HEREDOC format to ensure proper formatting of multi-line commit messages:
 
 ```bash
-./scripts/git-in.sh <dir> commit -s -m "$(cat <<'EOF'
+git -C <dir> commit -s -m "$(cat <<'EOF'
 <commit message>
 
 Co-Authored-By: <active agent and model> <agent email>
@@ -84,7 +84,7 @@ Replace the co-author trailer with the actual agent and model being used:
 
 ### 5. Verify
 
-Run `./scripts/git-in.sh <dir> status` after commit to confirm success.
+Run `git -C <dir> status` after commit to confirm success.
 
 ## Commit Message Format
 
@@ -102,8 +102,8 @@ Signed-off-by: <user name> <user email>
 ## Example
 
 ```bash
-./scripts/git-in.sh . add skills/stage-and-commit/SKILL.md CLAUDE.md README.md
-./scripts/git-in.sh . commit -s -m "$(cat <<'EOF'
+git -C . add skills/stage-and-commit/SKILL.md CLAUDE.md README.md
+git -C . commit -s -m "$(cat <<'EOF'
 feat: Add stage-and-commit skill for standardized commits
 
 Introduces /stage-and-commit skill that enforces signed commits

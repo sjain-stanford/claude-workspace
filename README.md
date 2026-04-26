@@ -19,8 +19,6 @@ claude-workspace/
 │   ├── hipdnn/
 │   ├── iree/
 │   └── torch-mlir/
-├── scripts/         # Workspace utility scripts
-│   └── git-in.sh
 ├── skills/          # Project specific skills and shared references
 │   ├── build-test-lint/
 │   ├── bump-fusilli-deps/
@@ -100,4 +98,4 @@ claude-workspace/
 
 4. **Start developing:**
    - Use Claude Code or Codex for AI-assisted development
-   - Use `./scripts/git-in.sh <repo> <git-args...>` for git commands inside sub-repositories
+   - Use `git -C projects/<repo> <git-args...>` for git commands inside sub-repositories

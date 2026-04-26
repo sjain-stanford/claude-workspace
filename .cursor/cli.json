@@ -27,7 +27,6 @@
       "Shell(pre-commit)",
       "Shell(rocminfo)",
       "Shell(iree-compile)",
-      "Shell(./scripts/git-in.sh)",
       "Shell(./build_tools/scripts/build.sh)",
       "Shell(./build_tools/scripts/test.sh)",
       "Shell(./build_tools/scripts/coverage.sh)"
@@ -35,8 +34,6 @@
     "deny": [
       "Shell(git:push)",
       "Shell(git:push *)",
-      "Shell(./scripts/git-in.sh:* push)",
-      "Shell(./scripts/git-in.sh:* push *)",
       "Read(**/.env*)",
       "Read(**/secrets/**)",
       "Read(**/*credentials*)",
