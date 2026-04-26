@@ -13,14 +13,16 @@ Stages and commits changes following workspace conventions: signed commits with 
 /stage-and-commit [message]
 ```
 
-- `message` (optional): Commit message. If not provided, Claude will analyze changes and draft an appropriate message.
+- `message` (optional): Commit message. If not provided, the active agent will analyze changes and draft an appropriate message.
 
 ## Commit Rules
 
 **CRITICAL**: These rules must always be followed:
 
 1. **Signed commits**: Always use `git commit -s` to include `Signed-off-by` trailer
-2. **Co-authorship**: Always include `Co-Authored-By: Claude <model> <noreply@anthropic.com>` trailer
+2. **Co-authorship**: Always include the active agent's co-author trailer:
+   - Codex/OpenAI: `Co-Authored-By: GPT <model> <codex@openai.com>` (for example, `GPT 5.5`)
+   - Claude/Anthropic: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` (for example, `Claude Opus 4.6`)
 3. **No push**: NEVER push to remote. Only commit locally. User must explicitly request push separately.
 4. **Specific staging**: Prefer staging specific files by name over `git add -A` or `git add .`
 
@@ -71,12 +73,14 @@ Use HEREDOC format to ensure proper formatting of multi-line commit messages:
 ./scripts/git-in.sh <dir> commit -s -m "$(cat <<'EOF'
 <commit message>
 
-Co-Authored-By: Claude <model> <noreply@anthropic.com>
+Co-Authored-By: <active agent and model> <agent email>
 EOF
 )"
 ```
 
-Replace `<model>` with the actual model name (e.g., `Opus 4.6`, `Sonnet 4`).
+Replace the co-author trailer with the actual agent and model being used:
+- Codex/OpenAI: `Co-Authored-By: GPT 5.5 <codex@openai.com>`
+- Claude/Anthropic: `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
 
 ### 5. Verify
 
@@ -89,7 +93,7 @@ Run `./scripts/git-in.sh <dir> status` after commit to confirm success.
 
 <optional body explaining why, not what>
 
-Co-Authored-By: Claude <model> <noreply@anthropic.com>
+Co-Authored-By: <active agent and model> <agent email>
 Signed-off-by: <user name> <user email>
 ```
 
@@ -105,7 +109,7 @@ feat: Add stage-and-commit skill for standardized commits
 Introduces /stage-and-commit skill that enforces signed commits
 and co-authorship attribution per workspace conventions.
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+Co-Authored-By: GPT 5.5 <codex@openai.com>
 EOF
 )"
 ```

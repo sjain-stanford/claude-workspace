@@ -24,6 +24,13 @@ and separate from IREE/TheRock version bumps).
 - User must have write access to the fusilli repo
 - For docker image updates: write access to the docker repo as well
 
+## Agent Attribution
+
+Use the active agent's identity in commits and generated PR footers:
+- Codex/OpenAI commit trailer: `Co-Authored-By: GPT <model> <codex@openai.com>` (for example, `GPT 5.5`)
+- Claude/Anthropic commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` (for example, `Claude Opus 4.6`)
+- PR footer: use `Generated with Codex` for Codex or `Generated with Claude Code` for Claude Code
+
 ## Architecture
 
 Version management uses `version.json` as the single source of truth:
@@ -118,7 +125,7 @@ Each dependency that has a newer version gets its own branch, commit, and PR. If
 
      IREE: OLD_VERSION -> NEW_VERSION
 
-     Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+     Co-Authored-By: <active agent and model> <agent email>
      EOF
      )"
      ```
@@ -138,7 +145,7 @@ Each dependency that has a newer version gets its own branch, commit, and PR. If
 
      **IREE changelog**: https://github.com/iree-org/iree/compare/iree-OLD_VERSION...iree-NEW_VERSION
 
-     🤖 Generated with [Claude Code](https://claude.com/claude-code)
+     Generated with <active agent>
      EOF
      )"
      ```
@@ -161,7 +168,7 @@ Each dependency that has a newer version gets its own branch, commit, and PR. If
 
      TheRock: OLD_VERSION -> NEW_VERSION
 
-     Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+     Co-Authored-By: <active agent and model> <agent email>
      EOF
      )"
      ```
@@ -179,7 +186,7 @@ Each dependency that has a newer version gets its own branch, commit, and PR. If
      |------------|-----|-----|
      | TheRock | `OLD_VERSION` | `NEW_VERSION` |
 
-     🤖 Generated with [Claude Code](https://claude.com/claude-code)
+     Generated with <active agent>
      EOF
      )"
      ```
