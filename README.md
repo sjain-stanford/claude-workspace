@@ -92,10 +92,9 @@ claude-workspace/
    ```
 
 3. **Launch development container:**
-   - Open Cursor IDE rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)
+   - Open Cursor or VS Code rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)
    - `Ctrl + Shift + P` and select  `Dev Containers: Attach to Running Container`
-   - From the new window again open `claude-workspace` and launch Claude Code from Cursor: `Claude Code: Open in Terminal`
+   - From the new window again open `claude-workspace` and launch the agent (Claude Code or Codex)
 
 4. **Start developing:**
    - Use Claude Code or Codex for AI-assisted development
-   - Run git commands from the relevant sub-repository directory under `projects/`

@@ -66,6 +66,10 @@ Run git commands from the relevant repository directory. For sub-repos under `pr
 
 Save implementation plans created during plan mode to `plans/` at claude-workspace root. These provide a record of design decisions and implementation strategies for non-trivial tasks.
 
+## Reviews
+
+Save PR reviews and self-review outputs to `reviews/` at claude-workspace root. These provide a record of findings, review context, and follow-up decisions for reviewed changes.
+
 ## Beads Workflow Integration
 
 This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking. A single central `.beads/` in claude-workspace tracks work across all sub-repos — there are no per-repo `.beads/` directories. Prefix bead titles with `[repo-name]` (e.g. `[fusilli]`, `[docker]`) to indicate which sub-repo the work relates to.
