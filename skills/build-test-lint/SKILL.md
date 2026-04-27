@@ -5,7 +5,7 @@ description: Build the Fusilli project, run tests, and execute lint checks. Use 
 
 # Build, Test, and Lint Skill
 
-Executes the full build, test, and lint pipeline for the Fusilli project using the scripts in `projects/fusilli/build_tools/scripts/` and reports results.
+Executes the full build, test, and lint pipeline for the Fusilli project using the scripts in the active Fusilli checkout and reports results. The active checkout may be the canonical `projects/fusilli` directory or a per-task worktree under `projects/worktrees/fusilli/`.
 
 ## Usage
 
@@ -32,7 +32,7 @@ If NOT in the container, immediately stop and report:
 
 ## Scripts Reference
 
-All build, test, and coverage operations use scripts in `projects/fusilli/build_tools/scripts/`:
+All build, test, and coverage operations use scripts in the active Fusilli checkout:
 
 | Script | Purpose |
 |--------|---------|
@@ -58,7 +58,7 @@ All build, test, and coverage operations use scripts in `projects/fusilli/build_
 
 ### Step 1: Build
 
-Run the build from the `projects/fusilli` directory using `build.sh`:
+Run the build from the active Fusilli checkout directory using `build.sh`:
 
 ```bash
 # GPU build (default)
@@ -96,7 +96,7 @@ After a successful build, run test and lint steps. These are independent of each
 
 #### Test
 
-Run tests using `test.sh` from the `projects/fusilli` directory:
+Run tests using `test.sh` from the active Fusilli checkout directory:
 
 ```bash
 ./build_tools/scripts/test.sh --build-dir build

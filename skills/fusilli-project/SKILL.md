@@ -7,7 +7,7 @@ description: Comprehensive knowledge base for the Fusilli project - a C++ Graph 
 
 Fusilli is a C++ Graph API and JIT Frontend for IREE that leverages just-in-time compiled and code-generated kernels to accelerate training and inference workloads. Inspired by cuDNN's graph API, it exposes cuDNN-like primitives backed by the IREE compiler and runtime stack.
 
-Note: All paths in this document are relative within the `projects/fusilli` directory unless specified otherwise.
+Note: All paths in this document are relative within the active Fusilli checkout unless specified otherwise. The active checkout may be `projects/fusilli` or a task worktree under `projects/worktrees/fusilli/`.
 
 ## Architecture Overview
 

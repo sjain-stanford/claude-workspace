@@ -4,7 +4,7 @@ A meta workspace for Claude Code and Codex-assisted development across my curren
 
 ## Overview
 
-This workspace is the shared root for local agent configuration, reusable skills, saved plans/reviews, and the independent git repositories cloned under `projects/`. The main active project is Fusilli, with IREE, Torch-MLIR, cuDNN frontend, hipDNN, and related tooling checked out as dependencies or API references.
+This workspace is the shared root for local agent configuration, reusable skills, saved plans/reviews, local Beads task state, git worktrees, and the independent git repositories cloned under `projects/`. The main active project is Fusilli, with IREE, Torch-MLIR, cuDNN frontend, hipDNN, and related tooling checked out as dependencies or API references.
 
 ## Structure
 
@@ -18,7 +18,8 @@ claude-workspace/
 │   ├── dot-files/
 │   ├── hipdnn/
 │   ├── iree/
-│   └── torch-mlir/
+│   ├── torch-mlir/
+│   └── worktrees/   # Local per-task git worktrees for parallel agents
 ├── skills/          # Project specific skills and shared references
 │   ├── build-test-lint/
 │   ├── bump-fusilli-deps/
@@ -29,11 +30,11 @@ claude-workspace/
 │   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
-├── plans/           # Saved implementation plans
+├── plans/           # Mandatory saved implementation plans for larger work
 ├── reviews/         # Saved PR and self-review outputs
 ├── .agents/         # Agent configuration
 │   └── skills -> ../skills
-├── .beads/          # Local issue tracker state
+├── .beads/          # Local-only issue tracker state
 ├── .claude/         # Claude Code configuration
 │   ├── settings.json
 │   ├── settings.local.json
@@ -98,3 +99,9 @@ claude-workspace/
 
 4. **Start developing:**
    - Use Claude Code or Codex for AI-assisted development
+
+## Agent Workflow
+
+For non-trivial feature work, write or reference a plan in `plans/`, decompose it into local Beads tasks, and have worker agents claim tasks with `br update <id> --claim`. Implementation agents should use per-task git worktrees under `projects/worktrees/<repo>/` instead of sharing the canonical `projects/<repo>/` checkout.
+
+Beads state is intentionally local to this machine and is not tracked in git. Plans and reviews are the durable human-readable record; Beads is the executable queue and session handoff memory for short-lived agents.

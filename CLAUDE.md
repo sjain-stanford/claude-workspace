@@ -27,6 +27,9 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - Use as reference but expect Claude/Codex is launched from a dev-container already
 - `projects/dot-files/` - Personal configuration files (shell, editor, git, etc.)
   - Setup scripts and dotfile management
+- `projects/worktrees/` - Local git worktrees for parallel agent work
+  - This directory is intentionally gitignored by `projects/*`
+  - Create per-task worktrees here instead of editing the main checkout for feature work
 - `plans/` - Saved implementation plans from plan mode (gitignored contents, tracked directory)
 - `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
 - `scripts/` - Utility scripts for the meta workspace
@@ -58,13 +61,31 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 Run git commands from the relevant repository directory. For sub-repos under `projects/`, set the command working directory to `projects/<repo>` and use plain `git` commands.
 
+## Parallel Agent Worktrees
+
+Use git worktrees for autonomous feature work so independent agents do not share one mutable checkout. The canonical checkouts under `projects/<repo>/` are for reading, planning, review, and occasional direct user-directed work. For Bead-driven implementation, create a task worktree under `projects/worktrees/<repo>/<bead-id>-<short-slug>/`.
+
+Recommended pattern:
+
+```bash
+cd projects/<repo>
+git fetch origin
+git worktree add \
+  ../worktrees/<repo>/<bead-id>-<short-slug> \
+  -b agent/<bead-id>-<short-slug> origin/main
+```
+
+Run build, test, lint, commit, and PR commands from the worktree directory. At handoff, leave the Bead with the worktree path, branch name, commit/PR state, verification performed, and any remaining follow-up. Remove completed worktrees only after the branch/PR no longer needs local follow-up.
+
 ## PR Preferences
 
 - Do not include a "Test Plan" section in pull request descriptions unless test coverage is not handled by CI.
 
 ## Plans
 
-Save implementation plans created during plan mode to `plans/` at claude-workspace root. These provide a record of design decisions and implementation strategies for non-trivial tasks.
+Save implementation plans created during plan mode to `plans/` at claude-workspace root. These provide the durable design record for non-trivial work and are mandatory for larger feature efforts before workers fan out.
+
+After a plan is written, create Beads epics/tasks from it. Each task should reference the plan file and relevant section, include dependencies, acceptance criteria, expected repo/worktree, likely file areas, and verification commands. Workers should read the referenced plan context before claiming a task.
 
 ## Reviews
 
@@ -74,6 +95,8 @@ Save PR reviews and self-review outputs to `reviews/` at claude-workspace root. 
 
 This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking. A single central `.beads/` in claude-workspace tracks work across all sub-repos — there are no per-repo `.beads/` directories. Prefix bead titles with `[repo-name]` (e.g. `[fusilli]`, `[docker]`) to indicate which sub-repo the work relates to.
 CRITICAL: NEVER MENTION BEADS IN CODE. The beads are for your local work tracking only and do not persist. Always write proper TODOs or use github issues for long term/persistent tracking. 95% of all work you do should be tracked in beads. Think of it like a memory.
+
+`.beads/` is intentionally local-only and gitignored because all agents run on this one machine. Do not change `.gitignore` to track Beads state unless the workflow explicitly moves to multiple machines.
 
 ### Essential Commands
 
@@ -88,7 +111,7 @@ br search "keyword"   # Full-text search
 
 # Create and update
 br create --title="[repo] Title..." --description="..." --type=task --priority=2
-br update <id> --status=in_progress
+br update <id> --claim
 br close <id> --reason="Completed"
 br close <id1> <id2>  # Close multiple issues at once
 ```
@@ -96,10 +119,15 @@ br close <id1> <id2>  # Close multiple issues at once
 ### Workflow Pattern
 
 1. **Start**: Run `br ready` to find actionable work
-2. **Claim**: Use `br update <id> --status=in_progress`
-3. **Work**: Implement the task
-4. **Complete**: Use `br close <id>`
-5. **Sync**: Always run `br sync --flush-only` at session end
+2. **Inspect**: Run `br show <id>` and read any referenced plan file
+3. **Claim**: Use `br update <id> --claim` for atomic assignment
+4. **Isolate**: Create a git worktree under `projects/worktrees/<repo>/...` for implementation tasks
+5. **Work**: Implement the task, adding new Beads for discovered follow-up
+6. **Handoff**: Add a Bead comment or notes with branch/worktree path, verification, and next steps
+7. **Complete**: Use `br close <id> --reason="Completed"` only after the
+   work is pushed and a PR exists, unless the user explicitly says local
+   worktree state is enough to close it
+8. **Sync**: Always run `br sync --flush-only` at session end
 
 ### Key Concepts
 
@@ -107,11 +135,16 @@ br close <id1> <id2>  # Close multiple issues at once
 - **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers 0-4, not words)
 - **Types**: task, bug, feature, epic, chore, docs, question
 - **Blocking**: `br dep add <issue> <depends-on>` to add dependencies
+- **Claiming**: `br update <id> --claim` prevents two parallel agents from taking the same ready task. Persistent agent names are optional; disposable session identity is fine.
 
 ### Best Practices
 
 - Check `br ready` at session start to find available work
-- Update status as you work (in_progress → closed)
+- Claim with `br update <id> --claim` before editing
+- Use one worktree per independent implementation task
 - Create new issues with `br create` when you discover tasks
 - Use descriptive titles and set appropriate priority/type
+- Keep Beads focused on executable state; keep durable design in `plans/`
+- Do not close implementation Beads while code is only present as uncommitted
+  or unpushed local work; leave them open/in progress with handoff notes
 - Always sync before ending session
