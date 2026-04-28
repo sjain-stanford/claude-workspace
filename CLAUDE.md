@@ -72,10 +72,15 @@ cd projects/<repo>
 git fetch origin
 git worktree add \
   ../worktrees/<repo>/<bead-id>-<short-slug> \
-  -b agent/<bead-id>-<short-slug> origin/main
+  -b users/sambhav/<feature> origin/main
 ```
 
-Run build, test, lint, commit, and PR commands from the worktree directory. At handoff, leave the Bead with the worktree path, branch name, commit/PR state, verification performed, and any remaining follow-up. Remove completed worktrees only after the branch/PR no longer needs local follow-up.
+Use concise, descriptive branch features, for example
+`users/sambhav/matmul-semantics`. Run build, test, lint, commit, and PR
+commands from the worktree directory. At handoff, leave the Bead with the
+worktree path, branch name, commit/PR state, verification performed, and any
+remaining follow-up. Remove completed worktrees only after the branch/PR no
+longer needs local follow-up.
 
 ## PR Preferences
 

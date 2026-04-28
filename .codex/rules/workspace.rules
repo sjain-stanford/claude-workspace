@@ -25,6 +25,7 @@ prefix_rule(pattern=["git", "sparse-checkout"], decision="allow")
 prefix_rule(pattern=["git", "checkout"], decision="allow")
 prefix_rule(pattern=["git", "fetch"], decision="allow")
 prefix_rule(pattern=["git", "grep"], decision="allow")
+prefix_rule(pattern=["rg"], decision="allow")
 prefix_rule(pattern=["grep"], decision="allow")
 prefix_rule(pattern=["sed"], decision="allow")
 prefix_rule(pattern=["tee"], decision="allow")
@@ -53,6 +54,10 @@ prefix_rule(pattern=["iree-compile"], decision="allow")
 prefix_rule(pattern=["./build_tools/scripts/build.sh"], decision="allow")
 prefix_rule(pattern=["./build_tools/scripts/test.sh"], decision="allow")
 prefix_rule(pattern=["./build_tools/scripts/coverage.sh"], decision="allow")
+
+# prompt
+prefix_rule(pattern=["gh", "pr", "create"], decision="prompt")
+prefix_rule(pattern=["gh", "pr", "edit"], decision="prompt")
 
 # forbidden
 prefix_rule(pattern=["git", "push"], decision="forbidden")
