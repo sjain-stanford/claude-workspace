@@ -89,7 +89,7 @@ Run `git status` after commit to confirm success.
 ## Commit Message Format
 
 ```
-<type>: <short description>
+<short description>
 
 <optional body explaining why, not what>
 
@@ -97,14 +97,16 @@ Co-Authored-By: <active agent and model> <agent email>
 Signed-off-by: <user name> <user email>
 ```
 
-**Types**: feat, fix, update, refactor, test, docs, chore
+Do not add a type prefix such as `feat:`, `fix:`, `docs:`, or `chore:`
+unless the user explicitly asks for one or the repository's recent history
+overwhelmingly requires it.
 
 ## Example
 
 ```bash
 git add skills/stage-and-commit/SKILL.md CLAUDE.md README.md
 git commit -s -m "$(cat <<'EOF'
-feat: Add stage-and-commit skill for standardized commits
+Add stage-and-commit skill for standardized commits
 
 Introduces /stage-and-commit skill that enforces signed commits
 and co-authorship attribution per workspace conventions.
