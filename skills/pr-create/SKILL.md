@@ -5,7 +5,7 @@ description: Create a GitHub pull request for a sub-repo branch. Use when asked 
 
 # PR Create Skill
 
-Creates GitHub pull requests following workspace conventions: succinct descriptions.
+Creates GitHub pull requests following workspace conventions: compact prose descriptions.
 
 ## Usage
 
@@ -47,18 +47,19 @@ cd projects/<repo> && git push -u origin HEAD
 
 **Title**: Use the same style as commit messages — concise, imperative mood, under 72 characters. For single-commit PRs, reuse the commit subject line.
 
-**Description**: Keep it succinct but clear. Use the following template:
+**Description**: Use short prose paragraphs, no section headings by default.
 
 ```markdown
-## Summary
+<One concise paragraph describing the primary change and why it matters.>
 
-- <bullet 1: what changed and why>
-- <bullet 2: additional context if needed>
+<Optional second concise paragraph for supporting changes, cleanup, or test adjustments.>
 ```
 
 **Rules**:
 - Focus on *why*, not *what* — the diff shows what changed
-- One to three bullets maximum
+- Prefer one paragraph; use two paragraphs when there is a meaningful secondary change
+- Do not use bullets or headings for normal PRs
+- Keep each paragraph short and specific; avoid restating every changed file
 - Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
 - Do NOT include `Co-Authored-By` in the PR body — co-authorship is already tracked in commit messages
 
@@ -70,9 +71,9 @@ Use HEREDOC format for the body to preserve formatting:
 cd projects/<repo> && gh pr create \
   --title "<title>" \
   --body "$(cat <<'EOF'
-## Summary
+<One concise paragraph describing the primary change and why it matters.>
 
-- <bullet>
+<Optional second concise paragraph for supporting changes, cleanup, or test adjustments.>
 EOF
 )"
 ```
@@ -99,9 +100,7 @@ Return the PR URL to the user.
 cd projects/docker && gh pr create \
   --title "Mount ~/.cursor into dev container for Cursor config access" \
   --body "$(cat <<'EOF'
-## Summary
-
-- Mount `~/.cursor` so Cursor IDE settings and MCP configs are accessible inside the dev container.
+Mounts `~/.cursor` into the dev container so Cursor IDE settings and MCP configs are available inside the workspace.
 EOF
 )"
 ```
