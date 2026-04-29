@@ -24,6 +24,8 @@ claude-workspace/
 │   ├── build-test-lint/
 │   ├── bump-fusilli-deps/
 │   ├── fusilli-project/
+│   ├── gh-address-comments/
+│   ├── gh-fix-ci/
 │   ├── pr-create/
 │   ├── pr-review/
 │   ├── self-review/
@@ -39,9 +41,12 @@ claude-workspace/
 │   ├── settings.json
 │   ├── settings.local.json
 │   └── skills -> ../skills
-├── .codex/          # Codex rules and local configuration
+├── .codex/          # Codex local configuration and rules
+│   ├── config.toml
 │   └── rules/
 ├── .cursor/         # Cursor local configuration
+│   └── cli.json
+├── .cache/          # Local caches for workspace tooling and docker/dependency artifacts
 ├── AGENTS.md        # Top-level instructions for agents
 ├── CLAUDE.md        # Top-level context for Claude Code
 ├── LICENSE

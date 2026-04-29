@@ -32,12 +32,12 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - Create per-task worktrees here instead of editing the main checkout for feature work
 - `plans/` - Saved implementation plans from plan mode (gitignored contents, tracked directory)
 - `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
-- `scripts/` - Utility scripts for the meta workspace
 - `skills/` - Project-specific skills and shared references
 - `.agents/` - Agent configuration; includes `skills -> ../skills` symlink for Codex skill discovery
 - `.claude/` - Claude Code configuration; includes settings and `skills -> ../skills` symlink
-- `.codex/` - Codex rules and local configuration
+- `.codex/` - Codex local configuration and rules
 - `.cursor/` - Cursor local configuration
+- `.cache/` - Local caches for workspace tooling and docker/dependency artifacts (gitignored)
 - `.beads/` - Local issue tracker state for this workspace
 - `CLAUDE.md` - Top-level context for Claude Code
 - `AGENTS.md` - Top-level instructions shared with agents (symlink to CLAUDE.md)
@@ -48,6 +48,8 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/build-test-lint/` - Build, test, and lint for Fusilli; use after code changes to verify integrity
 - `skills/bump-fusilli-deps/` - Automate bumping IREE and TheRock to latest nightly versions
 - `skills/fusilli-project/` - Use when adding new features or debugging issues in Fusilli
+- `skills/gh-address-comments/` - Use when addressing GitHub PR or issue comments on the current branch
+- `skills/gh-fix-ci/` - Use when debugging and fixing failing GitHub Actions checks for a PR
 - `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions and agent co-authorship)
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
