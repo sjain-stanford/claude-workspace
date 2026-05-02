@@ -1,0 +1,225 @@
+"""Push planning + execution. Shared between the CLI (`gh-push`) and the
+web UI's confirmation-modal endpoints.
+
+Two phases so the UI can preview before committing:
+- `plan_push(comments)` — pure: classify into new-top/reply/edit buckets,
+  build the local→external id map, count skipped rows.
+- `execute_push(session_dir, session, ghpr, plan)` — side-effecting: hits
+  `gh` for each bucket, persists external_* on each successful comment.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from . import gh, models, session as sess, store
+
+
+@dataclass
+class PushPlan:
+    new_top: list[models.Comment] = field(default_factory=list)
+    new_replies: list[models.Comment] = field(default_factory=list)
+    edits: list[models.Comment] = field(default_factory=list)
+    skipped_meta: int = 0
+    skipped_imported_reviews: int = 0
+    # local_id → external_id, seeded from already-pushed comments.
+    ext_map: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def total(self) -> int:
+        return len(self.new_top) + len(self.new_replies) + len(self.edits)
+
+
+@dataclass
+class PushItemResult:
+    id: str
+    action: str  # "new" | "reply" | "edit"
+    external_id: str | None = None
+    external_url: str | None = None
+    error: str | None = None
+
+
+@dataclass
+class PushResult:
+    items: list[PushItemResult] = field(default_factory=list)
+    pushed: int = 0
+    failed: int = 0
+    orphaned: int = 0
+    skipped_meta: int = 0
+    skipped_imported_reviews: int = 0
+
+    def summary(self) -> str:
+        parts = [f"Pushed {self.pushed}"]
+        if self.failed:
+            parts.append(f"failed {self.failed}")
+        if self.orphaned:
+            parts.append(f"orphaned {self.orphaned}")
+        if self.skipped_meta:
+            parts.append(f"skipped {self.skipped_meta} __meta__")
+        if self.skipped_imported_reviews:
+            parts.append(f"skipped {self.skipped_imported_reviews} imported reviews")
+        return ", ".join(parts) + "."
+
+
+def plan_push(comments: list[models.Comment]) -> PushPlan:
+    """Classify live comments into push buckets.
+
+    - external_id is None → new (top-level or reply by reply_to)
+    - external_id set + body diverges from synced body → edit
+    - matches synced → no-op (not in any bucket)
+    - file == META_FILE → skipped (__meta__ has no GH equivalent)
+    - imported/pushed PR review summaries are skipped after their backing
+      GitHub review object exists
+    """
+    plan = PushPlan()
+    for c in comments:
+        c.category = models.normalize_comment_category(c.category)
+        if c.deleted:
+            continue
+        if c.file == sess.META_FILE:
+            plan.skipped_meta += 1
+            continue
+        if c.external_source and c.external_source != "github":
+            plan.skipped_imported_reviews += 1
+            continue
+        if models.category_is_review_decision(c.category) and c.file != sess.GLOBAL_FILE:
+            plan.skipped_meta += 1
+            continue
+        if c.external_id is None:
+            (plan.new_replies if c.reply_to else plan.new_top).append(c)
+        elif c.body != (c.external_synced_body or ""):
+            plan.edits.append(c)
+    plan.ext_map = {
+        c.id: c.external_id for c in comments
+        if c.external_id is not None
+    }
+    return plan
+
+
+def execute_push(
+    session_dir: str | Path,
+    session: models.Session,
+    ghpr: models.GitHubPR,
+    plan: PushPlan,
+) -> PushResult:
+    """Run the plan: POST new top-levels, then replies, then PATCH edits.
+
+    Replies whose parent has no external_id (and isn't pushed in this run)
+    are reported as orphaned. Each successful op stamps `external_id`,
+    `external_url`, and `external_synced_body` on the local comment so a
+    re-run is a no-op.
+    """
+    result = PushResult(
+        skipped_meta=plan.skipped_meta,
+        skipped_imported_reviews=plan.skipped_imported_reviews,
+    )
+    ext_map = dict(plan.ext_map)  # local copy — don't mutate caller's
+
+    for c in plan.new_top:
+        try:
+            if c.file == sess.GLOBAL_FILE:
+                if c.category == models.CommentCategory.APPROVE.value:
+                    resp = gh.post_pr_review(
+                        ghpr.repo, ghpr.number, event="APPROVE", body=c.body,
+                    )
+                elif c.category == models.CommentCategory.REQUEST_CHANGES.value:
+                    resp = gh.post_pr_review(
+                        ghpr.repo, ghpr.number,
+                        event="REQUEST_CHANGES", body=c.body,
+                    )
+                else:
+                    resp = gh.post_issue_comment(ghpr.repo, ghpr.number, body=c.body)
+            else:
+                # GitHub anchors a multi-line comment at its END line and
+                # uses `start_line` for the (strictly smaller) start. Our
+                # local model stores `line=lo, end_line=hi` (web composer
+                # normalizes that way), so swap the roles here. For a
+                # single-line comment end_line is None and we send only
+                # `line`, with `start_line=None` suppressing the field.
+                end = c.end_line if c.end_line is not None else c.line
+                lo, hi = (c.line, end) if c.line <= end else (end, c.line)
+                resp = gh.post_review_comment(
+                    ghpr.repo, ghpr.number,
+                    body=c.body,
+                    commit_id=session.current_head,
+                    path=c.file,
+                    line=hi,
+                    start_line=lo if lo != hi else None,
+                )
+        except gh.GhError as e:
+            result.items.append(PushItemResult(id=c.id, action="new", error=str(e)))
+            result.failed += 1
+            continue
+        ext_id = str(resp["id"])
+        url = resp.get("html_url", "")
+        external_source = (
+            "github-review"
+            if c.category in {
+                models.CommentCategory.APPROVE.value,
+                models.CommentCategory.REQUEST_CHANGES.value,
+            }
+            else "github"
+        )
+        store.update_comment_external(
+            session_dir, c.id,
+            external_source=external_source, external_id=ext_id,
+            external_url=url, external_synced_body=c.body,
+        )
+        ext_map[c.id] = ext_id
+        result.items.append(PushItemResult(
+            id=c.id, action="new", external_id=ext_id, external_url=url,
+        ))
+        result.pushed += 1
+
+    for c in plan.new_replies:
+        parent_ext = ext_map.get(c.reply_to or "")
+        if not parent_ext:
+            result.items.append(PushItemResult(
+                id=c.id, action="reply",
+                error=f"parent {c.reply_to} not pushed",
+            ))
+            result.orphaned += 1
+            continue
+        try:
+            resp = gh.post_review_reply(
+                ghpr.repo, ghpr.number, parent_ext, body=c.body,
+            )
+        except gh.GhError as e:
+            result.items.append(PushItemResult(id=c.id, action="reply", error=str(e)))
+            result.failed += 1
+            continue
+        ext_id = str(resp["id"])
+        url = resp.get("html_url", "")
+        store.update_comment_external(
+            session_dir, c.id,
+            external_source="github", external_id=ext_id,
+            external_url=url, external_in_reply_to=parent_ext,
+            external_synced_body=c.body,
+        )
+        ext_map[c.id] = ext_id
+        result.items.append(PushItemResult(
+            id=c.id, action="reply", external_id=ext_id, external_url=url,
+        ))
+        result.pushed += 1
+
+    for c in plan.edits:
+        try:
+            if c.file == sess.GLOBAL_FILE:
+                gh.patch_issue_comment(ghpr.repo, c.external_id, body=c.body)
+            else:
+                gh.patch_review_comment(ghpr.repo, c.external_id, body=c.body)
+        except gh.GhError as e:
+            result.items.append(PushItemResult(id=c.id, action="edit", error=str(e)))
+            result.failed += 1
+            continue
+        store.update_comment_external(
+            session_dir, c.id,
+            external_synced_body=c.body,
+        )
+        result.items.append(PushItemResult(
+            id=c.id, action="edit",
+            external_id=c.external_id, external_url=c.external_url,
+        ))
+        result.pushed += 1
+
+    return result
