@@ -808,10 +808,28 @@
   }
   setInterval(refreshComments, 3000);
 
-  // --- Inbox transcript (agent ask/reply) ---
+  // --- Agent activity: notes plus ask/reply transcript ---
   // Read-only. Polled on the same 3s cadence as comments so a reviewer
-  // watching the page sees blocking questions appear and replies land
+  // watching the page sees test notes, blocking questions, and replies land
   // without manual refresh.
+  function renderNoteEntry(note) {
+    const id = esc(note.id || "");
+    const agent = esc(note.author || "unknown");
+    const ts = esc(note.timestamp || "");
+    const body = esc(note.body || "");
+    return `<div class="activity-entry note-entry" data-note-id="${id}" data-key="note/${id}" data-kind="note">
+        <div class="ix-q">
+          <span class="ix-meta">
+            <span class="agent">${agent}</span>
+            <span class="qid mono">${id}</span>
+            <span class="kind">note</span>
+            <span class="ts mono">${ts}</span>
+          </span>
+          <pre class="ix-body note-body">${body}</pre>
+        </div>
+      </div>`;
+  }
+
   function renderInboxEntry(entry) {
     const agent = esc(entry.agent || "");
     const qid = esc(entry.id || "");
@@ -834,11 +852,12 @@
           <span class="ix-meta"><span class="agent">↳ awaiting reply…</span></span>
         </div>`;
     }
-    return `<div class="ix-entry" data-qid="${qid}">
+    return `<div class="activity-entry ix-entry" data-qid="${qid}" data-key="${agent}/${qid}" data-kind="question" data-replied="${entry.reply ? "1" : "0"}">
         <div class="ix-q">
           <span class="ix-meta">
             <span class="agent">${agent}</span>
             <span class="qid mono">${qid}</span>
+            <span class="kind">question</span>
             <span class="ts mono">${qts}</span>
           </span>
           <pre class="ix-body">${qtext}</pre>
@@ -847,20 +866,27 @@
       </div>`;
   }
 
-  function inboxKey(entry) {
+  function activityEntry(entry) {
+    return entry.kind === "note" ? renderNoteEntry(entry) : renderInboxEntry(entry);
+  }
+
+  function activityKey(entry) {
+    if (entry.kind === "note") return `note/${entry.id}`;
     // Question id is unique only within an agent — combine with agent name.
     return `${entry.agent}/${entry.id}`;
   }
 
   function entryReplied(entry) {
-    return entry.reply ? 1 : 0;
+    return entry.kind !== "note" && entry.reply ? 1 : 0;
   }
 
   function updateInboxCounts(fetched) {
     const el = document.getElementById("inbox-counts");
     if (!el) return;
     const total = fetched.length;
-    const pending = fetched.reduce((n, e) => n + (e.reply ? 0 : 1), 0);
+    const pending = fetched.reduce(
+      (n, e) => n + (e.kind === "note" || e.reply ? 0 : 1), 0
+    );
     let html;
     if (pending > 0) {
       html = `<span class="count open">${pending}</span>`
@@ -876,12 +902,20 @@
   async function refreshInbox() {
     const list = document.getElementById("inbox-list");
     if (!list) return;
-    let fetched;
+    let transcript, notes;
     try {
-      const r = await fetch(sessionUrl + "/api/inbox");
-      if (!r.ok) return;
-      fetched = await r.json();
+      const [inboxResp, notesResp] = await Promise.all([
+        fetch(sessionUrl + "/api/inbox"),
+        fetch(sessionUrl + "/api/notes"),
+      ]);
+      if (!inboxResp.ok || !notesResp.ok) return;
+      transcript = await inboxResp.json();
+      notes = await notesResp.json();
     } catch { return; }
+    const fetched = [
+      ...notes.map((n) => ({ ...n, kind: "note" })),
+      ...transcript.map((e) => ({ ...e, kind: "question" })),
+    ].sort((a, b) => String(a.timestamp || "").localeCompare(String(b.timestamp || "")));
     updateInboxCounts(fetched);
 
     // Snapshot current DOM state keyed by qid + reply-flag so we can detect:
@@ -889,13 +923,9 @@
     //   - vanished entries (remove — rare, only via manual file deletion)
     //   - reply landed on a previously-pending entry (replace that node)
     const fetchedByKey = new Map();
-    for (const e of fetched) fetchedByKey.set(inboxKey(e), e);
+    for (const e of fetched) fetchedByKey.set(activityKey(e), e);
     const domByKey = new Map();
-    for (const el of list.querySelectorAll(".ix-entry")) {
-      const agent = el.parentElement && el.dataset.qid;
-      // Reconstruct the same key the server would emit. We store agent on
-      // the entry's first child via the ix-meta .agent text — that's
-      // brittle; instead we attach data-key directly. Fall back to qid only.
+    for (const el of list.querySelectorAll(".activity-entry")) {
       const key = el.dataset.key || el.dataset.qid;
       domByKey.set(key, el);
     }
@@ -919,9 +949,9 @@
       list.innerHTML = "";
       for (const e of fetched) {
         const wrap = document.createElement("div");
-        wrap.innerHTML = renderInboxEntry(e);
+        wrap.innerHTML = activityEntry(e);
         const node = wrap.firstElementChild;
-        node.dataset.key = inboxKey(e);
+        node.dataset.key = activityKey(e);
         node.dataset.replied = entryReplied(e) ? "1" : "0";
         list.appendChild(node);
       }

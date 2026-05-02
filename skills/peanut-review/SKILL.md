@@ -373,12 +373,15 @@ The server:
   under `/sessions/<id>/`.
 - Shows existing comments (agent + human) anchored to source-file lines,
   with author, severity, category, round, and stale/resolved badges.
+- Shows free-form agent notes, including test execution reports, in the
+  agent activity section; notes are not pushed to GitHub.
 - Lets humans post new comments by clicking a line number, or high-level
   comments via the "High-level feedback" section at the top of each session.
 - Auto-detects workspace HEAD shifts (e.g. `git commit --amend`) and runs
   `migrate` — stale comments get dimmed in the UI. No more git-notes
   coupling to commit SHAs.
-- Exposes `/api/sessions` (list) and `/sessions/<id>/api/{session,comments,resolve}`
+- Exposes `/api/sessions` (list) and
+  `/sessions/<id>/api/{session,comments,notes,inbox,resolve}`
   (per-session JSON).
 
 Standalone human-only review (no agents):
@@ -494,7 +497,7 @@ Agents can interact with peanut-review in two ways:
 `.cursor/mcp.json` and uses the `agent-prompt-mcp.md` template. The MCP server
 uses `uv run` against the checked-out package (requires `uv` on PATH). Agents
 call structured MCP tools (`add_comment`,
-`add_global_comment`, `signal`, `wait`, etc.) instead of Shell commands.
+`add_global_comment`, `note`, `signal`, `wait`, etc.) instead of Shell commands.
 
 Benefits:
 - Agents call typed functions — no risk of printing commands instead of executing

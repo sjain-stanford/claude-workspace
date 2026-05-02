@@ -90,6 +90,9 @@ def status() -> str:
             f"{sum(1 for c in comments if c.severity == 'critical')} critical, "
             f"{sum(1 for c in comments if c.resolved)} resolved"
         )
+    notes = store.read_all_notes(sd)
+    if notes:
+        lines.append(f"Notes: {len(notes)}")
 
     return "\n".join(lines)
 
@@ -109,7 +112,7 @@ def add_comment(
     use `add_global_comment` instead.
 
     Args:
-        file: Relative file path (use "__meta__" for test execution reports)
+        file: Relative file path
         line: Line number in the SOURCE FILE (not the diff output). Must be >= 1 for real files.
         body: Comment text describing the finding
         severity: One of: critical, warning, suggestion, nit, feedback.
@@ -184,6 +187,24 @@ def add_global_comment(
     )
     store.append_comment(sd, comment)
     return f"Global comment {comment.id} stored."
+
+
+@mcp.tool()
+def note(message: str) -> str:
+    """Record free-form agent activity outside the review comment stream.
+
+    Use this for test execution reports, local reproduction notes, tool
+    failures that did not block the review, or other operational context that
+    should be visible in peanut-review but should not be pushed to GitHub.
+
+    Args:
+        message: Free-form markdown note body.
+    """
+    sd = _session_dir()
+    author = _get_author()
+    item = models.Note(author=author, body=message)
+    store.append_note(sd, item)
+    return f"Note {item.id} stored."
 
 
 @mcp.tool()
@@ -294,6 +315,24 @@ def list_comments(
         loc = "[global]" if c.file == sess.GLOBAL_FILE else f"{c.file}:{c.line}"
         lines.append(f"[{c.id}] {c.author} {c.severity} {loc}{stale}{resolved}")
         lines.append(f"  {c.body}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def list_notes(
+    since: str | None = None,
+) -> str:
+    """List free-form activity notes, optionally after a note id."""
+    sd = _session_dir()
+    notes = store.filter_notes(store.read_all_notes(sd), since=since)
+    if not notes:
+        return "No notes found."
+
+    lines = []
+    for n in notes:
+        lines.append(f"[{n.id}] {n.author} {n.timestamp}")
+        lines.append(f"  {n.body}")
         lines.append("")
     return "\n".join(lines)
 

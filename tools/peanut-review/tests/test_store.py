@@ -3,15 +3,19 @@ import json
 import tempfile
 from pathlib import Path
 
-from peanut_review.models import Comment
+from peanut_review.models import Comment, Note
 from peanut_review.store import (
     append_comment,
+    append_note,
     delete_comment,
     edit_comment,
     filter_comments,
+    filter_notes,
     mark_stale,
     read_agent_comments,
+    read_agent_notes,
     read_all_comments,
+    read_all_notes,
     resolve_comment,
     undelete_comment,
     update_comment_external,
@@ -47,6 +51,33 @@ def test_multiple_agents():
 
     all_c = read_all_comments(sd)
     assert len(all_c) == 3
+
+
+def test_append_and_read_notes_are_separate_from_comments():
+    sd = _make_session()
+    note = Note(author="vera", body="## Test Execution\npassed")
+    append_note(sd, note)
+
+    notes = read_agent_notes(sd, "vera")
+    assert len(notes) == 1
+    assert notes[0].id == note.id
+    assert notes[0].body == "## Test Execution\npassed"
+    assert read_all_comments(sd) == []
+
+
+def test_filter_notes_by_agent_and_since():
+    sd = _make_session()
+    a = Note(author="vera", body="A")
+    b = Note(author="felix", body="B")
+    c = Note(author="vera", body="C")
+    append_note(sd, a)
+    append_note(sd, b)
+    append_note(sd, c)
+
+    all_notes = read_all_notes(sd)
+    assert [n.body for n in filter_notes(all_notes, agent="vera")] == ["A", "C"]
+    assert [n.body for n in filter_notes(all_notes, since=a.id)] == ["B", "C"]
+    assert filter_notes(all_notes, since=c.id) == []
 
 
 def test_filter_comments():

@@ -12,7 +12,7 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_for_filename
 from pygments.util import ClassNotFound
 
-from ..models import Comment, Session
+from ..models import Comment, Note, Session
 from ..session import GLOBAL_FILE
 from .diff import FileDiff
 
@@ -108,60 +108,86 @@ def _group_threads_by_anchor(
     return out
 
 
-def render_inbox_section(transcript: list[dict]) -> str:
-    """Bottom-of-page section showing the agent help-channel transcript.
+def _render_note_entry(note: Note) -> str:
+    nid = html.escape(note.id)
+    agent = html.escape(note.author or "unknown")
+    ts = html.escape(note.timestamp)
+    body = html.escape(note.body)
+    return (
+        f'<div class="activity-entry note-entry" data-note-id="{nid}" '
+        f'data-key="note/{nid}" data-kind="note">'
+        f'<div class="ix-q"><span class="ix-meta">'
+        f'<span class="agent">{agent}</span>'
+        f'<span class="qid mono">{nid}</span>'
+        f'<span class="kind">note</span>'
+        f'<span class="ts mono">{ts}</span>'
+        f'</span><pre class="ix-body note-body">{body}</pre></div>'
+        f'</div>'
+    )
 
-    Read-only: humans/orchestrators reply via the CLI (`peanut-review reply`)
-    so the existing `ask`-blocking flow stays the source of truth. Polled by
-    the same JS loop as comments and reconciled in place.
-    """
-    if not transcript:
-        body = (
-            '<p class="muted">No agent questions yet. When an agent calls '
-            '<code>peanut-review ask</code>, the question and the '
-            'orchestrator\'s reply appear here.</p>'
+
+def _render_inbox_entry(entry: dict) -> str:
+    agent = html.escape(entry.get("agent", ""))
+    qid = html.escape(entry.get("id", ""))
+    qts = html.escape(entry.get("timestamp", ""))
+    qtext = html.escape(entry.get("question", ""))
+    reply = entry.get("reply")
+    row = [
+        f'<div class="activity-entry ix-entry" data-qid="{qid}" '
+        f'data-key="{agent}/{qid}" '
+        f'data-kind="question" data-replied="{1 if reply else 0}">',
+        f'<div class="ix-q"><span class="ix-meta">'
+        f'<span class="agent">{agent}</span>'
+        f'<span class="qid mono">{qid}</span>'
+        f'<span class="kind">question</span>'
+        f'<span class="ts mono">{qts}</span>'
+        f'</span><pre class="ix-body">{qtext}</pre></div>',
+    ]
+    if reply:
+        ats = html.escape(reply.get("timestamp", ""))
+        aby = html.escape(reply.get("answered_by", "orchestrator"))
+        atext = html.escape(reply.get("answer", ""))
+        row.append(
+            f'<div class="ix-r"><span class="ix-meta">'
+            f'<span class="agent">↳ {aby}</span>'
+            f'<span class="ts mono">{ats}</span>'
+            f'</span><pre class="ix-body">{atext}</pre></div>'
         )
     else:
-        rows = []
-        for entry in transcript:
-            agent = html.escape(entry.get("agent", ""))
-            qid = html.escape(entry.get("id", ""))
-            qts = html.escape(entry.get("timestamp", ""))
-            qtext = html.escape(entry.get("question", ""))
-            reply = entry.get("reply")
-            row = [
-                f'<div class="ix-entry" data-qid="{qid}" '
-                f'data-key="{agent}/{qid}" '
-                f'data-replied="{1 if reply else 0}">',
-                f'<div class="ix-q"><span class="ix-meta">'
-                f'<span class="agent">{agent}</span>'
-                f'<span class="qid mono">{qid}</span>'
-                f'<span class="ts mono">{qts}</span>'
-                f'</span><pre class="ix-body">{qtext}</pre></div>',
-            ]
-            if reply:
-                ats = html.escape(reply.get("timestamp", ""))
-                aby = html.escape(reply.get("answered_by", "orchestrator"))
-                atext = html.escape(reply.get("answer", ""))
-                row.append(
-                    f'<div class="ix-r"><span class="ix-meta">'
-                    f'<span class="agent">↳ {aby}</span>'
-                    f'<span class="ts mono">{ats}</span>'
-                    f'</span><pre class="ix-body">{atext}</pre></div>'
-                )
-            else:
-                row.append('<div class="ix-r pending"><span class="ix-meta">'
-                           '<span class="agent">↳ awaiting reply…</span>'
-                           '</span></div>')
-            row.append('</div>')
-            rows.append("".join(row))
-        body = "".join(rows)
+        row.append('<div class="ix-r pending"><span class="ix-meta">'
+                   '<span class="agent">↳ awaiting reply…</span>'
+                   '</span></div>')
+    row.append('</div>')
+    return "".join(row)
+
+
+def render_inbox_section(transcript: list[dict], notes: list[Note] | None = None) -> str:
+    """Bottom-of-page section showing agent activity.
+
+    Notes are read-only free-form activity; questions still use the existing
+    ask/reply blocking flow. The browser polls both streams and reconciles
+    this list in place.
+    """
+    notes = notes or []
+    rows: list[tuple[str, str]] = []
+    rows.extend((n.timestamp, _render_note_entry(n)) for n in notes)
+    rows.extend((entry.get("timestamp", ""), _render_inbox_entry(entry))
+                for entry in transcript)
+    rows.sort(key=lambda pair: pair[0])
+
+    if not rows:
+        body = (
+            '<p class="muted">No agent activity yet. Agent notes and '
+            '<code>peanut-review ask</code> questions appear here.</p>'
+        )
+    else:
+        body = "".join(row for _, row in rows)
     return (
         '<section class="inbox-section" id="inbox">'
-        '<h2>Agent help inbox</h2>'
-        '<p class="hint muted">Babysitting channel for blocked agents '
-        '(<code>peanut-review ask</code> / <code>reply</code>). '
-        'Read-only here.</p>'
+        '<h2>Agent activity</h2>'
+        '<p class="hint muted">Free-form agent notes plus the Agent help inbox '
+        'for blocked agents (<code>peanut-review note</code>, '
+        '<code>ask</code> / <code>reply</code>). Read-only here.</p>'
         f'<div class="ix-list" id="inbox-list">{body}</div>'
         '</section>'
     )
@@ -362,6 +388,7 @@ def _render_sidebar(
     comments: list[Comment],
     files: list[FileDiff],
     inbox_transcript: list[dict] | None = None,
+    notes: list[Note] | None = None,
 ) -> str:
     # Sidebar counters reflect what's visible (deleted hidden), with a
     # separate "deleted" row so the audit count is still discoverable.
@@ -425,10 +452,12 @@ def _render_sidebar(
         for fd in files
     ) or '<li class="muted">(no files)</li>'
 
-    # Inbox jump row: same shape as global-row so it shares the file-row
-    # layout/CSS. Pending = unanswered agent questions; total = all entries.
+    # Activity jump row: same shape as global-row so it shares the file-row
+    # layout/CSS. Pending = unanswered agent questions; total = notes plus
+    # all ask/reply transcript entries.
     transcript = inbox_transcript or []
-    inbox_total = len(transcript)
+    note_count = len(notes or [])
+    inbox_total = len(transcript) + note_count
     inbox_pending = sum(1 for e in transcript if not e.get("reply"))
     if inbox_pending > 0:
         inbox_counts_html = (
@@ -441,11 +470,11 @@ def _render_sidebar(
         inbox_counts_html = '<span class="count empty">—</span>'
     inbox_row = (
         '<li class="file-row inbox-row" data-inbox="1" '
-        'title="Jump to agent help inbox">'
+        'title="Jump to agent activity">'
         '<a href="#inbox" class="path-link">'
         '<div class="top-row">'
-        '<span class="status s-I">I</span>'
-        '<span class="name">Agent inbox</span>'
+        '<span class="status s-A">A</span>'
+        '<span class="name">Agent activity</span>'
         f'<span class="counts" id="inbox-counts" data-counts>{inbox_counts_html}</span>'
         '</div>'
         '</a>'
@@ -665,6 +694,7 @@ def render_page(
     files: list[FileDiff],
     comments: list[Comment],
     *,
+    notes: list[Note] | None = None,
     head_shifted: bool = False,
     base_url: str = "",
     inbox_transcript: list[dict] | None = None,
@@ -672,16 +702,20 @@ def render_page(
     """Build the full HTML page for a session.
 
     `base_url` is the path prefix the app is mounted under (empty → root).
-    `inbox_transcript` is the agent ask/reply log to render at the bottom;
-    None falls back to an empty transcript so tests/non-server callers don't
-    have to pass it.
+    `notes` and `inbox_transcript` are the agent activity streams rendered at
+    the bottom; None falls back to empty so tests/non-server callers don't
+    have to pass them.
     """
     threads_at = _group_threads_by_anchor(comments)
     transcript = inbox_transcript or []
+    note_items = notes or []
     file_html = "".join(_render_file(fd, threads_at) for fd in files)
     global_html = _render_global_section(comments)
-    inbox_html = render_inbox_section(transcript)
-    sidebar = _render_sidebar(session, comments, files, inbox_transcript=transcript)
+    inbox_html = render_inbox_section(transcript, note_items)
+    sidebar = _render_sidebar(
+        session, comments, files,
+        inbox_transcript=transcript, notes=note_items,
+    )
 
     head_badge = (
         '<span class="badge head head-shifted">HEAD shifted</span>'

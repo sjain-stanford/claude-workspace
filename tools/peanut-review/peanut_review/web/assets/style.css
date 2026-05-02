@@ -112,11 +112,11 @@ main {
   background: #0a0e12; padding: 1px 4px; border-radius: 2px;
   font-size: 11px; color: var(--fg);
 }
-.inbox-section .ix-entry {
+.inbox-section .activity-entry {
   border-top: 1px solid var(--border);
   padding: 8px 0;
 }
-.inbox-section .ix-entry:first-child { border-top: 0; }
+.inbox-section .activity-entry:first-child { border-top: 0; }
 .inbox-section .ix-q, .inbox-section .ix-r { margin: 4px 0; }
 .inbox-section .ix-r { margin-left: 20px; }
 .inbox-section .ix-r.pending .agent { color: var(--warning); }
@@ -128,6 +128,7 @@ main {
   margin-bottom: 2px;
 }
 .inbox-section .ix-meta .agent { color: var(--fg); font-weight: 600; }
+.inbox-section .ix-meta .kind { color: var(--accent); }
 .inbox-section .ix-body {
   margin: 0;
   padding: 6px 10px;
@@ -140,6 +141,7 @@ main {
   word-break: break-word;
 }
 .inbox-section .ix-r .ix-body { border-left-color: var(--accent); }
+.inbox-section .note-body { border-left-color: var(--suggestion); }
 
 .global-section {
   border: 1px solid var(--border);
@@ -192,7 +194,7 @@ main {
   margin-top: 4px;
   padding-top: 6px;
 }
-#sidebar ul.files .file-row.inbox-row .status.s-I {
+#sidebar ul.files .file-row.inbox-row .status.s-A {
   color: var(--accent);
 }
 

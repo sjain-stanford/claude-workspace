@@ -106,6 +106,81 @@ def test_add_global_comment_accepts_review_category(mock_git):
 
 
 @patch("peanut_review.session._run_git", side_effect=_mock_git)
+def test_note_message_records_free_form_note_not_comment(mock_git):
+    sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
+    main(["--session", sd, "init", "--workspace", "/tmp/repo"])
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = main(["--session", sd, "note",
+                   "--message", "## Test Execution\npassed",
+                   "--author", "vera"])
+    assert rc == 0
+    assert out.getvalue().strip().startswith("n_")
+
+    from peanut_review.store import read_all_comments, read_all_notes
+    assert read_all_comments(sd) == []
+    [note] = read_all_notes(sd)
+    assert note.author == "vera"
+    assert note.body == "## Test Execution\npassed"
+
+
+@patch("peanut_review.session._run_git", side_effect=_mock_git)
+def test_note_file_and_notes_json(mock_git, tmp_path: Path):
+    sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
+    main(["--session", sd, "init", "--workspace", "/tmp/repo"])
+    body_file = tmp_path / "note.md"
+    body_file.write_text("ran `foo` and $(bar) stayed literal\n")
+
+    rc = main(["--session", sd, "note", "--file", str(body_file),
+               "--author", "petra"])
+    assert rc == 0
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = main(["--session", sd, "notes", "--format", "json"])
+    assert rc == 0
+    data = json.loads(out.getvalue())
+    assert data[0]["author"] == "petra"
+    assert data[0]["body"] == "ran `foo` and $(bar) stayed literal\n"
+
+
+@patch("peanut_review.session._run_git", side_effect=_mock_git)
+def test_note_file_dash_reads_stdin(mock_git):
+    sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
+    main(["--session", sd, "init", "--workspace", "/tmp/repo"])
+
+    with patch("sys.stdin", io.StringIO("stdin note\n")):
+        rc = main(["--session", sd, "note", "--file", "-",
+                   "--author", "soren"])
+    assert rc == 0
+
+    from peanut_review.store import read_all_notes
+    [note] = read_all_notes(sd)
+    assert note.author == "soren"
+    assert note.body == "stdin note\n"
+
+
+@patch("peanut_review.session._run_git", side_effect=_mock_git)
+def test_note_requires_exactly_one_body_source(mock_git):
+    sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
+    main(["--session", sd, "init", "--workspace", "/tmp/repo"])
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["--session", sd, "note", "--author", "vera"])
+    assert rc == 1
+    assert "exactly one" in err.getvalue()
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["--session", sd, "note", "--message", "x", "--file", "y",
+                   "--author", "vera"])
+    assert rc == 1
+    assert "exactly one" in err.getvalue()
+
+
+@patch("peanut_review.session._run_git", side_effect=_mock_git)
 def test_add_anchored_comment_rejects_review_category(mock_git):
     ws = _make_workspace({"a.py": "line1\nline2\n"})
     sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")

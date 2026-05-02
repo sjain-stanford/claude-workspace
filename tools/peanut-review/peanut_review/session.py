@@ -88,7 +88,7 @@ def create_session(
     sdir = Path(session_dir)
 
     # Create directory structure
-    for subdir in ["comments", "signals", "messages", "prompts", "log"]:
+    for subdir in ["comments", "notes", "signals", "messages", "prompts", "log"]:
         (sdir / subdir).mkdir(parents=True, exist_ok=True)
 
     # Copy personas
@@ -252,8 +252,9 @@ def validate_comment_location(
 ) -> tuple[list[str] | None, str | None]:
     """Validate file/line for a comment. Returns (lines, error_message).
 
-    For __meta__ files and global comments (file==""), returns (None, None)
-    — no validation needed.
+    For legacy __meta__ comments and global comments (file==""), returns
+    (None, None) — no validation needed. New test/activity reports should use
+    the separate note store instead of __meta__ comments.
     On success, returns (file_lines, None).
     On error, returns (None, error_string).
     """

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .models import (
     Comment,
+    Note,
     category_is_review_decision,
     normalize_comment_category,
     _now_iso,
@@ -27,6 +28,14 @@ def _comments_dir(session_dir: str | Path) -> Path:
 
 def _agent_file(session_dir: str | Path, agent: str) -> Path:
     return _comments_dir(session_dir) / f"{agent}.jsonl"
+
+
+def _notes_dir(session_dir: str | Path) -> Path:
+    return Path(session_dir) / "notes"
+
+
+def _agent_note_file(session_dir: str | Path, agent: str) -> Path:
+    return _notes_dir(session_dir) / f"{agent}.jsonl"
 
 
 def _validate_comment_category(comment: Comment) -> None:
@@ -73,6 +82,61 @@ def read_all_comments(session_dir: str | Path) -> list[Comment]:
         comments.extend(_read_jsonl(f))
     comments.sort(key=lambda c: c.timestamp)
     return comments
+
+
+def append_note(session_dir: str | Path, note: Note) -> Note:
+    """Append a free-form note to the author's JSONL file."""
+    path = _agent_note_file(session_dir, note.author)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = note.to_json() + "\n"
+    if len(line.encode()) > _PIPE_BUF:
+        log.warning("Note %s exceeds PIPE_BUF — write may not be atomic", note.id)
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, line.encode())
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return note
+
+
+def read_agent_notes(session_dir: str | Path, agent: str) -> list[Note]:
+    """Read all free-form notes from one agent's JSONL file."""
+    path = _agent_note_file(session_dir, agent)
+    if not path.exists():
+        return []
+    return _read_note_jsonl(path)
+
+
+def read_all_notes(session_dir: str | Path) -> list[Note]:
+    """Read and merge notes from all agents, sorted by timestamp."""
+    ndir = _notes_dir(session_dir)
+    notes: list[Note] = []
+    for f in sorted(ndir.glob("*.jsonl")):
+        notes.extend(_read_note_jsonl(f))
+    notes.sort(key=lambda n: n.timestamp)
+    return notes
+
+
+def filter_notes(
+    notes: list[Note],
+    *,
+    agent: str | None = None,
+    since: str | None = None,
+) -> list[Note]:
+    """Filter notes by author and/or a note id cursor."""
+    result = notes
+    if agent:
+        result = [n for n in result if n.author == agent]
+    if since:
+        ids = [n.id for n in notes]
+        try:
+            cutoff_idx = ids.index(since)
+        except ValueError:
+            cutoff_idx = -1
+        kept_ids = {n.id for n in notes[cutoff_idx + 1:]}
+        result = [n for n in result if n.id in kept_ids]
+    return result
 
 
 def filter_comments(
@@ -318,6 +382,21 @@ def _read_jsonl(path: Path) -> list[Comment]:
             except (json.JSONDecodeError, TypeError) as e:
                 log.warning("Skipping corrupt line %d in %s: %s", lineno, path, e)
     return comments
+
+
+def _read_note_jsonl(path: Path) -> list[Note]:
+    """Read a note JSONL file, skipping unparseable lines with a warning."""
+    notes: list[Note] = []
+    with open(path) as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                notes.append(Note.from_json(line))
+            except (json.JSONDecodeError, TypeError) as e:
+                log.warning("Skipping corrupt line %d in %s: %s", lineno, path, e)
+    return notes
 
 
 def _write_jsonl(path: Path, comments: list[Comment]) -> None:

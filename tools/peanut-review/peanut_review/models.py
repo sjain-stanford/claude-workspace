@@ -148,6 +148,32 @@ class Comment:
 
 
 @dataclass
+class Note:
+    """Free-form agent activity that is not review feedback.
+
+    Notes are intentionally separate from comments: they have no severity,
+    category, file anchor, resolution state, or GitHub synchronization fields.
+    Use them for test execution reports and operational context that should be
+    visible in peanut-review but never pushed as PR review feedback.
+    """
+
+    id: str = field(default_factory=lambda: _short_id("n"))
+    author: str = ""
+    timestamp: str = field(default_factory=_now_iso)
+    body: str = ""
+
+    def to_json(self) -> str:
+        d = asdict(self)
+        d = {k: v for k, v in d.items() if v not in (None, [])}
+        return json.dumps(d, separators=(",", ":"))
+
+    @classmethod
+    def from_json(cls, line: str) -> Note:
+        d = json.loads(line)
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
 class AgentConfig:
     name: str = ""
     model: str = ""

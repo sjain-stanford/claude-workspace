@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .. import gh, gh_pull, gh_push, polling, runtime, store
-from ..models import Comment, CommentCategory, Severity, normalize_comment_category
+from ..models import Comment, CommentCategory, Note, Severity, normalize_comment_category
 from ..session import (
     GLOBAL_FILE,
     load_session,
@@ -112,6 +112,7 @@ class SessionRegistry:
             try:
                 s = load_session(sdir)
                 comments = store.read_all_comments(sdir)
+                notes = store.read_all_notes(sdir)
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
             live = [c for c in comments if not c.deleted]
@@ -129,6 +130,7 @@ class SessionRegistry:
                 "stale_count": sum(1 for c in live if c.stale),
                 "critical_count": sum(1 for c in live if c.severity == "critical"),
                 "deleted_count": len(comments) - len(live),
+                "note_count": len(notes),
                 "agent_count": len(s.agents),
             })
         summaries.sort(key=lambda d: d["created_at"], reverse=True)
@@ -256,13 +258,14 @@ class _Handler(BaseHTTPRequestHandler):
 
         if tail in ("/", ""):
             comments = store.read_all_comments(session_dir)
+            notes = store.read_all_notes(session_dir)
             files = diffmod.parse_diff(
                 session.workspace, session.base_ref, session.topic_ref,
             )
             transcript = polling.list_transcript(session_dir)
             html_out = render_page(
                 load_session(session_dir), session_id, files, comments,
-                head_shifted=shifted, base_url=self.base_url,
+                notes=notes, head_shifted=shifted, base_url=self.base_url,
                 inbox_transcript=transcript,
             )
             self._html(200, html_out)
@@ -271,6 +274,7 @@ class _Handler(BaseHTTPRequestHandler):
         if tail == "/api/session":
             session = load_session(session_dir)
             comments = store.read_all_comments(session_dir)
+            notes = store.read_all_notes(session_dir)
             live = [c for c in comments if not c.deleted]
             payload = {
                 "id": session.id,
@@ -294,6 +298,7 @@ class _Handler(BaseHTTPRequestHandler):
                     for a in session.agents
                 ],
                 "comment_count": len(live),
+                "note_count": len(notes),
                 "stale_count": sum(1 for c in live if c.stale),
                 "critical_count": sum(1 for c in live if c.severity == "critical"),
                 "deleted_count": len(comments) - len(live),
@@ -329,6 +334,16 @@ class _Handler(BaseHTTPRequestHandler):
 
         if tail == "/api/inbox":
             self._json(200, polling.list_transcript(session_dir))
+            return
+
+        if tail == "/api/notes":
+            q = parse_qs(url.query)
+            notes = store.filter_notes(
+                store.read_all_notes(session_dir),
+                agent=(q.get("agent", [None])[0]),
+                since=(q.get("since", [None])[0]),
+            )
+            self._json(200, [_note_to_dict(n) for n in notes])
             return
 
         if tail == "/api/gh/preview":
@@ -672,6 +687,15 @@ def _comment_to_dict(c: Comment) -> dict:
         "external_source": c.external_source,
         "external_id": c.external_id,
         "external_url": c.external_url,
+    }
+
+
+def _note_to_dict(n: Note) -> dict:
+    return {
+        "id": n.id,
+        "author": n.author,
+        "timestamp": n.timestamp,
+        "body": n.body,
     }
 
 

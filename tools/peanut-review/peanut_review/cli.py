@@ -452,6 +452,63 @@ def cmd_add_global_comment(args: argparse.Namespace) -> int:
     return cmd_add_comment(args)
 
 
+def _read_note_body(args: argparse.Namespace) -> str | None:
+    """Read the body for `note`, enforcing exactly one source."""
+    has_message = args.message is not None
+    has_file = args.file is not None
+    if has_message == has_file:
+        print("Error: exactly one of --message or --file is required", file=sys.stderr)
+        return None
+    if has_message:
+        return args.message
+    if args.file == "-":
+        return sys.stdin.read()
+    try:
+        return Path(args.file).read_text()
+    except OSError as e:
+        print(f"Error: could not read --file: {e}", file=sys.stderr)
+        return None
+
+
+def cmd_note(args: argparse.Namespace) -> int:
+    """Record a free-form activity note outside the review comment stream."""
+    session_dir = _get_session_dir(args)
+    author = _get_author(args)
+    body = _read_note_body(args)
+    if body is None:
+        return 1
+
+    note = models.Note(author=author, body=body)
+    store.append_note(session_dir, note)
+    print(note.id)
+    return 0
+
+
+def cmd_notes(args: argparse.Namespace) -> int:
+    """List/filter free-form notes."""
+    session_dir = _get_session_dir(args)
+    notes = store.filter_notes(
+        store.read_all_notes(session_dir),
+        agent=args.agent,
+        since=args.since,
+    )
+
+    if args.format == "json":
+        print(json.dumps([json.loads(n.to_json()) for n in notes], indent=2))
+        return 0
+
+    if not notes:
+        print("No notes found.")
+        return 0
+    hdr = f"{'ID':<14} {'Agent':<10} {'Timestamp':<32} {'Body'}"
+    print(hdr)
+    print("-" * len(hdr))
+    for n in notes:
+        body = n.body[:80].replace("\n", " ")
+        print(f"{n.id:<14} {n.author:<10} {n.timestamp:<32} {body}")
+    return 0
+
+
 def cmd_comments(args: argparse.Namespace) -> int:
     """List/filter comments."""
     session_dir = _get_session_dir(args)
@@ -977,6 +1034,11 @@ def cmd_status(args: argparse.Namespace) -> int:
             parts.append(f"{deleted} deleted")
         print("Comments: " + ", ".join(parts))
 
+    notes = store.read_all_notes(session_dir)
+    if notes:
+        print()
+        print(f"Notes: {len(notes)}")
+
     # Signals
     signals_dir = Path(session_dir) / "signals"
     if signals_dir.exists():
@@ -1181,6 +1243,23 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Review category (comment, approve, request-changes)")
     sp.add_argument("--author", help="Author name (default: git config user.name)")
 
+    # note
+    sp = sub.add_parser(
+        "note",
+        help="Record free-form agent activity outside the review comment stream",
+    )
+    sp.add_argument("--message", help="Note body")
+    sp.add_argument("--file", help="Read note body from FILE, or '-' for stdin")
+    sp.add_argument("--author", help="Author name (default: git config user.name)")
+
+    # notes
+    sp = sub.add_parser("notes", help="List/filter free-form activity notes")
+    sp.add_argument("--agent", help="Filter by agent")
+    sp.add_argument("--since", metavar="ID",
+                    help="Return only notes posted after this note id")
+    sp.add_argument("--format", default="table", choices=["json", "table"],
+                    help="Output format (default: table)")
+
     # comments
     sp = sub.add_parser("comments", help="List/filter comments")
     sp.add_argument("--agent", help="Filter by agent")
@@ -1349,6 +1428,8 @@ def main(argv: list[str] | None = None) -> int:
         "start": cmd_start,
         "add-comment": cmd_add_comment,
         "add-global-comment": cmd_add_global_comment,
+        "note": cmd_note,
+        "notes": cmd_notes,
         "comments": cmd_comments,
         "gh-push": cmd_gh_push,
         "gh-pull": cmd_gh_pull,

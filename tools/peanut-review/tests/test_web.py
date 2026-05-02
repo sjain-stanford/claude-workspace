@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from peanut_review import session as sess, store
-from peanut_review.models import AgentConfig, Comment
+from peanut_review.models import AgentConfig, Comment, Note
 from peanut_review.web import app as web_app
 from peanut_review.web import diff as diffmod
 from peanut_review.web import render
@@ -422,6 +422,33 @@ def test_server_inbox_endpoint_and_render(session_dir: Path, tmp_path: Path):
         assert 'Agent help inbox' in text
         assert 'data-key="vera/q_001"' in text
         assert 'data-replied="1"' in text
+    finally:
+        srv.shutdown()
+
+
+def test_server_notes_endpoint_and_render(session_dir: Path):
+    store.append_note(session_dir, Note(
+        author="petra",
+        body="## Test Execution\n`llvm-lit` passed",
+    ))
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _get(f"http://127.0.0.1:{port}/{session_id}/api/notes")
+        assert code == 200
+        notes = json.loads(data)
+        assert len(notes) == 1
+        assert notes[0]["author"] == "petra"
+        assert notes[0]["body"].startswith("## Test Execution")
+
+        code, body = _get(f"http://127.0.0.1:{port}/{session_id}")
+        assert code == 200
+        text = body.decode("utf-8")
+        assert 'id="inbox"' in text
+        assert "Agent activity" in text
+        assert 'data-key="note/' in text
+        assert "Test Execution" in text
+        assert "llvm-lit" in text
     finally:
         srv.shutdown()
 
