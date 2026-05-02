@@ -28,6 +28,29 @@ def _signal_name(signum: int | None) -> str | None:
         return f"SIG{signum}"
 
 
+def _termination_signal_from_return_code(return_code: int) -> str | None:
+    if return_code < 0:
+        return _signal_name(-return_code)
+    # Many wrappers/runtimes report signal death using the conventional
+    # shell code 128+signal instead of a negative subprocess return code.
+    if return_code > 128:
+        return _signal_name(return_code - 128)
+    return None
+
+
+def _runner_from_command(command: list[str]) -> str | None:
+    if not command:
+        return None
+    name = Path(command[0]).name
+    if name == "cursor-agent-task.sh":
+        return "cursor"
+    if name == "opencode-agent-task.sh":
+        return "opencode"
+    if name == "codex-agent-task.sh":
+        return "codex"
+    return None
+
+
 def _get_pgid(pid: int) -> int | None:
     try:
         return os.getpgid(pid)
@@ -101,11 +124,13 @@ def supervise_agent(
     sdir = Path(session_dir)
     child_env = dict(os.environ if env is None else env)
     child_env["PEANUT_SUPERVISOR_PID"] = str(os.getpid())
+    runner = _runner_from_command(command)
 
     runtime.update_agent_meta(
         sdir,
         agent_name,
         {
+            "runner": runner,
             "supervisor_pid": os.getpid(),
             "supervisor_start": _now_iso(),
             "command": command,
@@ -130,6 +155,7 @@ def supervise_agent(
             sdir,
             agent_name,
             {
+                "runner": runner,
                 "end": _now_iso(),
                 "exit_code": 127,
                 "timed_out": False,
@@ -140,15 +166,17 @@ def supervise_agent(
         return 127
 
     pgid = _get_pgid(proc.pid)
+    reviewer_start = _now_iso()
     runtime.update_agent_meta(
         sdir,
         agent_name,
         {
+            "runner": runner,
             "pid": proc.pid,
             "pgid": pgid,
             "supervisor_pid": os.getpid(),
             "command": command,
-            "start": _now_iso(),
+            "start": reviewer_start,
         },
     )
     update_agent_status(
@@ -175,18 +203,20 @@ def supervise_agent(
                 termination_signal = signal.SIGKILL.name
             return_code = proc.wait()
 
-    if return_code < 0 and termination_signal is None:
-        termination_signal = _signal_name(-return_code)
+    if termination_signal is None:
+        termination_signal = _termination_signal_from_return_code(return_code)
 
     _postprocess_codex_output(sdir, agent_name)
     runtime.update_agent_meta(
         sdir,
         agent_name,
         {
+            "runner": runner,
             "pid": proc.pid,
             "pgid": pgid,
             "supervisor_pid": os.getpid(),
             "command": command,
+            "start": reviewer_start,
             "end": _now_iso(),
             "exit_code": return_code,
             "timed_out": timed_out,

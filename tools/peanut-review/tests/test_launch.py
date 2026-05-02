@@ -156,6 +156,7 @@ def test_runner_wrappers_exec_without_shell_timeout():
     assert "exec cursor-agent --print" in cursor
     assert 'exec "${cmd[@]}" > "$output_file"' in opencode
     assert 'exec "${cmd[@]}" > "$stream_file"' in codex
+    assert 'agent: (if $agent == "" then null else $agent end)' in opencode
 
 
 def test_opencode_agent_uses_cli_prompt_template():

@@ -99,6 +99,33 @@ def test_supervisor_records_failed_without_signal(tmp_path):
     assert sess.load_session(sd).agents[0].status == "failed"
 
 
+def test_supervisor_records_shell_style_termination_signal(tmp_path):
+    sd = _make_session_dir()
+    script = _script(
+        tmp_path,
+        "termish.sh",
+        f"""
+        mkdir -p "{sd}/log/vera"
+        printf '{{"runner":"test","pid":%s}}\\n' "$$" > "{sd}/log/vera/meta.json"
+        exec sh -c 'exit 143'
+        """,
+    )
+
+    rc = supervise_agent(
+        session_dir=sd,
+        agent_name="vera",
+        command=[script],
+        timeout=5,
+        kill_grace=0.1,
+    )
+
+    assert rc == 143
+    meta = json.loads((Path(sd) / "log" / "vera" / "meta.json").read_text())
+    assert meta["termination_signal"] == "SIGTERM"
+    assert meta["start"]
+    assert sess.load_session(sd).agents[0].status == "failed"
+
+
 def test_supervisor_times_out_and_kills_process_group(tmp_path):
     sd = _make_session_dir()
     script = _script(
