@@ -25,7 +25,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from . import models, polling, session as sess, store
+from . import models, polling, runtime, session as sess, store
 
 mcp = FastMCP("peanut-review")
 
@@ -74,7 +74,13 @@ def status() -> str:
         "Agents:",
     ]
     for a in s.agents:
-        lines.append(f"  {a.name:<12} {a.status:<10} {a.model}")
+        snapshot = runtime.inspect_agent_runtime(sd, a)
+        status = runtime.derive_status_from_snapshot(a, snapshot)
+        details = " ".join(runtime.status_detail_parts(snapshot, status))
+        lines.append(
+            f"  {a.name:<12} {status:<8} "
+            f"{runtime.compact_model(a.model):<22} {details}"
+        )
 
     comments = [c for c in store.read_all_comments(sd) if not c.deleted]
     if comments:

@@ -682,9 +682,9 @@ def test_add_comment_meta_skips_validation():
     assert out.getvalue().strip().startswith("c_")
 
 
-# Issue 3: refresh agent statuses
+# Runtime-aware agent status refresh
 
-def test_refresh_agent_statuses_marks_exited_as_done():
+def test_refresh_agent_statuses_marks_dead_no_signal_as_failed():
     sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
     _init_session(sd, agents=[{"name": "vera", "model": "opus", "persona": "vera.md"}])
 
@@ -693,6 +693,24 @@ def test_refresh_agent_statuses_marks_exited_as_done():
     s.agents[0].status = "running"
     s.agents[0].pid = 999999999  # very unlikely to be a real PID
     sess.save_session(sd, s)
+
+    from peanut_review.session import refresh_agent_statuses as _refresh_agent_statuses
+    changed = _refresh_agent_statuses(sd, s)
+    assert changed is True
+    assert s.agents[0].status == "failed"
+
+
+def test_refresh_agent_statuses_round_done_marks_done():
+    sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
+    _init_session(sd, agents=[{"name": "vera", "model": "opus", "persona": "vera.md"}])
+
+    s = sess.load_session(sd)
+    s.agents[0].status = "running"
+    s.agents[0].pid = 999999999
+    sess.save_session(sd, s)
+
+    from peanut_review import polling
+    polling.write_signal(sd, "vera", "round-done")
 
     from peanut_review.session import refresh_agent_statuses as _refresh_agent_statuses
     changed = _refresh_agent_statuses(sd, s)

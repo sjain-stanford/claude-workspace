@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import models, polling, session as sess, store
+from . import models, polling, runtime, session as sess, store
 
 
 def _get_session_dir(args: argparse.Namespace) -> str:
@@ -207,7 +207,12 @@ def cmd_launch(args: argparse.Namespace) -> int:
         cli_json=getattr(args, "cli_json", None),
     )
     for r in results:
-        pid_str = f"pid={r['pid']}" if r["pid"] else "dry-run"
+        if r.get("pid"):
+            pid_str = f"pid={r['pid']}"
+        elif r.get("supervisor_pid"):
+            pid_str = f"supervisor={r['supervisor_pid']}"
+        else:
+            pid_str = "dry-run"
         print(f"  {r['name']}: {pid_str}")
     return 0
 
@@ -316,7 +321,12 @@ def cmd_start(args: argparse.Namespace) -> int:
         cli_json=getattr(args, "cli_json", None),
     )
     for r in results:
-        pid_str = f"pid={r['pid']}" if r["pid"] else "dry-run"
+        if r.get("pid"):
+            pid_str = f"pid={r['pid']}"
+        elif r.get("supervisor_pid"):
+            pid_str = f"supervisor={r['supervisor_pid']}"
+        else:
+            pid_str = "dry-run"
         print(f"  {r['name']}: {pid_str}")
     return 0
 
@@ -942,8 +952,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     # Agents
     print("Agents:")
     for a in s.agents:
-        pid = f" (pid {a.pid})" if a.pid else ""
-        print(f"  {a.name:<12} {a.status:<10} {a.model}{pid}")
+        snapshot = runtime.inspect_agent_runtime(session_dir, a)
+        status = runtime.derive_status_from_snapshot(a, snapshot)
+        model = runtime.compact_model(a.model)
+        details = " ".join(runtime.status_detail_parts(snapshot, status))
+        print(f"  {a.name:<12} {status:<8} {model:<22} {details}")
 
     # Comment counts — deleted comments are hidden from the total but
     # surfaced separately for transparency.

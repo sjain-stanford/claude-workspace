@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -112,6 +113,49 @@ def test_launch_dry_run_codex_agent_cmd():
     # Codex needs the session dir writable so the agent can post comments.
     assert "--add-dir" in cmd
     assert sd in cmd
+
+
+def test_launch_uses_python_supervisor_for_non_dry_run():
+    sd = _make_session_dir([
+        AgentConfig(
+            name="felix", model="openai/gpt-5.5", persona="felix.md",
+            runner="opencode",
+        ),
+    ])
+
+    class DummyProc:
+        pid = 424242
+
+    with patch("peanut_review.launch.subprocess.Popen", return_value=DummyProc()) as popen:
+        results = launch.launch_agents(sd)
+
+    assert results[0]["pid"] is None
+    assert results[0]["supervisor_pid"] == 424242
+    supervisor_cmd = popen.call_args.args[0]
+    assert supervisor_cmd[:3] == [sys.executable, "-m", "peanut_review.supervisor"]
+    assert "--session" in supervisor_cmd and sd in supervisor_cmd
+    separator = supervisor_cmd.index("--")
+    assert supervisor_cmd[separator + 1].endswith("opencode-agent-task.sh")
+
+    from peanut_review import session as sess
+    stored = sess.load_session(sd)
+    assert stored.agents[0].status == "running"
+    assert stored.agents[0].pid is None
+    assert stored.agents[0].supervisor_pid == 424242
+
+
+def test_runner_wrappers_exec_without_shell_timeout():
+    base = Path(launch._find_launcher_script("cursor")).parent
+    cursor = (base / "cursor-agent-task.sh").read_text()
+    opencode = (base / "opencode-agent-task.sh").read_text()
+    codex = (base / "codex-agent-task.sh").read_text()
+
+    for text in (cursor, opencode, codex):
+        assert '\ntimeout "$timeout_secs"' not in text
+
+    assert "exec cursor-agent --print" in cursor
+    assert 'exec "${cmd[@]}" > "$output_file"' in opencode
+    assert 'exec "${cmd[@]}" > "$stream_file"' in codex
 
 
 def test_opencode_agent_uses_cli_prompt_template():

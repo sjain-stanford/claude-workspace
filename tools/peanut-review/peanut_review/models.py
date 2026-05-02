@@ -81,6 +81,7 @@ class AgentStatus(str, Enum):
     RUNNING = "running"
     DONE = "done"
     FAILED = "failed"
+    TIMEOUT = "timeout"
 
 
 @dataclass
@@ -152,7 +153,13 @@ class AgentConfig:
     model: str = ""
     persona: str = ""
     status: str = AgentStatus.PENDING.value
+    # Runtime identity. `pid` is the top-level reviewer process PID after the
+    # runner wrapper has exec'd the real agent command. `pgid` is the process
+    # group owned by the Python supervisor for cleanup. `supervisor_pid` is the
+    # supervising peanut-review process.
     pid: int | None = None
+    pgid: int | None = None
+    supervisor_pid: int | None = None
     # Backend runner: "cursor" (cursor-agent), "opencode" (opencode run),
     # or "codex" (codex exec).
     runner: str = "cursor"

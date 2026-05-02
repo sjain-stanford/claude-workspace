@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .. import gh, gh_pull, gh_push, polling, store
+from .. import gh, gh_pull, gh_push, polling, runtime, store
 from ..models import Comment, CommentCategory, Severity, normalize_comment_category
 from ..session import (
     GLOBAL_FILE,
@@ -281,8 +281,16 @@ class _Handler(BaseHTTPRequestHandler):
                 "current_head": session.current_head,
                 "workspace": session.workspace,
                 "agents": [
-                    {"name": a.name, "model": a.model, "status": a.status,
-                     "runner": a.runner}
+                    {
+                        "name": a.name,
+                        "model": a.model,
+                        "status": a.status,
+                        "runner": a.runner,
+                        "pid": a.pid,
+                        "pgid": a.pgid,
+                        "supervisor_pid": a.supervisor_pid,
+                        "signal": runtime.has_round_done_signal(session_dir, a.name),
+                    }
                     for a in session.agents
                 ],
                 "comment_count": len(live),

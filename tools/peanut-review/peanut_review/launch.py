@@ -198,6 +198,31 @@ def _build_agent_cmd(
     return cmd
 
 
+def _build_supervisor_cmd(
+    *,
+    session_dir: Path,
+    agent_name: str,
+    timeout: int,
+    workspace: str,
+    wrapper_cmd: list[str],
+) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "peanut_review.supervisor",
+        "--session",
+        str(session_dir),
+        "--agent",
+        agent_name,
+        "--timeout",
+        str(timeout),
+        "--cwd",
+        workspace,
+        "--",
+        *wrapper_cmd,
+    ]
+
+
 def launch_agents(
     session_dir: str | Path,
     template_path: str | Path | None = None,
@@ -229,6 +254,13 @@ def launch_agents(
         prompt_path = prompts[agent.name]
         log_path = sdir / "log" / f"{agent.name}.log"
         cmd = _build_agent_cmd(agent, session=session, session_dir=sdir, prompt_path=prompt_path)
+        supervisor_cmd = _build_supervisor_cmd(
+            session_dir=sdir,
+            agent_name=agent.name,
+            timeout=session.timeout,
+            workspace=session.workspace,
+            wrapper_cmd=cmd,
+        )
 
         env = os.environ.copy()
         bin_dir = str(Path(__file__).resolve().parent.parent / "bin")
@@ -240,7 +272,14 @@ def launch_agents(
         env["PEANUT_SESSION"] = str(sdir)
 
         if dry_run:
-            results.append({"name": agent.name, "pid": None, "cmd": cmd})
+            results.append({
+                "name": agent.name,
+                "pid": None,
+                "pgid": None,
+                "supervisor_pid": None,
+                "cmd": cmd,
+                "supervisor_cmd": supervisor_cmd,
+            })
             continue
 
         # MCP config is cursor-specific for now — opencode runs in CLI mode.
@@ -249,15 +288,28 @@ def launch_agents(
 
         with open(log_path, "w") as log_file:
             proc = subprocess.Popen(
-                cmd,
+                supervisor_cmd,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 env=env,
                 cwd=session.workspace,
+                start_new_session=True,
             )
 
-        update_agent_status(sdir, agent.name, AgentStatus.RUNNING.value, proc.pid)
-        results.append({"name": agent.name, "pid": proc.pid, "cmd": cmd})
+        update_agent_status(
+            sdir,
+            agent.name,
+            AgentStatus.RUNNING.value,
+            supervisor_pid=proc.pid,
+        )
+        results.append({
+            "name": agent.name,
+            "pid": None,
+            "pgid": None,
+            "supervisor_pid": proc.pid,
+            "cmd": cmd,
+            "supervisor_cmd": supervisor_cmd,
+        })
 
         # Stagger launches: cursor-agent has a cli-config.json race, and lcode's
         # idempotent llama-server startup also benefits from letting the first

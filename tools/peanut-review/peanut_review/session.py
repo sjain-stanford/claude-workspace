@@ -6,10 +6,11 @@ import os
 import shutil
 import subprocess
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import AgentConfig, AgentStatus, GitHubPR, Session, SessionState, _now_iso
+from .models import AgentConfig, GitHubPR, Session, SessionState, _now_iso
 
 META_FILE = "__meta__"
 # Sentinel for "high-level / global" comments not tied to any file or line.
@@ -143,6 +144,21 @@ def load_session(session_dir: str | Path) -> Session:
     return Session.from_json(path.read_text())
 
 
+@contextmanager
+def _session_lock(session_dir: str | Path):
+    """Serialize small session.json runtime updates across supervisors."""
+    import fcntl
+
+    path = Path(session_dir) / "session.json.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def discover_session(start_path: str | Path | None = None) -> str | None:
     """Find session dir from $PEANUT_SESSION or .peanut-session marker."""
     env = os.environ.get("PEANUT_SESSION")
@@ -166,35 +182,68 @@ def transition_state(session_dir: str | Path, new_state: str) -> Session:
 
 
 def update_agent_status(
-    session_dir: str | Path, agent_name: str, status: str, pid: int | None = None
+    session_dir: str | Path,
+    agent_name: str,
+    status: str,
+    pid: int | None = None,
+    pgid: int | None = None,
+    supervisor_pid: int | None = None,
 ) -> Session:
-    """Update an agent's status (and optionally PID) in session.json."""
-    session = load_session(session_dir)
-    for a in session.agents:
-        if a.name == agent_name:
-            a.status = status
-            if pid is not None:
-                a.pid = pid
-            break
-    save_session(session_dir, session)
-    return session
+    """Update an agent's runtime status in session.json."""
+    with _session_lock(session_dir):
+        session = load_session(session_dir)
+        for a in session.agents:
+            if a.name == agent_name:
+                a.status = status
+                if pid is not None:
+                    a.pid = pid
+                if pgid is not None:
+                    a.pgid = pgid
+                if supervisor_pid is not None:
+                    a.supervisor_pid = supervisor_pid
+                break
+        save_session(session_dir, session)
+        return session
+
+
+def _copy_session_state(dst: Session, src: Session) -> None:
+    dst.version = src.version
+    dst.id = src.id
+    dst.created_at = src.created_at
+    dst.workspace = src.workspace
+    dst.base_ref = src.base_ref
+    dst.topic_ref = src.topic_ref
+    dst.original_head = src.original_head
+    dst.current_head = src.current_head
+    dst.diff_commands = src.diff_commands
+    dst.diff_stat = src.diff_stat
+    dst.agents = src.agents
+    dst.state = src.state
+    dst.timeout = src.timeout
+    dst.github = src.github
 
 
 def refresh_agent_statuses(session_dir: str | Path, session: Session) -> bool:
-    """Check PIDs of running agents, mark exited ones as done. Returns True if changed."""
+    """Refresh agent states from signals, live PIDs, and supervisor metadata."""
+    from . import runtime
+
     changed = False
-    for agent in session.agents:
-        if agent.status != AgentStatus.RUNNING.value or not agent.pid:
-            continue
-        try:
-            os.kill(agent.pid, 0)
-        except ProcessLookupError:
-            agent.status = AgentStatus.DONE.value
-            changed = True
-        except PermissionError:
-            pass
-    if changed:
-        save_session(session_dir, session)
+    with _session_lock(session_dir):
+        latest = load_session(session_dir)
+        for agent in latest.agents:
+            snapshot = runtime.inspect_agent_runtime(session_dir, agent)
+            new_status = runtime.derive_status_from_snapshot(agent, snapshot)
+            if agent.status != new_status:
+                agent.status = new_status
+                changed = True
+            for field in ("pid", "pgid", "supervisor_pid"):
+                value = snapshot[field]
+                if value is not None and getattr(agent, field) != value:
+                    setattr(agent, field, value)
+                    changed = True
+        if changed:
+            save_session(session_dir, latest)
+        _copy_session_state(session, latest)
     return changed
 
 
