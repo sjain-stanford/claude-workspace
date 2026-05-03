@@ -31,6 +31,19 @@ def _make_workspace(files: dict[str, str] | None = None) -> str:
     return ws
 
 
+def _make_cursor_workspace() -> str:
+    ws = Path(_make_workspace())
+    cursor_dir = ws / ".cursor"
+    cursor_dir.mkdir()
+    (cursor_dir / "cli.json").write_text(json.dumps({
+        "permissions": {
+            "allow": ["Shell(peanut-review **)"],
+            "deny": ["Write(**)"],
+        }
+    }))
+    return str(ws)
+
+
 def _mock_git(workspace, *args):
     if args == ("rev-parse", "HEAD"):
         return "abc123def456789"
@@ -74,7 +87,7 @@ def test_init_creates_session(mock_git):
 
 def test_launch_agent_option_targets_one_configured_agent():
     sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
-    _init_session(sd, agents=[
+    _init_session(sd, workspace=_make_cursor_workspace(), agents=[
         {"name": "vera", "model": "opus", "persona": "vera.md"},
         {"name": "irene", "model": "opus", "persona": "irene.md"},
     ])
@@ -108,7 +121,7 @@ def test_rerun_dry_run_targets_agent_without_clearing_signals():
     from peanut_review import polling
 
     sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
-    _init_session(sd, agents=[
+    _init_session(sd, workspace=_make_cursor_workspace(), agents=[
         {"name": "vera", "model": "opus", "persona": "vera.md"},
         {"name": "irene", "model": "opus", "persona": "irene.md"},
     ])
@@ -156,6 +169,28 @@ def test_kill_agents_cli_prints_results():
 
     assert rc == 0
     assert "vera: dry-run SIGTERM pgid=123" in out.getvalue()
+
+
+def test_start_validates_cursor_cli_before_resolving_pr(tmp_path: Path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    config_path = tmp_path / ".peanut-review.json"
+    config_path.write_text(json.dumps({
+        "reviewRoot": str(tmp_path / "reviews"),
+        "workspaceRoot": str(tmp_path),
+        "repoRelative": "repo",
+        "agents": [
+            {"name": "vera", "model": "opus", "persona": "vera.md"},
+        ],
+    }))
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["start", "42", "--config", str(config_path)])
+
+    assert rc == 1
+    assert "Cursor CLI config validation failed" in err.getvalue()
+    assert ".cursor/cli.json" in err.getvalue()
 
 
 @patch("peanut_review.session._run_git", side_effect=_mock_git)

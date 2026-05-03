@@ -1,7 +1,6 @@
 """Spawn cursor agents for review — replaces cursor-agent-multi.py."""
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -12,6 +11,7 @@ from typing import Sequence
 
 from .models import AgentStatus, SessionState
 from .session import load_session, reset_agent_runtime, save_session, update_agent_status
+from .validation import validate_launch_prerequisites
 
 
 _LAUNCHER_SCRIPTS = {
@@ -92,31 +92,6 @@ def render_all_prompts(
         result[agent.name] = prompt_path
 
     return result
-
-
-def _validate_cli_json(workspace: str | Path) -> None:
-    """Warn if cli.json is missing peanut-review permissions or has Shell(**) deny."""
-    cli_json_path = Path(workspace) / ".cursor" / "cli.json"
-    if not cli_json_path.exists():
-        print(f"Warning: {cli_json_path} not found — agents may lack permissions", file=sys.stderr)
-        return
-    try:
-        data = json.loads(cli_json_path.read_text())
-        perms = data.get("permissions", {})
-        allow = perms.get("allow", [])
-        deny = perms.get("deny", [])
-
-        has_pr = any("peanut-review" in str(a) for a in allow)
-        if not has_pr:
-            print("Warning: cli.json allow list does not include 'Shell(peanut-review **)' "
-                  "— agents won't be able to run peanut-review", file=sys.stderr)
-
-        has_shell_deny = any(str(d) == "Shell(**)" for d in deny)
-        if has_shell_deny:
-            print("Warning: cli.json deny list contains 'Shell(**)' which overrides all "
-                  "Shell allows — agents won't be able to run any shell commands", file=sys.stderr)
-    except json.JSONDecodeError as e:
-        print(f"Warning: could not parse {cli_json_path}: {e}", file=sys.stderr)
 
 
 def _cursor_runtime_paths(session_dir: Path, agent_name: str) -> dict[str, Path]:
@@ -299,9 +274,11 @@ def launch_agents(
     sdir = Path(session_dir)
     agents = _select_agents(session.agents, agent_names)
 
-    runners = {a.runner for a in agents}
-    if "cursor" in runners:
-        _validate_cli_json(session.workspace)
+    validate_launch_prerequisites(
+        workspace=session.workspace,
+        agents=agents,
+        cli_json=cli_json,
+    )
 
     prompts = render_all_prompts(session_dir, template_path, agent_names=agent_names)
 

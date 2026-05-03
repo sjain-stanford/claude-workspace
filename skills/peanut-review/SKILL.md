@@ -32,7 +32,8 @@ git commands, test runners, and build tools.
 
 Keep `Shell(**)` out of the deny list. A deny entry of `Shell(**)` overrides
 all Shell allows, so agents cannot run peanut-review or project inspection
-commands. The launch command warns if it detects this configuration.
+commands. The launch command validates this file before spawning agents and
+fails early with an actionable error if it is missing or unsafe.
 
 ## Choose Review Mode
 

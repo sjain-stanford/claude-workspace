@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import models, polling, runtime, session as sess, store
+from . import models, polling, runtime, session as sess, store, validation
 
 
 def _get_session_dir(args: argparse.Namespace) -> str:
@@ -54,14 +54,6 @@ def _default_personas_dir() -> str:
 CONFIG_FILE_NAME = ".peanut-review.json"
 
 
-def _resolve_config_path(raw: str, *, base: Path) -> Path:
-    """Resolve a path from config, relative to the config directory."""
-    path = Path(os.path.expandvars(os.path.expanduser(raw)))
-    if not path.is_absolute():
-        path = base / path
-    return path.resolve()
-
-
 def _find_project_config(start: Path | None = None) -> Path | None:
     """Find `.peanut-review.json` by walking upward from start/cwd."""
     cur = (start or Path.cwd()).resolve()
@@ -74,7 +66,11 @@ def _find_project_config(start: Path | None = None) -> Path | None:
     return None
 
 
-def _load_project_config(config_arg: str | None) -> tuple[dict, Path]:
+def _load_project_config(
+    config_arg: str | None,
+    *,
+    personas_dir_override: str | None = None,
+) -> tuple[dict, Path]:
     """Load and validate a per-worktree peanut-review config file."""
     if config_arg:
         config_path = Path(config_arg).expanduser().resolve()
@@ -91,30 +87,12 @@ def _load_project_config(config_arg: str | None) -> tuple[dict, Path]:
         raise ValueError(f"could not read {config_path}: {e}") from e
     except json.JSONDecodeError as e:
         raise ValueError(f"could not parse {config_path}: {e}") from e
-    if not isinstance(raw, dict):
-        raise ValueError(f"{config_path} must contain a JSON object")
-
-    required = ["reviewRoot", "workspaceRoot", "repoRelative", "agents"]
-    missing = [k for k in required if k not in raw]
-    if missing:
-        raise ValueError(f"{config_path} missing required key(s): {', '.join(missing)}")
-    if not isinstance(raw["agents"], list) or not raw["agents"]:
-        raise ValueError(f"{config_path}: agents must be a non-empty array")
-
-    base = config_path.parent
-    review_root = _resolve_config_path(str(raw["reviewRoot"]), base=base)
-    workspace_root = _resolve_config_path(str(raw["workspaceRoot"]), base=base)
-    repo_relative = Path(str(raw["repoRelative"]))
-    if repo_relative.is_absolute():
-        raise ValueError(f"{config_path}: repoRelative must be relative")
-    workspace = (workspace_root / repo_relative).resolve()
-    if not workspace.is_dir():
-        raise ValueError(f"configured workspace does not exist: {workspace}")
-
-    cfg = dict(raw)
-    cfg["reviewRoot"] = str(review_root)
-    cfg["workspaceRoot"] = str(workspace_root)
-    cfg["workspace"] = str(workspace)
+    cfg = validation.validate_project_config(
+        raw,
+        config_path=config_path,
+        default_personas_dir=_default_personas_dir(),
+        personas_dir_override=personas_dir_override,
+    )
     return cfg, config_path
 
 
@@ -286,7 +264,16 @@ def cmd_kill_agents(args: argparse.Namespace) -> int:
 def cmd_start(args: argparse.Namespace) -> int:
     """Initialize a PR review from `.peanut-review.json` and launch agents."""
     try:
-        cfg, config_path = _load_project_config(args.config)
+        cfg, config_path = _load_project_config(
+            args.config,
+            personas_dir_override=args.personas_dir,
+        )
+        if not args.no_launch:
+            validation.validate_launch_prerequisites(
+                workspace=cfg["workspace"],
+                agents=[models.AgentConfig.from_dict(a) for a in cfg["agents"]],
+                cli_json=getattr(args, "cli_json", None),
+            )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -307,7 +294,7 @@ def cmd_start(args: argparse.Namespace) -> int:
         if args.timeout is not None
         else int(cfg.get("reviewAgentTimeoutSeconds", 1200))
     )
-    personas_dir = args.personas_dir or cfg.get("personasDir") or _default_personas_dir()
+    personas_dir = cfg.get("personasDir") or _default_personas_dir()
 
     agents = cfg["agents"]
     if args.dry_run:

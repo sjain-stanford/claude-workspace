@@ -20,13 +20,30 @@ def _mock_git(workspace, *args):
     return ""
 
 
+def _write_cursor_config(workspace: Path, allow=None, deny=None) -> None:
+    cursor_dir = workspace / ".cursor"
+    cursor_dir.mkdir(parents=True, exist_ok=True)
+    (cursor_dir / "cli.json").write_text(json.dumps({
+        "permissions": {
+            "allow": ["Shell(peanut-review **)"] if allow is None else allow,
+            "deny": ["Write(**)"] if deny is None else deny,
+        }
+    }))
+
+
+def _default_workspace() -> str:
+    workspace = Path(tempfile.mkdtemp(prefix="pr-launch-workspace-"))
+    _write_cursor_config(workspace)
+    return str(workspace)
+
+
 def _make_session_dir(agents: list[AgentConfig], workspace: str | None = None) -> str:
     from peanut_review.session import create_session
 
     sd = os.path.join(tempfile.mkdtemp(prefix="pr-launch-"), "session")
     with patch("peanut_review.session._run_git", side_effect=_mock_git):
         create_session(
-            workspace=workspace or "/tmp/fakerepo",
+            workspace=workspace or _default_workspace(),
             agents=[a.to_dict() for a in agents],
             session_dir=sd,
         )
@@ -35,14 +52,7 @@ def _make_session_dir(agents: list[AgentConfig], workspace: str | None = None) -
 
 def _workspace_with_cursor_config(tmp_path: Path) -> str:
     workspace = tmp_path / "repo"
-    cursor_dir = workspace / ".cursor"
-    cursor_dir.mkdir(parents=True)
-    (cursor_dir / "cli.json").write_text(json.dumps({
-        "permissions": {
-            "allow": ["Shell(peanut-review **)"],
-            "deny": ["Write(**)"],
-        }
-    }))
+    _write_cursor_config(workspace)
     return str(workspace)
 
 
@@ -307,6 +317,26 @@ def test_cursor_agents_get_isolated_homes_without_mcp_config(tmp_path):
     assert "mcp_config" not in results[1]
     assert not (Path(results[0]["cursor_home"]) / ".cursor" / "mcp.json").exists()
     assert not (Path(results[1]["cursor_home"]) / ".cursor" / "mcp.json").exists()
+
+
+def test_cursor_launch_fails_when_cli_json_missing(tmp_path):
+    workspace = str(tmp_path / "repo")
+    Path(workspace).mkdir()
+    sd = _make_session_dir([
+        AgentConfig(name="vera", model="opus", persona="vera.md"),
+    ], workspace=workspace)
+
+    with patch("peanut_review.launch.subprocess.Popen") as popen:
+        try:
+            launch.launch_agents(sd)
+        except ValueError as e:
+            message = str(e)
+        else:
+            raise AssertionError("expected validation error")
+
+    assert "Cursor CLI config validation failed" in message
+    assert ".cursor/cli.json" in message
+    popen.assert_not_called()
 
 
 def test_cursor_launch_does_not_manage_workspace_mcp_config(tmp_path):
