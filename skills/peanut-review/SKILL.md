@@ -142,6 +142,21 @@ peanut-review --session <printed-session-path> launch
 This spawns one agent per configured reviewer, each with their persona and a
 rendered prompt containing the session path and diff commands.
 
+To launch only one configured reviewer, add `--agent`:
+
+```bash
+peanut-review --session <printed-session-path> launch --agent irene
+```
+
+To rerun a reviewer from a prior failed or incomplete pass, use `rerun`. It
+clears that reviewer's `round-done` / `next-round` signals and runtime
+metadata before launching only that reviewer. It refuses to start if the
+reviewer process still appears live.
+
+```bash
+peanut-review --session <printed-session-path> rerun --agent irene
+```
+
 ### Step 4 — Monitor the agent review
 
 Periodically check for agent questions:
@@ -234,6 +249,9 @@ peanut-review launch
 peanut-review wait-all round-done --timeout 900
 peanut-review comments --since <last-comment-id>
 ```
+
+For a single failed or incomplete reviewer, use `peanut-review rerun --agent
+<name>` instead of invoking runner scripts directly.
 
 ## Local Agent-Authored Reviews
 

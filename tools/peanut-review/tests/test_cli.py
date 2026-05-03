@@ -72,6 +72,57 @@ def test_init_creates_session(mock_git):
     assert (Path(sd) / "session.json").exists()
 
 
+def test_launch_agent_option_targets_one_configured_agent():
+    sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
+    _init_session(sd, agents=[
+        {"name": "vera", "model": "opus", "persona": "vera.md"},
+        {"name": "irene", "model": "opus", "persona": "irene.md"},
+    ])
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = main(["--session", sd, "launch", "--dry-run", "--agent", "irene"])
+
+    assert rc == 0
+    text = out.getvalue()
+    assert "irene: dry-run" in text
+    assert "vera:" not in text
+
+
+def test_launch_agent_option_reports_unknown_agent():
+    sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
+    _init_session(sd, agents=[
+        {"name": "vera", "model": "opus", "persona": "vera.md"},
+    ])
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["--session", sd, "launch", "--dry-run", "--agent", "irene"])
+
+    assert rc == 1
+    assert "unknown agent" in err.getvalue()
+    assert "vera" in err.getvalue()
+
+
+def test_rerun_dry_run_targets_agent_without_clearing_signals():
+    from peanut_review import polling
+
+    sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
+    _init_session(sd, agents=[
+        {"name": "vera", "model": "opus", "persona": "vera.md"},
+        {"name": "irene", "model": "opus", "persona": "irene.md"},
+    ])
+    polling.write_signal(sd, "irene", "round-done")
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = main(["--session", sd, "rerun", "--dry-run", "--agent", "irene"])
+
+    assert rc == 0
+    assert "irene: dry-run" in out.getvalue()
+    assert (Path(sd) / "signals" / "irene.round-done").exists()
+
+
 @patch("peanut_review.session._run_git", side_effect=_mock_git)
 def test_add_comment_and_list(mock_git):
     ws = _make_workspace({

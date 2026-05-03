@@ -126,6 +126,37 @@ def test_launch_dry_run_mixed_runners():
     assert results[1]["cmd"][0].endswith("opencode-agent-task.sh")
 
 
+def test_launch_dry_run_can_target_single_agent():
+    sd = _make_session_dir([
+        AgentConfig(name="vera", model="opus-4.6-thinking", persona="vera.md"),
+        AgentConfig(
+            name="felix", model="openai/gpt-5.5", persona="felix.md",
+            runner="opencode",
+        ),
+    ])
+
+    results = launch.launch_agents(sd, dry_run=True, agent_names=["felix"])
+
+    assert [r["name"] for r in results] == ["felix"]
+    assert results[0]["cmd"][0].endswith("opencode-agent-task.sh")
+    assert (Path(sd) / "prompts" / "felix.md").exists()
+    assert not (Path(sd) / "prompts" / "vera.md").exists()
+
+
+def test_launch_rejects_unknown_target_agent():
+    sd = _make_session_dir([
+        AgentConfig(name="vera", model="opus-4.6-thinking", persona="vera.md"),
+    ])
+
+    try:
+        launch.launch_agents(sd, dry_run=True, agent_names=["irene"])
+    except ValueError as e:
+        assert "unknown agent" in str(e)
+        assert "vera" in str(e)
+    else:
+        raise AssertionError("expected ValueError for unknown agent")
+
+
 def test_launch_dry_run_codex_agent_cmd():
     sd = _make_session_dir([
         AgentConfig(name="cleo", model="gpt-5.5", persona="vera.md", runner="codex"),
@@ -164,6 +195,78 @@ def test_launch_uses_python_supervisor_for_non_dry_run():
     assert stored.agents[0].status == "running"
     assert stored.agents[0].pid is None
     assert stored.agents[0].supervisor_pid == 424242
+
+
+def test_rerun_resets_only_selected_agent_round_state():
+    from peanut_review import polling, runtime, session as sess
+
+    sd = _make_session_dir([
+        AgentConfig(name="vera", model="opus", persona="vera.md"),
+        AgentConfig(name="irene", model="opus", persona="irene.md"),
+    ])
+    polling.write_signal(sd, "vera", "round-done")
+    polling.write_signal(sd, "irene", "round-done")
+    polling.write_signal(sd, "irene", "next-round")
+    runtime.update_agent_meta(sd, "irene", {
+        "process_state": "exited",
+        "pid": 999999999,
+        "pgid": 999999999,
+        "exit_code": 0,
+    })
+    stored = sess.load_session(sd)
+    stored.agents[1].status = "done"
+    stored.agents[1].pid = 999999999
+    stored.agents[1].pgid = 999999999
+    stored.agents[1].supervisor_pid = 999999998
+    sess.save_session(sd, stored)
+
+    with patch("peanut_review.launch.subprocess.Popen", return_value=DummyProc()):
+        results = launch.rerun_agents(sd, agent_names=["irene"])
+
+    assert [r["name"] for r in results] == ["irene"]
+    sigs = Path(sd) / "signals"
+    assert (sigs / "vera.round-done").exists()
+    assert not (sigs / "irene.round-done").exists()
+    assert not (sigs / "irene.next-round").exists()
+    assert not runtime.agent_meta_path(sd, "irene").exists()
+
+    stored = sess.load_session(sd)
+    irene = next(a for a in stored.agents if a.name == "irene")
+    assert irene.status == "running"
+    assert irene.pid is None
+    assert irene.pgid is None
+    assert irene.supervisor_pid == 424242
+
+
+def test_rerun_refuses_live_agent(monkeypatch):
+    from peanut_review import runtime, session as sess
+
+    sd = _make_session_dir([
+        AgentConfig(name="vera", model="opus", persona="vera.md"),
+    ])
+    runtime.update_agent_meta(sd, "vera", {
+        "process_state": "running",
+        "pid": 123456,
+    })
+    stored = sess.load_session(sd)
+    stored.agents[0].status = "running"
+    stored.agents[0].pid = 123456
+    sess.save_session(sd, stored)
+    monkeypatch.setattr(
+        "peanut_review.runtime.is_process_live",
+        lambda pid: pid == 123456,
+    )
+
+    with patch("peanut_review.launch.subprocess.Popen") as popen:
+        try:
+            launch.rerun_agents(sd, agent_names=["vera"])
+        except ValueError as e:
+            assert "cannot rerun live agent" in str(e)
+            assert "vera" in str(e)
+        else:
+            raise AssertionError("expected ValueError for live rerun")
+
+    popen.assert_not_called()
 
 
 def test_cursor_agents_get_isolated_homes_without_mcp_config(tmp_path):

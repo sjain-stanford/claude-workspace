@@ -8,9 +8,10 @@ import sys
 import time
 from pathlib import Path
 from string import Template
+from typing import Sequence
 
 from .models import AgentStatus, SessionState
-from .session import load_session, save_session, update_agent_status
+from .session import load_session, reset_agent_runtime, save_session, update_agent_status
 
 
 _LAUNCHER_SCRIPTS = {
@@ -58,6 +59,7 @@ def _resolve_template(user_template: str | Path | None, runner: str) -> str:
 def render_all_prompts(
     session_dir: str | Path,
     template_path: str | Path | None = None,
+    agent_names: Sequence[str] | None = None,
 ) -> dict[str, Path]:
     """Render per-agent prompts and write to <session>/prompts/. Returns {agent: path}.
 
@@ -65,6 +67,7 @@ def render_all_prompts(
     template is picked per agent based on agent.runner.
     """
     session = load_session(session_dir)
+    agents = _select_agents(session.agents, agent_names)
     sdir = Path(session_dir)
     prompts_dir = sdir / "prompts"
     prompts_dir.mkdir(exist_ok=True)
@@ -72,7 +75,7 @@ def render_all_prompts(
     pr_bin = str(Path(__file__).resolve().parent.parent / "bin" / "peanut-review")
 
     result = {}
-    for agent in session.agents:
+    for agent in agents:
         variables = {
             "SESSION": str(sdir),
             "WORKSPACE": session.workspace,
@@ -151,6 +154,83 @@ def _apply_cursor_env(env: dict[str, str], cursor_runtime: dict[str, str]) -> No
     env["PEANUT_CURSOR_HOME"] = cursor_home
 
 
+def _normalize_agent_names(agent_names: Sequence[str] | None) -> list[str] | None:
+    if agent_names is None:
+        return None
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in agent_names:
+        name = raw.strip()
+        if not name or name in seen:
+            continue
+        result.append(name)
+        seen.add(name)
+    return result
+
+
+def _select_agents(agents, agent_names: Sequence[str] | None):
+    requested = _normalize_agent_names(agent_names)
+    if requested is None:
+        return list(agents)
+
+    available = {agent.name for agent in agents}
+    unknown = [name for name in requested if name not in available]
+    if unknown:
+        known = ", ".join(agent.name for agent in agents) or "<none>"
+        raise ValueError(
+            f"unknown agent(s): {', '.join(unknown)} "
+            f"(available: {known})"
+        )
+
+    requested_set = set(requested)
+    return [agent for agent in agents if agent.name in requested_set]
+
+
+def _round_signal_path(session_dir: Path, agent_name: str, event: str) -> Path:
+    return session_dir / "signals" / f"{agent_name}.{event}"
+
+
+def _clear_agent_round_state(session_dir: Path, agent_names: Sequence[str]) -> None:
+    """Clear runtime metadata and round-bound signals for selected agents."""
+    from . import runtime
+
+    for agent_name in agent_names:
+        for event in ("round-done", "next-round"):
+            try:
+                _round_signal_path(session_dir, agent_name, event).unlink()
+            except FileNotFoundError:
+                pass
+        try:
+            runtime.agent_meta_path(session_dir, agent_name).unlink()
+        except FileNotFoundError:
+            pass
+    reset_agent_runtime(session_dir, list(agent_names))
+
+
+def _ensure_agents_not_live(session_dir: Path, agents) -> None:
+    from . import runtime
+
+    live: list[str] = []
+    for agent in agents:
+        snapshot = runtime.inspect_agent_runtime(session_dir, agent)
+        if snapshot["process_state"] in {
+            runtime.PROCESS_LAUNCHING,
+            runtime.PROCESS_RUNNING,
+        }:
+            details = [f"process={snapshot['process_state']}"]
+            if snapshot["pid"]:
+                details.append(f"pid={snapshot['pid']}")
+            if snapshot["supervisor_pid"] and snapshot["supervisor_live"]:
+                details.append(f"supervisor={snapshot['supervisor_pid']}")
+            live.append(f"{agent.name} ({' '.join(details)})")
+    if live:
+        raise ValueError(
+            "cannot rerun live agent(s): "
+            + ", ".join(live)
+            + "; wait for them to finish or stop them first"
+        )
+
+
 def _build_agent_cmd(
     agent,
     *,
@@ -209,25 +289,27 @@ def launch_agents(
     template_path: str | Path | None = None,
     dry_run: bool = False,
     cli_json: str | None = None,
+    agent_names: Sequence[str] | None = None,
 ) -> list[dict]:
-    """Spawn agents for all entries in the session, dispatching by agent.runner.
+    """Spawn selected agents from the session, dispatching by agent.runner.
 
     Returns list of {name, pid, cmd} dicts.
     """
     session = load_session(session_dir)
     sdir = Path(session_dir)
+    agents = _select_agents(session.agents, agent_names)
 
-    runners = {a.runner for a in session.agents}
+    runners = {a.runner for a in agents}
     if "cursor" in runners:
         _validate_cli_json(session.workspace)
 
-    prompts = render_all_prompts(session_dir, template_path)
+    prompts = render_all_prompts(session_dir, template_path, agent_names=agent_names)
 
     session.state = SessionState.ROUND.value
     save_session(sdir, session)
 
     results = []
-    for agent in session.agents:
+    for index, agent in enumerate(agents):
         prompt_path = prompts[agent.name]
         log_path = sdir / "log" / f"{agent.name}.log"
         cmd = _build_agent_cmd(agent, session=session, session_dir=sdir, prompt_path=prompt_path)
@@ -301,7 +383,34 @@ def launch_agents(
         # Stagger launches: cursor-agent has a cli-config.json race, and lcode's
         # idempotent llama-server startup also benefits from letting the first
         # opencode agent finish booting servers before peers join.
-        if agent != session.agents[-1]:
+        if index != len(agents) - 1:
             time.sleep(1)
 
     return results
+
+
+def rerun_agents(
+    session_dir: str | Path,
+    *,
+    agent_names: Sequence[str],
+    template_path: str | Path | None = None,
+    dry_run: bool = False,
+    cli_json: str | None = None,
+) -> list[dict]:
+    """Reset selected agents' round state and launch them again."""
+    session = load_session(session_dir)
+    sdir = Path(session_dir)
+    agents = _select_agents(session.agents, agent_names)
+    selected_names = [agent.name for agent in agents]
+
+    if not dry_run:
+        _ensure_agents_not_live(sdir, agents)
+        _clear_agent_round_state(sdir, selected_names)
+
+    return launch_agents(
+        sdir,
+        template_path=template_path,
+        dry_run=dry_run,
+        cli_json=cli_json,
+        agent_names=selected_names,
+    )

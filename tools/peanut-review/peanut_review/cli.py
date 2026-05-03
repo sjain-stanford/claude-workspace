@@ -195,17 +195,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_launch(args: argparse.Namespace) -> int:
-    """Spawn all agents."""
-    session_dir = _get_session_dir(args)
-    from . import launch
-    # When --template is omitted, let launch_agents pick the default CLI
-    # prompt for each agent's runner.
-    results = launch.launch_agents(
-        session_dir, args.template,
-        dry_run=args.dry_run,
-        cli_json=getattr(args, "cli_json", None),
-    )
+def _print_launch_results(results: list[dict]) -> None:
     for r in results:
         if r.get("pid"):
             pid_str = f"pid={r['pid']}"
@@ -214,6 +204,44 @@ def cmd_launch(args: argparse.Namespace) -> int:
         else:
             pid_str = "dry-run"
         print(f"  {r['name']}: {pid_str}")
+
+
+def cmd_launch(args: argparse.Namespace) -> int:
+    """Spawn agents."""
+    session_dir = _get_session_dir(args)
+    from . import launch
+    # When --template is omitted, let launch_agents pick the default CLI
+    # prompt for each agent's runner.
+    try:
+        results = launch.launch_agents(
+            session_dir, args.template,
+            dry_run=args.dry_run,
+            cli_json=getattr(args, "cli_json", None),
+            agent_names=getattr(args, "agent", None),
+        )
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    _print_launch_results(results)
+    return 0
+
+
+def cmd_rerun(args: argparse.Namespace) -> int:
+    """Reset selected agents' round state and spawn them again."""
+    session_dir = _get_session_dir(args)
+    from . import launch
+    try:
+        results = launch.rerun_agents(
+            session_dir,
+            agent_names=args.agent,
+            template_path=args.template,
+            dry_run=args.dry_run,
+            cli_json=getattr(args, "cli_json", None),
+        )
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    _print_launch_results(results)
     return 0
 
 
@@ -1169,7 +1197,29 @@ def build_parser() -> argparse.ArgumentParser:
                          "The workspace must already be a local checkout.")
 
     # launch
-    sp = sub.add_parser("launch", help="Spawn all agents")
+    sp = sub.add_parser("launch", help="Spawn agents")
+    sp.add_argument("--dry-run", action="store_true", help="Print commands only")
+    sp.add_argument("--template", help="Agent prompt template path")
+    sp.add_argument("--cli-json", help="Path to cli.json for agent permissions")
+    sp.add_argument(
+        "--agent",
+        action="append",
+        metavar="NAME",
+        help="Launch only this configured agent (repeatable)",
+    )
+
+    # rerun
+    sp = sub.add_parser(
+        "rerun",
+        help="Reset selected agents' round state and spawn them again",
+    )
+    sp.add_argument(
+        "--agent",
+        action="append",
+        metavar="NAME",
+        required=True,
+        help="Configured agent to rerun (repeatable)",
+    )
     sp.add_argument("--dry-run", action="store_true", help="Print commands only")
     sp.add_argument("--template", help="Agent prompt template path")
     sp.add_argument("--cli-json", help="Path to cli.json for agent permissions")
@@ -1429,6 +1479,7 @@ def main(argv: list[str] | None = None) -> int:
     handler = {
         "init": cmd_init,
         "launch": cmd_launch,
+        "rerun": cmd_rerun,
         "start": cmd_start,
         "add-comment": cmd_add_comment,
         "add-global-comment": cmd_add_global_comment,

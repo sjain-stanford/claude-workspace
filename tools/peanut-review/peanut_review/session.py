@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import AgentConfig, GitHubPR, Session, SessionState, _now_iso
+from .models import AgentConfig, AgentStatus, GitHubPR, Session, SessionState, _now_iso
 
 META_FILE = "__meta__"
 # Sentinel for "high-level / global" comments not tied to any file or line.
@@ -202,6 +202,24 @@ def update_agent_status(
                 if supervisor_pid is not None:
                     a.supervisor_pid = supervisor_pid
                 break
+        save_session(session_dir, session)
+        return session
+
+
+def reset_agent_runtime(
+    session_dir: str | Path,
+    agent_names: list[str],
+) -> Session:
+    """Clear persisted runtime identity for selected agents."""
+    names = set(agent_names)
+    with _session_lock(session_dir):
+        session = load_session(session_dir)
+        for a in session.agents:
+            if a.name in names:
+                a.status = AgentStatus.PENDING.value
+                a.pid = None
+                a.pgid = None
+                a.supervisor_pid = None
         save_session(session_dir, session)
         return session
 
