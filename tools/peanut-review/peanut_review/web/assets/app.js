@@ -21,6 +21,42 @@
     });
   }
 
+  function cssPxVar(name, fallback = 0) {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function updateStickyOffsets() {
+    const root = document.documentElement;
+    const header = document.querySelector("header");
+    const fileHeader = document.querySelector(".file-header");
+    if (header) {
+      root.style.setProperty(
+        "--sticky-app-header-height",
+        `${Math.ceil(header.getBoundingClientRect().height)}px`,
+      );
+    }
+    if (fileHeader) {
+      root.style.setProperty(
+        "--sticky-file-header-height",
+        `${Math.ceil(fileHeader.getBoundingClientRect().height)}px`,
+      );
+    }
+  }
+
+  function stickyTargetOffset() {
+    return (
+      cssPxVar("--sticky-app-header-height", 0) +
+      cssPxVar("--sticky-file-header-height", 0) +
+      12
+    );
+  }
+
+  updateStickyOffsets();
+  window.addEventListener("resize", updateStickyOffsets);
+  requestAnimationFrame(updateStickyOffsets);
+
   // --- Rendering new comment form / thread ---
   function rangeBadge(c) {
     if (c.end_line == null || c.end_line === c.line) return "";
@@ -1219,13 +1255,12 @@
   }
 
   function scrollIfOffscreen(el) {
-    // Only re-center when the thread isn't already fully visible. The sticky
-    // header occludes the top of the viewport, so we treat anything under it
+    // Only re-center when the thread isn't already fully visible. Sticky
+    // headers occlude the top of the viewport, so anything under them counts
     // as offscreen.
     const r = el.getBoundingClientRect();
-    const header = document.querySelector("header");
-    const headerH = header ? header.getBoundingClientRect().height : 0;
-    if (r.top >= headerH && r.bottom <= window.innerHeight) return;
+    const topOffset = stickyTargetOffset();
+    if (r.top >= topOffset && r.bottom <= window.innerHeight) return;
     el.scrollIntoView({ behavior: "instant", block: "center" });
   }
 
@@ -1243,9 +1278,10 @@
     // mid-page user moves to the comment they're already looking at.
     // "prev" → last thread ending at or above the viewport bottom.
     const vh = window.innerHeight;
+    const topOffset = stickyTargetOffset();
     if (direction === "next") {
       for (let i = 0; i < threads.length; i++) {
-        if (threads[i].el.getBoundingClientRect().top >= 0) return i;
+        if (threads[i].el.getBoundingClientRect().top >= topOffset) return i;
       }
       return threads.length - 1;
     }
@@ -1306,11 +1342,9 @@
   }
 
   function pageScroll(direction) {
-    // Subtract the sticky-header height so a couple of lines from the
+    // Subtract sticky-header height so a couple of lines from the
     // previous viewport remain visible after the jump.
-    const header = document.querySelector("header");
-    const headerH = header ? header.getBoundingClientRect().height : 0;
-    const delta = Math.max(window.innerHeight - headerH, 100);
+    const delta = Math.max(window.innerHeight - stickyTargetOffset(), 100);
     window.scrollBy({
       top: direction === "down" ? delta : -delta,
       behavior: "instant",

@@ -110,6 +110,18 @@ def test_render_page_smoke(session_dir: Path, repo: Path):
     assert "felix" in html  # author
 
 
+def test_render_page_keeps_file_header_sticky(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert ".file-header" in html
+    assert "position: sticky;" in html
+    assert "top: var(--sticky-file-top);" in html
+    assert "--sticky-target-offset" in html
+    assert '<span class="path" title="foo.py">foo.py</span>' in html
+
+
 def test_render_comment_escapes_html(session_dir: Path, repo: Path):
     s = sess.load_session(session_dir)
     files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)

@@ -321,12 +321,13 @@ def _render_thread(thread: list[Comment]) -> str:
 
 def _render_file(fd: FileDiff, threads_at_line: dict[tuple[str, int], list[list[Comment]]]) -> str:
     anchor = _file_anchor(fd.path)
+    path_html = html.escape(fd.path)
     if fd.binary and not fd.lines:
         return (
-            f'<div class="file" id="{anchor}" data-file="{html.escape(fd.path)}">'
+            f'<div class="file" id="{anchor}" data-file="{path_html}">'
             f'<div class="file-header">'
             f'<span class="status">[{html.escape(fd.status)}]</span>'
-            f'<span class="path">{html.escape(fd.path)}</span>'
+            f'<span class="path" title="{path_html}">{path_html}</span>'
             f'<span class="stats">(binary)</span>'
             f'</div></div>'
         )
@@ -369,10 +370,10 @@ def _render_file(fd: FileDiff, threads_at_line: dict[tuple[str, int], list[list[
             )
 
     return (
-        f'<div class="file" id="{anchor}" data-file="{html.escape(fd.path)}">'
+        f'<div class="file" id="{anchor}" data-file="{path_html}">'
         f'<div class="file-header">'
         f'<span class="status">[{html.escape(fd.status)}]</span>'
-        f'<span class="path">{html.escape(fd.path)}</span>'
+        f'<span class="path" title="{path_html}">{path_html}</span>'
         f'<span class="stats">'
         f'<span class="add">+{fd.additions}</span> '
         f'<span class="del">-{fd.deletions}</span>'

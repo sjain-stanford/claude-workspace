@@ -19,6 +19,12 @@
   --blocking: #ff922b;
   --stale: #555a63;
   --focus: #ffd866;
+  --sticky-app-header-height: 45px;
+  --sticky-file-header-height: 37px;
+  --sticky-file-top: calc(var(--sticky-app-header-height) - 1px);
+  --sticky-target-offset: calc(
+    var(--sticky-app-header-height) + var(--sticky-file-header-height) + 12px
+  );
 }
 
 * { box-sizing: border-box; }
@@ -31,8 +37,10 @@ body {
   font-size: 13px;
   line-height: 1.5;
 }
-/* Sticky header would otherwise overlap anchor jump targets. */
-.inbox-section, .global-section, .file { scroll-margin-top: 56px; }
+/* Sticky headers would otherwise overlap anchor jump targets. */
+.inbox-section, .global-section, .file {
+  scroll-margin-top: calc(var(--sticky-app-header-height) + 10px);
+}
 code, pre, .mono {
   font-family: "Source Code Pro", "JetBrains Mono", "Menlo", monospace;
 }
@@ -202,17 +210,31 @@ main {
   border: 1px solid var(--border);
   border-radius: 6px;
   margin-bottom: 20px;
-  overflow: hidden;
+  overflow: visible;
 }
 .file-header {
+  position: sticky;
+  top: var(--sticky-file-top);
+  z-index: 8;
   background: #141a22;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
   display: flex;
   align-items: center;
   gap: 12px;
+  box-shadow: 0 1px 0 var(--border);
 }
-.file-header .path { font-weight: 600; }
+.file-header .status,
+.file-header .stats { flex: 0 0 auto; }
+.file-header .path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
 .file-header .stats { color: var(--muted); font-size: 11px; }
 .file-header .add { color: var(--suggestion); }
 .file-header .del { color: var(--critical); }
@@ -275,7 +297,7 @@ body.gutter-drag, body.gutter-drag * { user-select: none; cursor: ns-resize !imp
   background: #141a22;
   padding: 10px 14px;
 }
-.thread { scroll-margin-top: 70px; }
+.thread { scroll-margin-top: var(--sticky-target-offset); }
 .thread + .thread { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .thread.resolved .comment.top-level { opacity: 0.85; }
 .thread.focused {
