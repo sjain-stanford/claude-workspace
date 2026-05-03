@@ -80,6 +80,7 @@ def render_all_prompts(
             "SESSION": str(sdir),
             "WORKSPACE": session.workspace,
             "AGENT": agent.name,
+            "PERSONA": agent.persona,
             "DIFF_COMMANDS": " && ".join(session.diff_commands),
             "BASE_REF": session.base_ref,
             "TOPIC_REF": session.topic_ref,

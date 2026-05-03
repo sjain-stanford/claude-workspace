@@ -226,10 +226,10 @@ processes through the CLI:
 "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
 "$PR_BIN" --session "$SESSION" comments
 "$PR_BIN" --session "$SESSION" reply --agent <name> --id <qid> "answer"
-"$PR_BIN" --session "$SESSION" launch --agent irene
-"$PR_BIN" --session "$SESSION" rerun --agent irene
+"$PR_BIN" --session "$SESSION" launch --agent Irene
+"$PR_BIN" --session "$SESSION" rerun --agent Irene
 "$PR_BIN" --session "$SESSION" kill-agents
-"$PR_BIN" --session "$SESSION" kill-agents --agent irene
+"$PR_BIN" --session "$SESSION" kill-agents --agent Irene
 ```
 
 Use `status` for a compact view, but treat signal files, comments, inbox, logs,
@@ -244,12 +244,16 @@ idle reviewer processes do not linger.
 
 Use configured reviewers as-is during a review. When authoring config, ask
 before changing persistent roots, runners, personas, or models. If asked to
-choose a lineup, include Vera, one domain expert such as Irene or Merlin for
-compiler/MLIR work, and two or three breadth reviewers such as Felix, Petra, or
-Soren. Map `tier: expert` personas to the strongest available model and
+choose a lineup, include Vera, one domain expert suited to the patch, and two
+or three breadth reviewers such as Felix, Petra, or Soren. Map `tier: expert`
+personas to the strongest available model and
 `tier: standard` to a balanced/fast model. Discover models with
 `cursor-agent --list-models` or `opencode models`; common Codex ids are
 `gpt-5.5`, `gpt-5.4`, and `gpt-5.3-codex`.
+
+Use display-case agent names in config, e.g. `Vera`, while keeping persona
+filenames lowercase, e.g. `vera.md`. The web UI shows the configured agent
+name.
 
 ## Web UI
 

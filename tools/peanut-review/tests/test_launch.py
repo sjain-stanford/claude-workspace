@@ -431,6 +431,19 @@ def test_agents_use_cli_prompt_template():
     assert "Shell tool" in rendered
 
 
+def test_prompt_uses_persona_filename_independent_of_agent_display_name():
+    sd = _make_session_dir([
+        AgentConfig(name="Felix", model="openai/gpt-5.5", persona="felix.md"),
+    ])
+
+    prompts = launch.render_all_prompts(sd)
+    rendered = prompts["Felix"].read_text()
+
+    assert "cat " in rendered
+    assert "/personas/felix.md" in rendered
+    assert "/personas/Felix.md" not in rendered
+
+
 def test_session_roundtrip_preserves_runner():
     from peanut_review import session as sess
     sd = _make_session_dir([
