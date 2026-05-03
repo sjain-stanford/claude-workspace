@@ -493,11 +493,21 @@ Agents can interact with peanut-review in two ways:
 
 ### MCP mode (preferred)
 
-`peanut-review launch` automatically configures an MCP server in
-`.cursor/mcp.json` and uses the `agent-prompt-mcp.md` template. The MCP server
-uses `uv run` against the checked-out package (requires `uv` on PATH). Agents
-call structured MCP tools (`add_comment`,
+`peanut-review launch` automatically configures an MCP server in each Cursor
+reviewer's isolated runtime home:
+`<session>/runtime/cursor/<agent>/.cursor/mcp.json`. Cursor still receives the
+real source workspace as `--workspace`, but `HOME`, `CURSOR_CONFIG_DIR`, and
+`CURSOR_DATA_DIR` point at the per-agent runtime directory so parallel Cursor
+reviewers do not share MCP state. The MCP server uses `uv run` against the
+checked-out package (requires `uv` on PATH). Agents call structured MCP tools
+(`add_comment`,
 `add_global_comment`, `note`, `signal`, `wait`, etc.) instead of Shell commands.
+
+Before launching Cursor reviewers, peanut-review removes only older
+peanut-review-generated `mcpServers.peanut-review` entries from the workspace
+`.cursor/mcp.json` and preserves unrelated MCP servers. If the workspace file
+contains a custom server named `peanut-review`, launch fails with a clear error
+because that server would shadow the per-agent MCP config.
 
 Benefits:
 - Agents call typed functions — no risk of printing commands instead of executing

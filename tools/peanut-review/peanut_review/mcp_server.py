@@ -6,13 +6,16 @@ Eliminates the "prints commands instead of executing" problem with Gemini.
 Usage:
     PEANUT_SESSION=/tmp/peanut-review/... python -m peanut_review.mcp_server
 
-Configured in .cursor/mcp.json:
+Configured by `peanut-review launch` in the agent-specific Cursor runtime
+home, e.g. <session>/runtime/cursor/<agent>/.cursor/mcp.json:
     {
       "mcpServers": {
         "peanut-review": {
-          "command": "python3",
-          "args": ["-m", "peanut_review.mcp_server"],
-          "env": { "PEANUT_SESSION": "<session-dir>" }
+          "command": "peanut-review-mcp",
+          "env": {
+            "PEANUT_SESSION": "<session-dir>",
+            "GIT_AUTHOR_NAME": "<agent>"
+          }
         }
       }
     }

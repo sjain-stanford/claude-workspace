@@ -70,6 +70,17 @@ def _terminate_group(pgid: int | None, sig: signal.Signals) -> bool:
     return True
 
 
+def _cursor_env_meta(env: dict[str, str]) -> dict[str, str]:
+    meta: dict[str, str] = {}
+    cursor_home = env.get("PEANUT_CURSOR_HOME")
+    if cursor_home:
+        meta["cursor_home"] = cursor_home
+    mcp_config = env.get("PEANUT_CURSOR_MCP_CONFIG")
+    if mcp_config:
+        meta["mcp_config"] = mcp_config
+    return meta
+
+
 def _final_status(session_dir: str | Path, agent_name: str) -> str:
     from .session import load_session
 
@@ -125,6 +136,7 @@ def supervise_agent(
     child_env = dict(os.environ if env is None else env)
     child_env["PEANUT_SUPERVISOR_PID"] = str(os.getpid())
     runner = _runner_from_command(command)
+    cursor_meta = _cursor_env_meta(child_env)
 
     runtime.update_agent_meta(
         sdir,
@@ -134,6 +146,7 @@ def supervise_agent(
             "supervisor_pid": os.getpid(),
             "supervisor_start": _now_iso(),
             "command": command,
+            **cursor_meta,
         },
     )
     update_agent_status(
@@ -160,6 +173,7 @@ def supervise_agent(
                 "exit_code": 127,
                 "timed_out": False,
                 "error": str(e),
+                **cursor_meta,
             },
         )
         update_agent_status(sdir, agent_name, AgentStatus.FAILED.value)
@@ -177,6 +191,7 @@ def supervise_agent(
             "supervisor_pid": os.getpid(),
             "command": command,
             "start": reviewer_start,
+            **cursor_meta,
         },
     )
     update_agent_status(
@@ -221,6 +236,7 @@ def supervise_agent(
             "exit_code": return_code,
             "timed_out": timed_out,
             "termination_signal": termination_signal,
+            **cursor_meta,
         },
     )
     update_agent_status(

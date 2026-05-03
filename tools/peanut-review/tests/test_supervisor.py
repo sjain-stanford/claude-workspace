@@ -99,6 +99,40 @@ def test_supervisor_records_failed_without_signal(tmp_path):
     assert sess.load_session(sd).agents[0].status == "failed"
 
 
+def test_supervisor_records_cursor_runtime_metadata(tmp_path):
+    sd = _make_session_dir()
+    cursor_home = str(tmp_path / "cursor-home")
+    mcp_config = str(tmp_path / "cursor-home" / ".cursor" / "mcp.json")
+    script = _script(
+        tmp_path,
+        "cursor-agent-task.sh",
+        f"""
+        mkdir -p "{sd}/log/vera" "{sd}/signals"
+        date -Iseconds > "{sd}/signals/vera.round-done"
+        exec sh -c 'exit 0'
+        """,
+    )
+
+    rc = supervise_agent(
+        session_dir=sd,
+        agent_name="vera",
+        command=[script],
+        timeout=5,
+        env={
+            **os.environ,
+            "PEANUT_CURSOR_HOME": cursor_home,
+            "PEANUT_CURSOR_MCP_CONFIG": mcp_config,
+        },
+        kill_grace=0.1,
+    )
+
+    assert rc == 0
+    meta = json.loads((Path(sd) / "log" / "vera" / "meta.json").read_text())
+    assert meta["runner"] == "cursor"
+    assert meta["cursor_home"] == cursor_home
+    assert meta["mcp_config"] == mcp_config
+
+
 def test_supervisor_records_shell_style_termination_signal(tmp_path):
     sd = _make_session_dir()
     script = _script(
