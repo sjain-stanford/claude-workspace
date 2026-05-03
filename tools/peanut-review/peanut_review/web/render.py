@@ -32,6 +32,17 @@ _FAVICON_SVG = (
 )
 FAVICON_HREF = "data:image/svg+xml;utf8," + _FAVICON_SVG.replace("#", "%23").replace('"', "%22")
 
+SESSION_STATE_LABELS = {
+    "init": "ready",
+    "round": "in review",
+    "complete": "done",
+    "aborted": "aborted",
+}
+
+
+def _session_state_label(state: str) -> str:
+    return SESSION_STATE_LABELS.get(state, state.replace("-", " "))
+
 
 def _lexer_for(path: str):
     try:
@@ -609,6 +620,7 @@ def _render_file_row(fd: FileDiff, unresolved: int, total: int) -> str:
 def _render_session_row(s: dict, base_url: str = "") -> str:
     sid = html.escape(s["id"])
     state = html.escape(s.get("state", ""))
+    state_label = html.escape(_session_state_label(s.get("state", "")))
     base = html.escape(s.get("base_ref", ""))
     topic = html.escape(s.get("topic_ref", ""))
     workspace = html.escape(s.get("workspace", ""))
@@ -630,7 +642,8 @@ def _render_session_row(s: dict, base_url: str = "") -> str:
         f'<tr class="session-row state-{state}" data-id="{sid}">'
         f'<td class="id"><a href="{base_url}/{sid}">{sid}</a>'
         f'<div class="mono head">{head}</div></td>'
-        f'<td><span class="badge state-{state}">{state}</span>'
+        f'<td><span class="badge state-{state}" '
+        f'title="session state: {state}">{state_label}</span>'
         f'<div class="sub">{agent_count} agent{"s" if agent_count != 1 else ""}</div></td>'
         f'<td class="mono refs">{base} … {topic}</td>'
         f'<td class="mono workspace">{workspace}</td>'
@@ -735,7 +748,9 @@ def render_page(
         '<span class="badge head head-shifted">HEAD shifted</span>'
         if head_shifted else '<span class="badge head"></span>'
     )
-    state_class = f"state-{session.state}"
+    state = html.escape(session.state)
+    state_class = f"state-{state}"
+    state_label = html.escape(_session_state_label(session.state))
 
     # Full PR URL + push button in the header for gh-backed sessions. URL is
     # rendered verbatim (no truncation) so triple-click → copy works. The
@@ -797,7 +812,8 @@ def render_page(
     <span class="spacer"></span>
     {gh_push_button}
     {head_badge}
-    <span class="badge {state_class}">{html.escape(session.state)}</span>
+    <span class="badge session-state {state_class}" data-session-state="{state}"
+          title="session state: {state}">{state_label}</span>
   </header>
   <main>
     {sidebar}

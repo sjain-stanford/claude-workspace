@@ -12,6 +12,27 @@
     d.textContent = s;
     return d.innerHTML;
   }
+  function sessionStateLabel(state) {
+    const labels = {
+      init: "ready",
+      round: "in review",
+      complete: "done",
+      aborted: "aborted",
+    };
+    return labels[state] || String(state || "").replace(/-/g, " ");
+  }
+  function updateHeaderState(state) {
+    const badge = document.querySelector("header .session-state");
+    if (!badge) return;
+    const raw = String(state || "");
+    badge.textContent = sessionStateLabel(raw);
+    badge.dataset.sessionState = raw;
+    badge.title = `session state: ${raw}`;
+    for (const cls of Array.from(badge.classList)) {
+      if (cls.startsWith("state-")) badge.classList.remove(cls);
+    }
+    if (raw) badge.classList.add(`state-${raw}`);
+  }
   function api(method, path, body) {
     const opts = { method, headers: { "Content-Type": "application/json" } };
     if (body !== undefined) opts.body = JSON.stringify(body);
@@ -1004,6 +1025,7 @@
         if (el) el.textContent = val;
       };
       set("state", s.state);
+      updateHeaderState(s.state);
       set("head", (s.current_head || "").slice(0, 12));
       set("stale_comments", s.stale_count);
       updatePushButton(s.pending_push);

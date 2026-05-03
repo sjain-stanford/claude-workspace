@@ -8,6 +8,15 @@
     d.textContent = s == null ? "" : String(s);
     return d.innerHTML;
   }
+  function sessionStateLabel(state) {
+    const labels = {
+      init: "ready",
+      round: "in review",
+      complete: "done",
+      aborted: "aborted",
+    };
+    return labels[state] || String(state || "").replace(/-/g, " ");
+  }
 
   function countsCell(s) {
     const parts = [
@@ -28,7 +37,7 @@
       <tr class="session-row state-${esc(s.state)}" data-id="${esc(s.id)}">
         <td class="id"><a href="${BASE}/${esc(s.id)}">${esc(s.id)}</a>
           <div class="mono head">${esc(s.current_head || "")}</div></td>
-        <td><span class="badge state-${esc(s.state)}">${esc(s.state)}</span>
+        <td><span class="badge state-${esc(s.state)}" title="session state: ${esc(s.state)}">${esc(sessionStateLabel(s.state))}</span>
           <div class="sub">${esc(agent)}</div></td>
         <td class="mono refs">${esc(s.base_ref)} … ${esc(s.topic_ref)}</td>
         <td class="mono workspace">${esc(s.workspace)}</td>

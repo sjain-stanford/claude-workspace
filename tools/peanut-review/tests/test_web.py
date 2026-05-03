@@ -122,6 +122,21 @@ def test_render_page_keeps_file_header_sticky(session_dir: Path, repo: Path):
     assert '<span class="path" title="foo.py">foo.py</span>' in html
 
 
+def test_render_page_labels_round_state_as_in_review(
+    session_dir: Path, repo: Path
+):
+    sess.transition_state(session_dir, "round")
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+    header = html[html.index("<header>"):html.index("</header>")]
+
+    assert 'class="badge session-state state-round"' in header
+    assert 'data-session-state="round"' in header
+    assert ">in review</span>" in header
+    assert ">round</span>" not in header
+
+
 def test_render_comment_escapes_html(session_dir: Path, repo: Path):
     s = sess.load_session(session_dir)
     files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
