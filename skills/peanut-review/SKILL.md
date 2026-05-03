@@ -4,531 +4,259 @@ description: Orchestrate structured multi-agent code review for local changes or
 user_invocable: true
 ---
 
-# Peanut Review — Orchestrator Skill
+# Peanut Review
 
-You are the orchestrator for a structured multi-agent code review session.
-You drive the review lifecycle using the `peanut-review` CLI tool.
+You are the orchestrator for a structured multi-agent review. Drive the review
+lifecycle with `tools/peanut-review/bin/peanut-review`; it sets `PYTHONPATH`
+for the local checkout, so no install step is needed.
 
-## Prerequisites
+## Operator Checklist
 
-- Use the checked-out CLI directly: `tools/peanut-review/bin/peanut-review`.
-  It sets `PYTHONPATH` for the local checkout, so no setup step is needed.
-- For package-local development and tests, run commands from
-  `tools/peanut-review` with `uv run ...`.
-- Default personas live in `tools/peanut-review/peanut_review/personas/`
-- Agent prompt template: `tools/peanut-review/peanut_review/templates/agent-prompt.md`
+Track these items explicitly. If your harness has a todo list, create this list
+before running commands and keep it current.
 
-## Agent Permissions
+- [ ] Choose one lifecycle: GitHub PR review or local author-owned review.
+- [ ] Record the session path, workspace root, source repo path, base/topic refs
+      or PR number, and configured reviewers.
+- [ ] Ask for external facts/preferences that are not discoverable: review
+      root, web UI root, repo layout, build/test command, session reuse/archive
+      choice, persona lineup, runner, and model choices.
+- [ ] Confirm project config and reviewer permissions are valid.
+- [ ] Confirm the checkout is built/testable before launching reviewers.
+- [ ] Launch reviewers and verify startup with `status`, `inbox`, logs, and
+      `wait-all`.
+- [ ] Answer reviewer questions promptly.
+- [ ] Track the last reviewed comment id for later `--since` queries.
+- [ ] Triage every finding: keep, delete, resolve, reply, or push to GitHub.
+- [ ] Finish with the right artifact: GitHub review comments/verdict for PRs,
+      or a local verdict/archive for author-owned reviews.
 
-Cursor-based agents need a `.cursor/cli.json` in the workspace before launch.
-Copy the template to the workspace root:
+Mode-specific checklist:
 
-```bash
-cp tools/peanut-review/peanut_review/templates/cli.sample.json <WORKSPACE>/.cursor/cli.json
-```
+- [ ] GitHub PR: prefer `start --no-launch`, build/test, then `launch`, unless
+      the user says the checkout is already built.
+- [ ] GitHub PR: curate feedback; do not fix code, resolve imported GitHub
+      threads, or force rebuttal loops unless the user asks.
+- [ ] Local review: own the patch; apply fixes, `migrate`, run rebuttal passes,
+      and record a final verdict.
 
-The template includes `Shell(peanut-review **)` plus read-only filesystem and
-git commands, test runners, and build tools.
+## Ask Before Guessing
 
-Keep `Shell(**)` out of the deny list. A deny entry of `Shell(**)` overrides
-all Shell allows, so agents cannot run peanut-review or project inspection
-commands. The launch command validates this file before spawning agents and
-fails early with an actionable error if it is missing or unsafe.
+Use project config and discoverable local facts first. If a choice affects where
+state is written, which checkout is reviewed, or which paid/local model runner
+is used, and the answer is not already in the repo or user request, ask a
+concise question instead of inventing it. Do not ask for facts you can cheaply
+read from config files or CLI discovery.
 
-## Choose Review Mode
+If the lifecycle is unclear, ask: "Is this a local author-owned review, or a
+GitHub PR review?"
 
-Peanut Review supports two different lifecycles. Choose the mode first and do
-not mix the lifecycles unless the user explicitly asks for it.
+## Working Variables
 
-Use **GitHub PR review** when the input is a PR number, PR URL, or external
-author changes. The goal is to import existing GitHub context, run agent
-reviewers, curate the findings, and push review comments or an
-approve/request-changes decision back to GitHub. Do not default to applying
-fixes, resolving comments, or running the rebuttal loop for someone else's PR.
-
-Use **local agent-authored review** when reviewing code in the current
-workspace that you or another agent authored locally. The orchestrator owns the
-patch, so the round 1 → triage/fix/rebuttal → final verdict flow is appropriate.
-
-If the user's intent is unclear, ask one short question: "Is this a local
-author-owned review, or a GitHub PR review?"
-
-## GitHub PR Reviews
-
-### Step 1 — Use the project config
-
-The happy path is config-driven. Do not choose the review root, workspace path,
-or agent lineup by hand when a `.peanut-review.json` exists. Worktree setup
-scripts should copy or generate this file in the worktree parent, next to
-`.cursor` and `.claude`:
-
-```json
-{
-  "reviewRoot": "/home/jakub/reviews",
-  "workspaceRoot": ".",
-  "repoRelative": "iree",
-  "reviewAgentTimeoutSeconds": 900,
-  "agents": [
-    {"name": "vera", "model": "gpt-5.5-high", "persona": "vera.md", "runner": "cursor"},
-    {"name": "irene", "model": "gpt-5.5-high", "persona": "irene.md", "runner": "cursor"},
-    {"name": "petra", "model": "composer-2", "persona": "petra.md", "runner": "cursor"},
-    {"name": "soren", "model": "composer-2", "persona": "soren.md", "runner": "cursor"}
-  ]
-}
-```
-
-Config semantics:
-
-- `reviewRoot`: persistent peanut-review session root. The web server should
-  scan this same root.
-- `workspaceRoot`: project worktree root. Relative paths are resolved relative
-  to the config file, so `"."` means the directory containing the config.
-- `repoRelative`: source repository path under `workspaceRoot`.
-- `reviewAgentTimeoutSeconds`: per-agent wall-clock timeout for reviewer runs.
-- `agents`: exact reviewer lineup. Use it as-is; do not re-select agents.
-
-Start a PR review from the worktree parent:
+Set these descriptive names in notes or shell snippets:
 
 ```bash
-peanut-review start <pr-number-or-url>
+PR_BIN=tools/peanut-review/bin/peanut-review
+SESSION=<session-path>
+WORKSPACE=<source-workspace>
+REVIEW_ROOT=<configured-review-root>
+LAST_COMMENT_ID=<last-reviewed-comment-id>
 ```
 
-`start` searches upward for `.peanut-review.json`, resolves a bare PR number
-with `gh` from the configured checkout, creates the session at
-`<reviewRoot>/<owner>-<repo>-pr-<number>`, initializes GitHub metadata, pulls
-existing GitHub PR comments and review summaries into the session, and launches
-the configured agents. Imported GitHub review threads carry their resolved
-status into the local session.
+Examples assume `PR_BIN` and the intended `SESSION` path are set.
 
-If the project still needs a build before agents run, initialize without
-launching, build, then launch:
+## Config And Permissions
+
+When `.peanut-review.json` exists, use it as-is. It belongs in the worktree
+parent and defines `reviewRoot`, `workspaceRoot`, `repoRelative`,
+`reviewAgentTimeoutSeconds`, and the exact `agents` lineup. Point the web UI at
+the same `reviewRoot`. If no config exists, ask before choosing persistent
+roots, repo layout, reviewers, runners, or models.
+
+Cursor agents need `.cursor/cli.json` in the source workspace:
 
 ```bash
-peanut-review start <pr-number-or-url> --no-launch
-# build/test project as needed
-peanut-review --session <printed-session-path> launch
+mkdir -p "$WORKSPACE/.cursor"
+cp tools/peanut-review/peanut_review/templates/cli.sample.json "$WORKSPACE/.cursor/cli.json"
 ```
 
-After launch, set `PEANUT_SESSION=<printed-session-path>` or pass
-`--session <printed-session-path>` on subsequent commands. Always verify that
-agents actually started:
+The launch command validates config and Cursor permissions. Keep
+`Shell(peanut-review **)` allowed, and keep `Shell(**)` out of the deny list
+because it overrides all Shell allows.
+
+## GitHub PR Review
+
+Use this for PR numbers, PR URLs, or external author changes. Import GitHub
+context, run reviewers, curate findings, then push review comments or an
+approve/request-changes decision back to GitHub.
+
+1. Start without launching unless the checkout is already built. The command
+   imports existing GitHub context and prints the session path.
+
+   ```bash
+   "$PR_BIN" start <pr-number-or-url> --no-launch
+   SESSION=<printed-session-path>
+   ```
+
+2. Build/test the checkout with the project workflow.
+
+3. Launch reviewers and run the shared monitoring commands:
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" launch
+   ```
+
+4. Curate findings. Delete duplicate/noisy local comments with `delete <c_id>`.
+   Add replies only when they clarify a finding for the PR author. Do not
+   resolve imported GitHub comments unless the GitHub discussion was actually
+   resolved or the user asks you to manage it.
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" gh-pull
+   "$PR_BIN" --session "$SESSION" comments
+   "$PR_BIN" --session "$SESSION" comments --since "$LAST_COMMENT_ID"
+   ```
+
+5. Add one top-level verdict comment when there is an overall conclusion:
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" add-global-comment --category request-changes --body "Blocking issue: ..."
+   "$PR_BIN" --session "$SESSION" add-global-comment --category approve --body "LGTM"
+   ```
+
+   Use `--category comment` or omit `--category` for non-verdict feedback. For
+   self-owned PRs, GitHub may reject approve/request-changes events; use a
+   normal global comment in that case.
+
+6. Preview, then push:
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" gh-push --dry-run
+   "$PR_BIN" --session "$SESSION" gh-push
+   ```
+
+After author updates, refresh the checkout with the project PR-update flow,
+then run `gh-pull` and `migrate`. Launch another reviewer pass only for
+substantial updates or a human request.
 
 ```bash
-peanut-review --session <printed-session-path> status
+"$PR_BIN" --session "$SESSION" gh-pull
+"$PR_BIN" --session "$SESSION" migrate
 ```
 
-If status shows agents as done immediately or there are no comments, inspect
-`<session>/log/*.log` before assuming the review is running.
-The status output has two separate axes: `process=...` is supervisor-owned
-runtime state, while `review=done` means the agent posted `round-done`.
-Treat `review=done` as review-pass completion; `process=running` after that
-usually means the wrapper is waiting for `next-round`.
+## Local Author-Owned Review
 
-To stop launched reviewers, use `kill-agents` rather than ad hoc `ps | grep`
-matching. It uses recorded reviewer process groups and supervisor PIDs, and
-verifies the process environment matches the session and agent before
-signaling:
+Use this when the orchestrator can modify the patch under review.
+
+1. Create and launch the session. If project config exists, reuse its `agents`
+   lineup.
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" init \
+     --workspace "$WORKSPACE" \
+     --base <base-ref> \
+     --topic HEAD \
+     --agents '<agents-json-or-file>'
+   "$PR_BIN" --session "$SESSION" launch
+   ```
+
+2. Run the shared monitoring commands.
+
+3. Triage every finding. Apply real fixes in code and resolve fixed comments;
+   reply with a concrete rebuttal for findings that are intentionally not fixed.
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" resolve <c_id>
+   "$PR_BIN" --session "$SESSION" add-comment --reply-to <c_id> --body "..."
+   ```
+
+4. Commit fixes, then update comment anchors:
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" migrate
+   ```
+
+5. Run a rebuttal pass:
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" signal-all next-round
+   "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 600
+   "$PR_BIN" --session "$SESSION" comments --since "$LAST_COMMENT_ID"
+   ```
+
+   Repeat only while useful. There is no round counter; track new work with
+   `--since <comment-id>`.
+
+6. Record the final verdict; archive if useful:
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" verdict --approve --body "All critical issues addressed"
+   "$PR_BIN" --session "$SESSION" verdict --request-changes --body "Outstanding critical issue in X"
+   "$PR_BIN" --session "$SESSION" archive
+   ```
+
+## Shared Review Mechanics
+
+After any launch, monitor, answer questions, rerun failed reviewers, and stop
+processes through the CLI:
 
 ```bash
-peanut-review --session <printed-session-path> kill-agents
-peanut-review --session <printed-session-path> kill-agents --agent irene
+"$PR_BIN" --session "$SESSION" status
+"$PR_BIN" --session "$SESSION" inbox
+"$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
+"$PR_BIN" --session "$SESSION" comments
+"$PR_BIN" --session "$SESSION" reply --agent <name> --id <qid> "answer"
+"$PR_BIN" --session "$SESSION" launch --agent irene
+"$PR_BIN" --session "$SESSION" rerun --agent irene
+"$PR_BIN" --session "$SESSION" kill-agents
+"$PR_BIN" --session "$SESSION" kill-agents --agent irene
 ```
 
-### Step 2 — Build if needed
+Use `status` for a compact view, but treat signal files, comments, inbox, logs,
+and live processes as the real health checks. `process=...` is supervisor-owned
+runtime state; `review=done` means the agent posted `round-done`.
 
-Ensure the project compiles/builds before agents review it. If the checkout was
-prepared by a project `setup-review --build` or `--test` command, this is
-already handled. Otherwise use `peanut-review start --no-launch`, fix build
-errors, then launch.
+## Reviewer Selection
 
-### Step 3 — Launch agents if deferred
+Use configured reviewers as-is during a review. When authoring config, ask
+before changing persistent roots, runners, personas, or models. If asked to
+choose a lineup, include Vera, one domain expert such as Irene or Merlin for
+compiler/MLIR work, and two or three breadth reviewers such as Felix, Petra, or
+Soren. Map `tier: expert` personas to the strongest available model and
+`tier: standard` to a balanced/fast model. Discover models with
+`cursor-agent --list-models` or `opencode models`; common Codex ids are
+`gpt-5.5`, `gpt-5.4`, and `gpt-5.3-codex`.
 
-Skip this step if `peanut-review start` already launched agents. If you used
-`--no-launch`, run:
+## Web UI
+
+The web UI reads the same session storage as the CLI. Its `--root` should match
+the configured `reviewRoot`; without `--root`, it uses `$PEANUT_SESSION`'s
+parent if set, otherwise `/tmp/peanut-review`.
 
 ```bash
-peanut-review --session <printed-session-path> launch
+"$PR_BIN" serve --root "$REVIEW_ROOT" --port 27183 --base-url /pr
+"$PR_BIN" stop --root "$REVIEW_ROOT"
 ```
 
-This spawns one agent per configured reviewer, each with their persona and a
-rendered prompt containing the session path and diff commands.
-
-To launch only one configured reviewer, add `--agent`:
-
-```bash
-peanut-review --session <printed-session-path> launch --agent irene
-```
-
-To rerun a reviewer from a prior failed or incomplete pass, use `rerun`. It
-clears that reviewer's `round-done` / `next-round` signals and runtime
-metadata before launching only that reviewer. It refuses to start if the
-reviewer process still appears live.
-
-```bash
-peanut-review --session <printed-session-path> rerun --agent irene
-```
-
-### Step 4 — Monitor the agent review
-
-Periodically check for agent questions:
-```bash
-peanut-review inbox
-```
-
-Reply to any questions:
-```bash
-peanut-review reply --agent <name> --id <qid> "your answer"
-```
-
-Wait for all agents to complete the first review pass:
-```bash
-peanut-review wait-all round-done --timeout 900
-```
-
-Do not signal `next-round` just to force a rebuttal pass. For GitHub PRs, a
-second pass is for author updates, a substantial new push, or an explicit human
-request for another agent review.
-
-### Step 5 — Curate findings
-
-Fetch any GitHub comments that arrived while agents were running, then view all
-comments posted so far:
-```bash
-peanut-review gh-pull
-peanut-review comments
-```
-
-Global comments can carry GitHub-style review categories. Use `comment` for
-ordinary high-level feedback, `approve` for approvals, and `request-changes`
-for blocking reviews. Approval/blocking categories are only valid on top-level
-global comments.
-
-For GitHub PRs, curate rather than fix by default:
-
-- Remove duplicate/noisy local comments before pushing if needed with
-  `peanut-review delete <c_id>`.
-- Add replies only when they clarify a finding for the PR author.
-- Do not resolve imported GitHub comments unless the GitHub discussion was
-  actually resolved or the user asks you to manage it.
-- Remember the id of the last comment you reviewed. Use `--since <id>` in later
-  passes to see only new activity.
-
-When the review has an overall conclusion, add one top-level global comment
-with the GitHub review category:
-
-```bash
-peanut-review add-global-comment --category request-changes --body "Blocking issue: ..."
-peanut-review add-global-comment --category approve --body "LGTM"
-```
-
-Use `--category comment` or omit `--category` for non-verdict high-level
-feedback.
-
-### Step 6 — Push to GitHub
-
-Preview before mutating GitHub:
-
-```bash
-peanut-review gh-push --dry-run
-```
-
-If the plan is correct, push local anchored comments, global comments, and any
-global approval/blocking category to GitHub:
-
-```bash
-peanut-review gh-push
-```
-
-For self-owned PRs, GitHub may reject approve/request-changes events. In that
-case use a normal global comment instead of an approval/blocking category.
-
-### Step 7 — Re-review after author updates
-
-When the PR author pushes new commits, update the local checkout using the
-project's normal PR-refresh flow, then refresh the peanut-review session:
-
-```bash
-peanut-review gh-pull
-peanut-review migrate
-```
-
-If another agent pass is useful, launch the configured agents again and review
-only the new comments:
-
-```bash
-peanut-review launch
-peanut-review wait-all round-done --timeout 900
-peanut-review comments --since <last-comment-id>
-```
-
-For a single failed or incomplete reviewer, use `peanut-review rerun --agent
-<name>` instead of invoking runner scripts directly.
-
-## Local Agent-Authored Reviews
-
-Use this mode when reviewing local changes that the orchestrator can modify
-directly. This is where the triage/rebuttal/final-verdict loop belongs.
-
-### Step 1 — Initialize and launch
-
-Create a local session against the workspace and diff under review. If a
-project `.peanut-review.json` exists, reuse its `agents` lineup rather than
-choosing reviewers by hand.
-
-```bash
-peanut-review --session <session-path> init \
-  --workspace <repo-path> \
-  --base <base-ref> \
-  --topic HEAD \
-  --agents '<agents-json-or-file>'
-peanut-review --session <session-path> launch
-```
-
-Then set `PEANUT_SESSION=<session-path>` or pass `--session <session-path>` on
-subsequent commands.
-
-### Step 2 — Monitor Round 1
-
-```bash
-peanut-review inbox
-peanut-review wait-all round-done --timeout 900
-peanut-review comments
-```
-
-Reply to any agent questions:
-
-```bash
-peanut-review reply --agent <name> --id <qid> "your answer"
-```
-
-### Step 3 — Triage and fix
-
-For each finding, evaluate it and either:
-
-- Apply the fix in code, then resolve the comment with
-  `peanut-review resolve <c_id>`.
-- If the finding is intentionally not fixed, reply with the specific rebuttal:
-  `peanut-review add-comment --reply-to <c_id> --body "..."`.
-
-Commit any fixes you applied. Then update the session HEAD so prior comments
-anchored to old line numbers get correctly marked stale:
-
-```bash
-peanut-review migrate
-```
-
-### Step 4 — Run the rebuttal pass
-
-Wake agents for the next pass:
-
-```bash
-peanut-review signal-all next-round
-```
-
-This unblocks agents waiting on `next-round`. There is no round counter; each
-pass is another batch of comments, and the orchestrator tracks "what's new
-since last time" via `--since <comment-id>`.
-
-Monitor the next pass:
-
-```bash
-peanut-review inbox
-peanut-review wait-all round-done --timeout 600
-```
-
-Review new comments:
-
-```bash
-peanut-review comments --since <last-comment-id>
-```
-
-Apply any additional fixes if needed. For human-led reviews you may
-repeat this step with another `signal-all next-round` as many times as
-useful; there is no built-in limit on passes.
-
-### Step 5 — Record final verdict
-
-```bash
-peanut-review verdict --approve --body "All critical issues addressed"
-```
-
-Or if changes still needed:
-```bash
-peanut-review verdict --request-changes --body "Outstanding critical issue in X"
-```
-
-### Step 6 — Optional archive to git notes
-
-```bash
-peanut-review archive
-```
-
-## Human review UI
-
-A browser-based review UI is built into peanut-review and shares the exact
-same session storage — no separate tool, no duplicate CLI. Humans post
-comments the same way agents do; the web UI is a shell over the existing
-`add-comment` / `resolve` paths. One server on one port serves every session
-found under its review root.
-
-```bash
-# Multi-session: scan /tmp/peanut-review/ (default) — all sessions are listed
-peanut-review serve --port 16200
-# → http://127.0.0.1:16200/            (session picker)
-# → http://127.0.0.1:16200/sessions/<session-id>/
-
-# Or explicitly point at one or more review roots
-peanut-review serve --port 16200 --root /tmp/peanut-review --root /path/to/more
-
-# Stop (uses same root inference as serve)
-peanut-review stop
-peanut-review stop --root /tmp/peanut-review
-```
-
-For config-driven project reviews, the server must scan the same `reviewRoot`
-as `.peanut-review.json`, for example:
-
-```bash
-peanut-review serve --root /home/jakub/reviews --port 27183 --base-url /pr
-```
-
-Root inference: if `--root` is omitted, `$PEANUT_SESSION`'s parent is used
-(so the existing single-session workflow keeps working); otherwise the
-default `/tmp/peanut-review/`. The pidfile lives at `<root>/web.pid`.
-
-The server:
-- Renders a session picker at `/` listing every discovered session
-  (id, state, base…topic, workspace, comment counts, created_at), sorted
-  newest-first. Reloads live every 15s; new sessions created while the
-  server is up are auto-discovered on rescan.
-- Renders each session's unified diff with pygments syntax highlighting
-  under `/sessions/<id>/`.
-- Shows existing comments (agent + human) anchored to source-file lines,
-  with author, severity, category, round, and stale/resolved badges.
-- Shows free-form agent notes, including test execution reports, in the
-  agent activity section; notes are not pushed to GitHub.
-- Lets humans post new comments by clicking a line number, or high-level
-  comments via the "High-level feedback" section at the top of each session.
-- Auto-detects workspace HEAD shifts (e.g. `git commit --amend`) and runs
-  `migrate` — stale comments get dimmed in the UI. No more git-notes
-  coupling to commit SHAs.
-- Exposes `/api/sessions` (list) and
-  `/sessions/<id>/api/{session,comments,notes,inbox,resolve}`
-  (per-session JSON).
-
-Standalone human-only review (no agents):
-
-```bash
-peanut-review --session /tmp/peanut-review/my-review init \
-  --workspace /repo --base main --topic HEAD
-peanut-review serve --port 16200
-# browse to http://127.0.0.1:16200/ and click into the session
-```
-
-## Agent selection guidelines
-
-Use this section only when authoring or updating a project
-`.peanut-review.json`. During an actual review launch, use the configured
-`agents` list as-is.
-
-### Picking the lineup
-
-- **Always include Vera** — she is the most thorough and valuable reviewer
-- Pick 1 expert persona (Vera, Irene, or Merlin) based on the domain
-- Pick 2-3 standard personas (Felix, Petra, Soren) for breadth
-- For compiler/MLIR code: include Irene or Merlin
-
-### Picking a model per agent (dynamic)
-
-Personas declare a `tier:` in their frontmatter (`expert` or `standard`)
-rather than naming specific models. The tier describes the persona's role,
-not a specific model class — a local-only review (no cloud models) is still
-valid; the orchestrator just maps tier to "best vs. lighter" within whatever
-is locally available.
-
-The orchestrator resolves tier → concrete model id at session-init time,
-based on what's installed locally. This avoids the persona files going stale
-every time a new model lands.
-
-Workflow when building the `--agents` JSON:
-
-1. Read each chosen persona's frontmatter → grab its `tier`.
-2. Discover what's available on each runner the user has set up:
-   - **cursor**: `cursor-agent --list-models`
-   - **opencode**: `opencode models`
-   - **codex**: no list command. Common ids: `gpt-5.5`, `gpt-5.4`,
-     `gpt-5.3-codex`. Check `~/.codex/config.toml` for the user's pinned
-     default if unsure.
-3. Pick a concrete id per agent following the tier guidance below. The
-   launcher scripts (`cursor-agent-task.sh`, `opencode-agent-task.sh`,
-   `codex-agent-task.sh`) all forward `--model` verbatim to the underlying
-   CLI, so whatever id the upstream tool accepts will work.
-
-### Tier guidance
-
-- **expert**: pick the strongest reasoning model available within whatever
-  the user has set up. With cloud access, prefer thinking/high-reasoning
-  variants (e.g. cursor's `claude-opus-*-thinking-high` or `gpt-5.5-high`,
-  opencode's `openai/gpt-5.5`, codex's `gpt-5.5`). For a local-only setup,
-  pick the largest local model available (e.g. `llama.cpp/qwen3.5-27b`) —
-  the persona's role (deep technical analysis) is still doable, just at
-  whatever ceiling the local hardware supports.
-- **standard**: pick a balanced/fast model. Cheap-and-cheerful is fine here —
-  these reviewers cover breadth (style, scope, naming, future-proofing) and
-  benefit from being able to scan a lot of code quickly. Examples: cursor's
-  `composer-2` or `claude-4.6-sonnet-medium`, opencode's `openai/gpt-5.4-mini`
-  or a smaller local `llama.cpp/*` model, codex's `gpt-5.4`.
-
-If the user has explicitly opted into a local model (e.g. their `opencode
-models` listing shows a `llama.cpp/*` entry), prefer it — they wouldn't
-have it set up if they didn't want it exercised. For an all-local lineup,
-use the same local model across all agents if only one is available; the
-diversity of personas alone still produces useful review breadth.
-
-### Model id formats per runner
-
-- **cursor**: bare cursor ids from `cursor-agent --list-models`, e.g.
-  `claude-opus-4-7-thinking-high`, `composer-2`, `gpt-5.5-high`.
-- **opencode**: `provider/model`, e.g. `openai/gpt-5.5`,
-  `llama.cpp/qwen3.5-27b`, `opencode/big-pickle`.
-- **codex**: bare names, e.g. `gpt-5.5`, `gpt-5.4`.
-
-## Handling failures
-
-- If an agent times out, `wait-all` will report which agents didn't signal.
-  Check `peanut-review status` and agent logs in `<session>/log/`.
-- If an agent crashes mid-review, its partial comments are preserved (atomic
-  JSONL appends). Proceed with available feedback.
-- If the orchestrator crashes, run `peanut-review status` in a new session
-  to discover the current state and resume from where you left off.
-
-## Runners: cursor, opencode, codex
-
-- **cursor** (default): launches `cursor-agent --print` via `cursor-agent-task.sh`.
-  Requires cursor-agent to be logged in and uses Shell commands through
-  `.cursor/cli.json`.
-- **opencode**: launches `opencode run` directly via `opencode-agent-task.sh`.
-  `opencode models` is the source of truth for what's available — cloud
-  providers like `openai/*`, the free `opencode/*` tier, or local
-  `llama.cpp/*` providers configured in `~/.config/opencode/opencode.json`.
-  For local llama.cpp models, ensure llama-server is running before invoking
-  (boot it out of band, e.g. `lcode qwen` — peanut-review does not wrap lcode).
-  CLI mode only.
-- **codex**: launches `codex exec` via `codex-agent-task.sh`. Requires
-  `codex login` (ChatGPT OAuth or API key). The launcher passes
-  `--add-dir <session_dir>` so the agent can write peanut-review session files
-  outside the workspace sandbox.
-
-## Agent communication: CLI
-
-Agents interact with peanut-review by executing the checked-out CLI via Shell
-commands from the `agent-prompt.md` template. Cursor reviewers still receive
-the real source workspace as `--workspace`, but `peanut-review launch` gives
-each Cursor reviewer an isolated runtime home under
-`<session>/runtime/cursor/<agent>/` by setting `HOME`, `CURSOR_CONFIG_DIR`, and
-`CURSOR_DATA_DIR`; `XDG_CONFIG_HOME` stays pointed at the original user config
-location so Cursor login state is preserved.
-
-Cursor reviewers require `Shell(peanut-review **)` in the source workspace's
-`.cursor/cli.json`. Peanut-review no longer manages `.cursor/mcp.json` or
-starts a peanut-review MCP server.
+## Runners
+
+- **cursor**: `cursor-agent --print` through Shell/CLI, not MCP; isolated
+  runtime home under `<session>/runtime/cursor/`.
+- **opencode**: `opencode run`; model ids are `provider/model`, including
+  `openai/*`, `opencode/*`, or local `llama.cpp/*`.
+- **codex**: `codex exec`; requires `codex login` and gets
+  `--add-dir <session>` so it can write session files.
+
+Agents submit findings, replies, questions, notes, and completion signals with
+peanut-review CLI commands from the rendered prompt. Notes are for test reports
+or non-review activity and are not pushed to GitHub.
+
+## Failure Handling
+
+- If an agent times out, inspect `status` and `<session>/log/`.
+- If an agent exits without `round-done`, treat it as failed or incomplete and
+  use `rerun --agent <name>` after confirming no live reviewer remains.
+- If a session was launched under bad assumptions, prefer archiving it and
+  starting fresh over reusing stale signals/comments.
+- If the orchestrator crashes, run `status`, then resume from the latest
+  comments, questions, and signal state.
