@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -147,6 +148,38 @@ def test_render_comment_escapes_html(session_dir: Path, repo: Path):
     html = render.render_page(s, s.id, files, [c], head_shifted=False)
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_render_comment_includes_relative_timestamp(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c = Comment(
+        author="felix",
+        timestamp="2020-01-01T00:00:00+00:00",
+        file="foo.py",
+        line=1,
+        body="old note",
+        severity="nit",
+    )
+
+    html = render.render_page(s, s.id, files, [c], head_shifted=False)
+
+    assert (
+        '<time class="comment-time" datetime="2020-01-01T00:00:00+00:00" '
+        'title="2020-01-01T00:00:00+00:00">'
+    ) in html
+    assert "ago</time>" in html
+
+
+def test_relative_time_label_uses_github_style_units():
+    now = datetime(2026, 5, 4, 12, 0, tzinfo=timezone.utc)
+
+    assert render._relative_time_label(
+        "2026-05-04T11:57:00+00:00", now=now,
+    ) == "3 minutes ago"
+    assert render._relative_time_label(
+        "2026-05-03T10:00:00+00:00", now=now,
+    ) == "yesterday"
 
 
 def test_render_sidebar_files_list_with_counts(session_dir: Path, repo: Path):
@@ -1297,6 +1330,17 @@ def test_client_global_composer_includes_category_selector():
     assert 'form.querySelector(".category")?.value || "comment"' in block
 
 
+def test_client_comment_renderer_includes_relative_time():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function relativeTimeLabel")
+    end = text.index("function renderThreadActions", start)
+    block = text[start:end]
+
+    assert "function commentTime" in block
+    assert 'class="comment-time"' in block
+    assert "${commentTime(c)}" in block
+
+
 def test_client_gh_push_modal_includes_selection_controls():
     text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
     start = text.index("// --- GitHub push modal ---")
@@ -1306,6 +1350,13 @@ def test_client_gh_push_modal_includes_selection_controls():
     assert 'id="gh-include-agents"' in block
     assert 'class="push-select"' in block
     assert "{ comment_ids: commentIds }" in block
+    assert 'class="push-delete"' in block
+    assert 'data-push-delete="' in block
+    assert 'data-push-edit="' in block
+    assert '>Edit</button>' in block
+    assert '>Delete</button>' in block
+    assert 'api("POST", "/api/edit", { comment_id: cid, body: newBody })' in block
+    assert 'api("POST", "/api/delete", { comment_id: cid })' in block
 
 
 def test_server_edit_endpoint_updates_body_and_history(session_dir: Path):

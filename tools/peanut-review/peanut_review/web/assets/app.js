@@ -89,6 +89,42 @@
     return `<span class="round range">L${lo}–L${hi}</span>`;
   }
 
+  function relativeTimeLabel(timestamp) {
+    const then = new Date(timestamp);
+    const ms = Date.now() - then.getTime();
+    if (!Number.isFinite(ms)) return "";
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 45) return "just now";
+    if (seconds < 90) return "1 minute ago";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} minutes ago`;
+    if (minutes < 90) return "1 hour ago";
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hours ago`;
+    if (hours < 48) return "yesterday";
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days} days ago`;
+    const months = Math.max(1, Math.floor(days / 30));
+    if (days < 365) return `${months} month${months === 1 ? "" : "s"} ago`;
+    const years = Math.max(1, Math.floor(days / 365));
+    return `${years} year${years === 1 ? "" : "s"} ago`;
+  }
+
+  function commentTime(c) {
+    if (!c.timestamp) return "";
+    const label = relativeTimeLabel(c.timestamp);
+    if (!label) return "";
+    const ts = attrEsc(c.timestamp);
+    return `<time class="comment-time" datetime="${ts}" title="${ts}">${esc(label)}</time>`;
+  }
+
+  function refreshRelativeTimes(root = document) {
+    root.querySelectorAll("time.comment-time[datetime]").forEach((el) => {
+      const label = relativeTimeLabel(el.getAttribute("datetime"));
+      if (label) el.textContent = label;
+    });
+  }
+
   function editedBadge(c) {
     if (!c.edited_at) return "";
     const n = (c.versions || []).length;
@@ -123,6 +159,7 @@
       <div class="${cls.join(" ")}" data-cid="${esc(c.id)}">
         <div class="comment-meta">
           <span class="author">${esc(c.author || "unknown")}</span>
+          ${commentTime(c)}
           ${sevHtml}
           ${isReply ? "" : categoryBadge(c)}
           ${rangeBadge(c)}
@@ -147,6 +184,9 @@
       ${toggle}
     </div>`;
   }
+
+  refreshRelativeTimes();
+  setInterval(refreshRelativeTimes, 60000);
 
   function renderThread(parent) {
     // Initial render only — replies arrive via insertFetchedComment.
@@ -1157,6 +1197,7 @@
   const ghBody = document.getElementById("gh-push-body");
   const ghConfirm = document.getElementById("gh-push-confirm");
   const ghPushBtn = document.getElementById("gh-push-btn");
+  let ghPreviewItems = new Map();
 
   function openGhModal() {
     if (!ghModal) return;
@@ -1213,6 +1254,13 @@
       + `</label>`;
   }
 
+  function renderPushActions(it) {
+    return `<span class="push-actions">`
+      + `<button type="button" data-push-edit="${attrEsc(it.id)}">Edit</button>`
+      + `<button type="button" class="push-delete" data-push-delete="${attrEsc(it.id)}">Delete</button>`
+      + `</span>`;
+  }
+
   function renderNewItem(it) {
     return `<li class="push-item" data-id="${esc(it.id)}">`
       + `<div class="push-meta">`
@@ -1222,6 +1270,7 @@
       +   categoryBadge(it)
       +   `<span class="ref mono">${esc(it.ref)}</span>`
       +   `<span class="muted">by ${esc(it.author || "unknown")}</span>`
+      +   renderPushActions(it)
       + `</div>`
       + `<pre class="push-body">${bodyPreview(it.body)}</pre>`
       + `</li>`;
@@ -1243,6 +1292,7 @@
       +   `<span class="ref mono">${esc(it.ref)}</span>`
       +   tag
       +   `<span class="muted">by ${esc(it.author || "unknown")}</span>`
+      +   renderPushActions(it)
       + `</div>`
       + `<pre class="push-body">${bodyPreview(it.body)}</pre>`
       + `</li>`;
@@ -1256,6 +1306,7 @@
       +   categoryBadge(it)
       +   `<span class="ref mono">${esc(it.ref)}</span>`
       +   `<span class="muted">→ gh#${esc(it.external_id)}</span>`
+      +   renderPushActions(it)
       + `</div>`
       + `<div class="push-edit-cmp">`
       +   `<pre class="push-body old"><span class="muted">old:</span> ${bodyPreview(it.old_body)}</pre>`
@@ -1272,6 +1323,7 @@
       ghBody.innerHTML = `<p class="error">Failed to load plan: ${esc(String(e))}</p>`;
       return;
     }
+    ghPreviewItems = new Map(allPlanItems(plan).map((it) => [String(it.id), it]));
     const total = plan.total || 0;
     const orphans = (plan.new_replies || []).filter((r) => r.orphaned).length;
     const pushable = total - orphans;
@@ -1366,11 +1418,86 @@
     ghBody.querySelectorAll(".push-select").forEach((box) => {
       box.addEventListener("change", updateGhSelectionState);
     });
+    ghBody.querySelectorAll("[data-push-edit]").forEach((btn) => {
+      btn.addEventListener("click", openPushPreviewEditForm);
+    });
+    ghBody.querySelectorAll("[data-push-delete]").forEach((btn) => {
+      btn.addEventListener("click", deletePushPreviewComment);
+    });
     if (pushable > 0) {
       updateGhSelectionState();
     } else {
       ghConfirm.disabled = true;
       ghConfirm.textContent = "Nothing to push";
+    }
+  }
+
+  function pushPreviewBody(item) {
+    if (!item) return "";
+    if (item.new_body != null) return item.new_body;
+    return item.body || "";
+  }
+
+  function openPushPreviewEditForm(ev) {
+    const btn = ev.currentTarget;
+    const cid = btn.dataset.pushEdit;
+    const item = ghPreviewItems.get(String(cid));
+    const node = btn.closest(".push-item");
+    if (!cid || !item || !node || node.querySelector(".edit-form")) return;
+    const current = pushPreviewBody(item);
+    const target = node.querySelector(".push-edit-cmp") || node.querySelector(".push-body");
+    if (!target) return;
+    const form = document.createElement("form");
+    form.className = "edit-form push-edit-form";
+    form.innerHTML = `
+      <textarea rows="5">${esc(current)}</textarea>
+      <div class="edit-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel">Cancel</button>
+      </div>
+    `;
+    target.style.display = "none";
+    target.insertAdjacentElement("afterend", form);
+    const ta = form.querySelector("textarea");
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    const close = () => {
+      form.remove();
+      target.style.display = "";
+    };
+    form.querySelector(".cancel").addEventListener("click", close);
+    form.addEventListener("submit", async (submitEv) => {
+      submitEv.preventDefault();
+      const newBody = ta.value;
+      if (newBody === current) {
+        close();
+        return;
+      }
+      try {
+        await api("POST", "/api/edit", { comment_id: cid, body: newBody });
+        await fetchGhPreview();
+        refreshSidebar();
+        refreshComments();
+      } catch (e) {
+        alert("Edit failed: " + e.message);
+      }
+    });
+  }
+
+  async function deletePushPreviewComment(ev) {
+    const btn = ev.currentTarget;
+    const cid = btn.dataset.pushDelete;
+    if (!cid) return;
+    if (!confirm("Delete this comment? It's a soft-delete — the record is kept but hidden from agents and the default view.")) return;
+    btn.disabled = true;
+    try {
+      await api("POST", "/api/delete", { comment_id: cid });
+      await fetchGhPreview();
+      refreshSidebar();
+      refreshComments();
+    } catch (e) {
+      btn.disabled = false;
+      alert("Delete failed: " + e.message);
     }
   }
 

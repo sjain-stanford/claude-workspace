@@ -5,6 +5,7 @@ import html
 import json
 import re
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pygments import highlight as _pyg_highlight
@@ -38,6 +39,42 @@ SESSION_STATE_LABELS = {
     "complete": "done",
     "aborted": "aborted",
 }
+
+
+def _relative_time_label(timestamp: str, *, now: datetime | None = None) -> str:
+    try:
+        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    seconds = int((now - dt).total_seconds())
+    if seconds < 45:
+        return "just now"
+    if seconds < 90:
+        return "1 minute ago"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} minutes ago"
+    if minutes < 90:
+        return "1 hour ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hours ago"
+    if hours < 48:
+        return "yesterday"
+    days = hours // 24
+    if days < 30:
+        return f"{days} days ago"
+    months = max(1, days // 30)
+    if days < 365:
+        return f"{months} month{'s' if months != 1 else ''} ago"
+    years = max(1, days // 365)
+    return f"{years} year{'s' if years != 1 else ''} ago"
 KILLABLE_PROCESS_STATES = {"launching", "running"}
 
 
@@ -267,6 +304,15 @@ def _render_comment(c: Comment, *, is_reply: bool = False) -> str:
             f'<span class="category {html.escape(c.category)}">'
             f'{html.escape(label)}</span>'
         )
+    time_html = ""
+    if c.timestamp:
+        timestamp = html.escape(c.timestamp)
+        label = _relative_time_label(c.timestamp)
+        if label:
+            time_html = (
+                f'<time class="comment-time" datetime="{timestamp}" '
+                f'title="{timestamp}">{html.escape(label)}</time>'
+            )
     edited_html = ""
     if c.edited_at:
         n = len(c.versions)
@@ -291,6 +337,7 @@ def _render_comment(c: Comment, *, is_reply: bool = False) -> str:
         f'<div class="{" ".join(classes)}" data-cid="{cid}">'
         f'<div class="comment-meta">'
         f'<span class="author">{html.escape(c.author or "unknown")}</span>'
+        f'{time_html}'
         f'{sev_html}'
         f'{category_html}'
         f'{"".join(badges)}'
