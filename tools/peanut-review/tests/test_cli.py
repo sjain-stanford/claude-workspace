@@ -359,6 +359,8 @@ def test_signal_and_wait(mock_git):
     with patch.dict(os.environ, {"GIT_AUTHOR_NAME": "Vera"}):
         rc = main(["--session", sd, "signal", "round-done"])
     assert rc == 0
+    assert os.path.exists(os.path.join(sd, "signals", "Vera.round-done"))
+    assert not os.path.exists(os.path.join(sd, "signals", "vera.round-done"))
 
     # Wait (should return immediately since already signaled)
     with patch.dict(os.environ, {"GIT_AUTHOR_NAME": "Vera"}):

@@ -29,17 +29,17 @@ def _get_author(args: argparse.Namespace) -> str:
     """Get author name from --author flag, git config, or GIT_AUTHOR_NAME."""
     author = getattr(args, "author", None)
     if author:
-        return author.lower()
+        return author
     env_name = os.environ.get("GIT_AUTHOR_NAME")
     if env_name:
-        return env_name.lower()
+        return env_name
     try:
         result = subprocess.run(
             ["git", "config", "user.name"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip().lower()
+            return result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
     return "unknown"
