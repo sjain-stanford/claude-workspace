@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from peanut_review import session as sess, store
-from peanut_review.models import AgentConfig, Comment, Note
+from peanut_review.models import AgentConfig, Comment, GitHubPR, Note
 from peanut_review.web import app as web_app
 from peanut_review.web import diff as diffmod
 from peanut_review.web import render
@@ -568,6 +568,19 @@ def _post(url: str, body: dict) -> tuple[int, dict]:
         return e.code, json.loads(e.read())
 
 
+def _mark_github_backed(session_dir: Path) -> None:
+    s = sess.load_session(session_dir)
+    s.github = GitHubPR(
+        repo="acme/foo",
+        number=42,
+        url="https://github.com/acme/foo/pull/42",
+        head_sha=s.current_head,
+        base_sha=s.original_head,
+        title="t",
+    )
+    sess.save_session(session_dir, s)
+
+
 def test_server_root_renders_index(session_dir: Path):
     srv, session_id, port = _start_server(session_dir)
     try:
@@ -641,6 +654,92 @@ def test_server_kill_agents_endpoint(session_dir: Path, monkeypatch):
         )
         assert code == 200
         assert calls[-1] == (session_dir, {"agent_names": None})
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_preview_defaults_humans_on_agents_off(session_dir: Path):
+    _mark_github_backed(session_dir)
+    agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
+    human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
+    store.append_comment(session_dir, agent_comment)
+    store.append_comment(session_dir, human_comment)
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/gh/preview")
+        assert code == 200
+        data = json.loads(raw)
+        items = {item["id"]: item for item in data["new_top"]}
+
+        assert items[agent_comment.id]["is_agent"] is True
+        assert items[agent_comment.id]["default_included"] is False
+        assert items[human_comment.id]["is_agent"] is False
+        assert items[human_comment.id]["default_included"] is True
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_push_filters_to_selected_comment_ids(
+    session_dir: Path,
+    monkeypatch,
+):
+    _mark_github_backed(session_dir)
+    agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
+    human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
+    store.append_comment(session_dir, agent_comment)
+    store.append_comment(session_dir, human_comment)
+    captured_ids = []
+
+    def fake_execute_push(session_dir_arg, session_arg, ghpr_arg, plan):
+        del session_dir_arg, session_arg, ghpr_arg
+        selected = [*plan.new_top, *plan.new_replies, *plan.edits]
+        captured_ids.append([c.id for c in selected])
+        return web_app.gh_push.PushResult(pushed=plan.total)
+
+    monkeypatch.setattr(web_app.gh_push, "execute_push", fake_execute_push)
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
+            {"comment_ids": [agent_comment.id]},
+        )
+        assert code == 200
+        assert data["summary"] == "Pushed 1."
+        assert captured_ids[-1] == [agent_comment.id]
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_push_default_excludes_agent_comments(
+    session_dir: Path,
+    monkeypatch,
+):
+    _mark_github_backed(session_dir)
+    agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
+    human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
+    store.append_comment(session_dir, agent_comment)
+    store.append_comment(session_dir, human_comment)
+    captured_ids = []
+
+    def fake_execute_push(session_dir_arg, session_arg, ghpr_arg, plan):
+        del session_dir_arg, session_arg, ghpr_arg
+        selected = [*plan.new_top, *plan.new_replies, *plan.edits]
+        captured_ids.append([c.id for c in selected])
+        return web_app.gh_push.PushResult(pushed=plan.total)
+
+    monkeypatch.setattr(web_app.gh_push, "execute_push", fake_execute_push)
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
+            {},
+        )
+        assert code == 200
+        assert data["summary"] == "Pushed 1."
+        assert captured_ids[-1] == [human_comment.id]
     finally:
         srv.shutdown()
 
@@ -1196,6 +1295,17 @@ def test_client_global_composer_includes_category_selector():
 
     assert 'select class="category"' in block
     assert 'form.querySelector(".category")?.value || "comment"' in block
+
+
+def test_client_gh_push_modal_includes_selection_controls():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("// --- GitHub push modal ---")
+    end = text.index("  // --- Keyboard navigation ---", start)
+    block = text[start:end]
+
+    assert 'id="gh-include-agents"' in block
+    assert 'class="push-select"' in block
+    assert "{ comment_ids: commentIds }" in block
 
 
 def test_server_edit_endpoint_updates_body_and_history(session_dir: Path):

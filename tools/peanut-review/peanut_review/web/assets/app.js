@@ -1190,9 +1190,33 @@
       + `</section>`;
   }
 
+  function allPlanItems(plan) {
+    return [
+      ...(plan.new_top || []),
+      ...(plan.new_replies || []),
+      ...(plan.edits || []),
+    ];
+  }
+
+  function renderIncludeControl(it, action) {
+    const checked = it.default_included ? " checked" : "";
+    const disabled = it.orphaned ? " disabled" : "";
+    const agent = it.is_agent ? "1" : "0";
+    return `<label class="push-include">`
+      + `<input type="checkbox" class="push-select" value="${attrEsc(it.id)}"`
+      + ` data-agent-comment="${agent}"`
+      + ` data-push-action="${attrEsc(action)}"`
+      + ` data-parent-id="${attrEsc(it.parent_id || "")}"`
+      + ` data-parent-external-id="${attrEsc(it.parent_external_id || "")}"`
+      + `${checked}${disabled}>`
+      + `<span>include</span>`
+      + `</label>`;
+  }
+
   function renderNewItem(it) {
     return `<li class="push-item" data-id="${esc(it.id)}">`
       + `<div class="push-meta">`
+      +   renderIncludeControl(it, "new")
       +   `<span class="mono">${esc(it.id)}</span>`
       +   `<span class="sev ${esc(it.severity)}">${esc(it.severity)}</span>`
       +   categoryBadge(it)
@@ -1203,12 +1227,18 @@
       + `</li>`;
   }
   function renderReplyItem(it) {
-    const tag = it.orphaned
-      ? `<span class="warn">orphaned (parent not pushed)</span>`
-      : `<span class="muted">→ gh#${esc(it.parent_external_id)}</span>`;
+    let tag;
+    if (it.orphaned) {
+      tag = `<span class="warn">orphaned (parent not pushed)</span>`;
+    } else if (it.parent_pending) {
+      tag = `<span class="muted">→ local parent</span>`;
+    } else {
+      tag = `<span class="muted">→ gh#${esc(it.parent_external_id)}</span>`;
+    }
     const cls = it.orphaned ? "push-item orphaned" : "push-item";
     return `<li class="${cls}" data-id="${esc(it.id)}">`
       + `<div class="push-meta">`
+      +   renderIncludeControl(it, "reply")
       +   `<span class="mono">${esc(it.id)}</span>`
       +   `<span class="ref mono">${esc(it.ref)}</span>`
       +   tag
@@ -1220,6 +1250,7 @@
   function renderEditItem(it) {
     return `<li class="push-item" data-id="${esc(it.id)}">`
       + `<div class="push-meta">`
+      +   renderIncludeControl(it, "edit")
       +   `<span class="mono">${esc(it.id)}</span>`
       +   `<span class="sev ${esc(it.severity)}">${esc(it.severity)}</span>`
       +   categoryBadge(it)
@@ -1253,6 +1284,12 @@
         + (plan.skipped_imported_reviews ? ` (${plan.skipped_imported_reviews} imported review${plan.skipped_imported_reviews === 1 ? "" : "s"} skipped)` : "")
         + `</p>`;
     } else {
+      const agentCount = allPlanItems(plan).filter((it) => it.is_agent).length;
+      html += `<label class="push-agent-toggle">`
+        + `<input id="gh-include-agents" type="checkbox"${agentCount ? "" : " disabled"}>`
+        + `<span>include agent comments</span>`
+        + `<span class="count">${agentCount}</span>`
+        + `</label>`;
       html += renderPlanList("New comments", plan.new_top, renderNewItem);
       html += renderPlanList("New replies", plan.new_replies, renderReplyItem);
       html += renderPlanList("Edits (PATCH)", plan.edits, renderEditItem);
@@ -1267,9 +1304,70 @@
       }
     }
     ghBody.innerHTML = html;
+    bindGhSelectionControls(pushable);
+  }
+
+  function selectedGhPushIds() {
+    if (!ghBody) return [];
+    const checked = Array.from(ghBody.querySelectorAll(".push-select:checked:not(:disabled)"));
+    const checkedIds = new Set(checked.map((box) => box.value));
+    return checked
+      .filter((box) => {
+        if (box.dataset.pushAction !== "reply") return true;
+        if (box.dataset.parentExternalId) return true;
+        const parentId = box.dataset.parentId || "";
+        return !parentId || checkedIds.has(parentId);
+      })
+      .map((box) => box.value);
+  }
+
+  function updateAgentToggleState() {
+    const toggle = document.getElementById("gh-include-agents");
+    if (!toggle || !ghBody) return;
+    const boxes = Array.from(
+      ghBody.querySelectorAll(".push-select[data-agent-comment='1']:not(:disabled)"),
+    );
+    if (!boxes.length) {
+      toggle.checked = false;
+      toggle.indeterminate = false;
+      toggle.disabled = true;
+      return;
+    }
+    const checked = boxes.filter((box) => box.checked).length;
+    toggle.checked = checked === boxes.length;
+    toggle.indeterminate = checked > 0 && checked < boxes.length;
+  }
+
+  function updateGhSelectionState() {
+    if (!ghConfirm || ghConfirm.dataset.mode === "done") return;
+    updateAgentToggleState();
+    const boxes = ghBody ? ghBody.querySelectorAll(".push-select") : [];
+    if (!boxes.length) {
+      ghConfirm.disabled = true;
+      ghConfirm.textContent = "Nothing to push";
+      return;
+    }
+    const n = selectedGhPushIds().length;
+    ghConfirm.disabled = n === 0;
+    ghConfirm.textContent = n > 0
+      ? `Confirm: push ${n} comment${n === 1 ? "" : "s"}`
+      : "Nothing selected";
+  }
+
+  function bindGhSelectionControls(pushable) {
+    const toggle = document.getElementById("gh-include-agents");
+    if (toggle) {
+      toggle.addEventListener("change", () => {
+        ghBody.querySelectorAll(".push-select[data-agent-comment='1']:not(:disabled)")
+          .forEach((box) => { box.checked = toggle.checked; });
+        updateGhSelectionState();
+      });
+    }
+    ghBody.querySelectorAll(".push-select").forEach((box) => {
+      box.addEventListener("change", updateGhSelectionState);
+    });
     if (pushable > 0) {
-      ghConfirm.disabled = false;
-      ghConfirm.textContent = `Confirm: push ${pushable} comment${pushable === 1 ? "" : "s"}`;
+      updateGhSelectionState();
     } else {
       ghConfirm.disabled = true;
       ghConfirm.textContent = "Nothing to push";
@@ -1292,11 +1390,16 @@
   }
 
   async function confirmGhPush() {
+    const commentIds = selectedGhPushIds();
+    if (!commentIds.length) {
+      updateGhSelectionState();
+      return;
+    }
     ghConfirm.disabled = true;
     ghConfirm.textContent = "Pushing…";
     let res;
     try {
-      res = await api("POST", "/api/gh/push");
+      res = await api("POST", "/api/gh/push", { comment_ids: commentIds });
     } catch (e) {
       ghBody.innerHTML = `<p class="error">Push failed: ${esc(String(e))}</p>`;
       ghConfirm.disabled = false;

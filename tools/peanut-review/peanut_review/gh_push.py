@@ -96,6 +96,18 @@ def plan_push(comments: list[models.Comment]) -> PushPlan:
     return plan
 
 
+def filter_plan(plan: PushPlan, comment_ids: set[str]) -> PushPlan:
+    """Return a copy of ``plan`` limited to selected local comment ids."""
+    return PushPlan(
+        new_top=[c for c in plan.new_top if c.id in comment_ids],
+        new_replies=[c for c in plan.new_replies if c.id in comment_ids],
+        edits=[c for c in plan.edits if c.id in comment_ids],
+        skipped_meta=plan.skipped_meta,
+        skipped_imported_reviews=plan.skipped_imported_reviews,
+        ext_map=dict(plan.ext_map),
+    )
+
+
 def execute_push(
     session_dir: str | Path,
     session: models.Session,

@@ -383,7 +383,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._post_undelete(session_dir, data)
             return
         if tail == "/api/gh/push":
-            self._post_gh_push(session_dir)
+            self._post_gh_push(session_dir, data)
             return
         if tail == "/api/gh/pull":
             self._post_gh_pull(session_dir)
@@ -557,28 +557,43 @@ class _Handler(BaseHTTPRequestHandler):
         comments = store.read_all_comments(session_dir)
         plan = gh_push.plan_push(comments)
         by_id = {c.id: c for c in comments}
+        agent_authors = _agent_authors(s)
+        new_top_ids = {c.id for c in plan.new_top}
+        default_push_ids = _default_selected_push_ids(plan, agent_authors)
 
         def _ref(c: Comment) -> str:
             if c.file == GLOBAL_FILE:
                 return "global"
             return f"{c.file}:{c.line}"
 
+        def _item_defaults(c: Comment) -> dict:
+            is_agent = c.author.lower() in agent_authors
+            return {
+                "is_agent": is_agent,
+                "default_included": c.id in default_push_ids,
+            }
+
         new_top = [{
             "id": c.id, "author": c.author, "severity": c.severity,
             "category": c.category,
             "ref": _ref(c), "body": c.body,
+            **_item_defaults(c),
         } for c in plan.new_top]
         new_replies = []
         for c in plan.new_replies:
             parent = by_id.get(c.reply_to or "")
             parent_ext = plan.ext_map.get(c.reply_to or "")
+            parent_pending = c.reply_to in new_top_ids
+            orphaned = parent_ext is None and not parent_pending
             new_replies.append({
                 "id": c.id, "author": c.author,
                 "ref": _ref(parent) if parent else "?",
                 "parent_id": c.reply_to,
                 "parent_external_id": parent_ext,
-                "orphaned": parent_ext is None,
+                "parent_pending": parent_pending,
+                "orphaned": orphaned,
                 "body": c.body,
+                **_item_defaults(c),
             })
         edits = [{
             "id": c.id, "author": c.author, "severity": c.severity,
@@ -588,6 +603,7 @@ class _Handler(BaseHTTPRequestHandler):
             "external_url": c.external_url,
             "old_body": c.external_synced_body or "",
             "new_body": c.body,
+            **_item_defaults(c),
         } for c in plan.edits]
 
         self._json(200, {
@@ -602,7 +618,7 @@ class _Handler(BaseHTTPRequestHandler):
             "total": plan.total,
         })
 
-    def _post_gh_push(self, session_dir: Path) -> None:
+    def _post_gh_push(self, session_dir: Path, data: dict) -> None:
         """Execute the push. Re-plans server-side from current store so the
         result reflects the actual state at confirmation time, not the
         snapshot the modal showed."""
@@ -611,6 +627,14 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(400, "session is not GitHub-backed")
         comments = store.read_all_comments(session_dir)
         plan = gh_push.plan_push(comments)
+        try:
+            selected_ids = _selected_push_ids(data)
+        except ValueError as e:
+            return self._error(400, str(e))
+        if selected_ids is None:
+            agent_authors = _agent_authors(s)
+            selected_ids = _default_selected_push_ids(plan, agent_authors)
+        plan = gh_push.filter_plan(plan, selected_ids)
         if plan.total == 0:
             return self._json(200, {
                 "pushed": 0, "failed": 0, "orphaned": 0,
@@ -708,6 +732,33 @@ def _comment_to_dict(c: Comment) -> dict:
         "external_id": c.external_id,
         "external_url": c.external_url,
     }
+
+
+def _agent_authors(session) -> set[str]:
+    return {a.name.lower() for a in session.agents}
+
+
+def _selected_push_ids(data: dict) -> set[str] | None:
+    if "comment_ids" not in data:
+        return None
+    raw = data.get("comment_ids")
+    if not isinstance(raw, list):
+        raise ValueError("comment_ids must be a list")
+    return {str(comment_id) for comment_id in raw}
+
+
+def _default_selected_push_ids(plan: gh_push.PushPlan, agent_authors: set[str]) -> set[str]:
+    selected = {
+        c.id for c in [*plan.new_top, *plan.edits]
+        if c.author.lower() not in agent_authors
+    }
+    for c in plan.new_replies:
+        if c.author.lower() in agent_authors:
+            continue
+        parent_id = c.reply_to or ""
+        if plan.ext_map.get(parent_id) or parent_id in selected:
+            selected.add(c.id)
+    return selected
 
 
 def _note_to_dict(n: Note) -> dict:
