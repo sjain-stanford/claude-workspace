@@ -209,6 +209,9 @@ def test_relative_time_label_uses_github_style_units():
         "2026-05-04T11:57:00+00:00", now=now,
     ) == "3 minutes ago"
     assert render._relative_time_label(
+        "2026-05-04T10:20:00+00:00", now=now,
+    ) == "1 hour ago"
+    assert render._relative_time_label(
         "2026-05-03T10:00:00+00:00", now=now,
     ) == "yesterday"
 
@@ -551,6 +554,8 @@ def test_server_inbox_endpoint_and_render(session_dir: Path, tmp_path: Path):
         assert e["question"].startswith("python isn't")
         assert e["reply"] is not None
         assert e["reply"]["answer"].startswith("source .venv")
+        qts = e["timestamp"]
+        ats = e["reply"]["timestamp"]
 
         # Page render must include the inbox section + a data-key per entry.
         code, body = _get(f"http://127.0.0.1:{port}/{session_id}")
@@ -560,6 +565,9 @@ def test_server_inbox_endpoint_and_render(session_dir: Path, tmp_path: Path):
         assert 'Agent help inbox' in text
         assert 'data-key="vera/q_001"' in text
         assert 'data-replied="1"' in text
+        assert f'<time class="comment-time ix-time" datetime="{qts}" title="{qts}">' in text
+        assert f'<time class="comment-time ix-time" datetime="{ats}" title="{ats}">' in text
+        assert f'<span class="ts mono">{qts}</span>' not in text
     finally:
         srv.shutdown()
 
@@ -567,6 +575,7 @@ def test_server_inbox_endpoint_and_render(session_dir: Path, tmp_path: Path):
 def test_server_notes_endpoint_and_render(session_dir: Path):
     store.append_note(session_dir, Note(
         author="petra",
+        timestamp="2020-01-01T00:00:00+00:00",
         body="## Test Execution\n`llvm-lit` passed",
     ))
 
@@ -585,6 +594,12 @@ def test_server_notes_endpoint_and_render(session_dir: Path):
         assert 'id="inbox"' in text
         assert "Agent activity" in text
         assert 'data-key="note/' in text
+        assert (
+            '<time class="comment-time ix-time" datetime="2020-01-01T00:00:00+00:00" '
+            'title="2020-01-01T00:00:00+00:00">'
+        ) in text
+        assert "ago</time>" in text
+        assert '<span class="ts mono">2020-01-01T00:00:00+00:00</span>' not in text
         assert "Test Execution" in text
         assert "llvm-lit" in text
     finally:
@@ -1409,9 +1424,23 @@ def test_client_comment_renderer_includes_relative_time():
     end = text.index("function renderThreadActions", start)
     block = text[start:end]
 
+    assert "function timeTag" in block
     assert "function commentTime" in block
-    assert 'class="comment-time"' in block
+    assert '"comment-time"' in block
     assert "${commentTime(c)}" in block
+
+
+def test_client_agent_activity_renderer_uses_relative_time():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function renderNoteEntry")
+    end = text.index("function activityEntry", start)
+    block = text[start:end]
+
+    assert "activityTime(note.timestamp" in block
+    assert "activityTime(entry.timestamp" in block
+    assert "activityTime(entry.reply.timestamp" in block
+    assert "ix-time" in text
+    assert 'class="ts mono"' not in block
 
 
 def test_client_gh_push_modal_includes_selection_controls():

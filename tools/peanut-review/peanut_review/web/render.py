@@ -64,7 +64,7 @@ def _relative_time_label(timestamp: str, *, now: datetime | None = None) -> str:
         return "1 hour ago"
     hours = minutes // 60
     if hours < 24:
-        return f"{hours} hours ago"
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
     if hours < 48:
         return "yesterday"
     days = hours // 24
@@ -75,6 +75,24 @@ def _relative_time_label(timestamp: str, *, now: datetime | None = None) -> str:
         return f"{months} month{'s' if months != 1 else ''} ago"
     years = max(1, days // 365)
     return f"{years} year{'s' if years != 1 else ''} ago"
+
+
+def _time_tag(timestamp: str, *, extra_class: str = "") -> str:
+    if not timestamp:
+        return ""
+    label = _relative_time_label(timestamp)
+    if not label:
+        return ""
+    ts = html.escape(timestamp)
+    classes = "comment-time"
+    if extra_class:
+        classes += f" {html.escape(extra_class)}"
+    return (
+        f'<time class="{classes}" datetime="{ts}" '
+        f'title="{ts}">{html.escape(label)}</time>'
+    )
+
+
 KILLABLE_PROCESS_STATES = {"launching", "running"}
 
 
@@ -179,7 +197,7 @@ def _group_threads_by_anchor(
 def _render_note_entry(note: Note) -> str:
     nid = html.escape(note.id)
     agent = html.escape(note.author or "unknown")
-    ts = html.escape(note.timestamp)
+    ts = _time_tag(note.timestamp, extra_class="ix-time")
     body = html.escape(note.body)
     return (
         f'<div class="activity-entry note-entry" data-note-id="{nid}" '
@@ -188,7 +206,7 @@ def _render_note_entry(note: Note) -> str:
         f'<span class="agent">{agent}</span>'
         f'<span class="qid mono">{nid}</span>'
         f'<span class="kind">note</span>'
-        f'<span class="ts mono">{ts}</span>'
+        f'{ts}'
         f'</span><pre class="ix-body note-body">{body}</pre></div>'
         f'</div>'
     )
@@ -197,7 +215,7 @@ def _render_note_entry(note: Note) -> str:
 def _render_inbox_entry(entry: dict) -> str:
     agent = html.escape(entry.get("agent", ""))
     qid = html.escape(entry.get("id", ""))
-    qts = html.escape(entry.get("timestamp", ""))
+    qts = _time_tag(entry.get("timestamp", ""), extra_class="ix-time")
     qtext = html.escape(entry.get("question", ""))
     reply = entry.get("reply")
     row = [
@@ -208,17 +226,17 @@ def _render_inbox_entry(entry: dict) -> str:
         f'<span class="agent">{agent}</span>'
         f'<span class="qid mono">{qid}</span>'
         f'<span class="kind">question</span>'
-        f'<span class="ts mono">{qts}</span>'
+        f'{qts}'
         f'</span><pre class="ix-body">{qtext}</pre></div>',
     ]
     if reply:
-        ats = html.escape(reply.get("timestamp", ""))
+        ats = _time_tag(reply.get("timestamp", ""), extra_class="ix-time")
         aby = html.escape(reply.get("answered_by", "orchestrator"))
         atext = html.escape(reply.get("answer", ""))
         row.append(
             f'<div class="ix-r"><span class="ix-meta">'
             f'<span class="agent">↳ {aby}</span>'
-            f'<span class="ts mono">{ats}</span>'
+            f'{ats}'
             f'</span><pre class="ix-body">{atext}</pre></div>'
         )
     else:
@@ -323,15 +341,7 @@ def _render_comment(c: Comment, *, is_reply: bool = False) -> str:
             f'<span class="category {html.escape(c.category)}">'
             f'{html.escape(label)}</span>'
         )
-    time_html = ""
-    if c.timestamp:
-        timestamp = html.escape(c.timestamp)
-        label = _relative_time_label(c.timestamp)
-        if label:
-            time_html = (
-                f'<time class="comment-time" datetime="{timestamp}" '
-                f'title="{timestamp}">{html.escape(label)}</time>'
-            )
+    time_html = _time_tag(c.timestamp)
     edited_html = ""
     if c.edited_at:
         n = len(c.versions)

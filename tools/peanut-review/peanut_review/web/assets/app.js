@@ -100,7 +100,7 @@
     if (minutes < 60) return `${minutes} minutes ago`;
     if (minutes < 90) return "1 hour ago";
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} hours ago`;
+    if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
     if (hours < 48) return "yesterday";
     const days = Math.floor(hours / 24);
     if (days < 30) return `${days} days ago`;
@@ -110,12 +110,21 @@
     return `${years} year${years === 1 ? "" : "s"} ago`;
   }
 
-  function commentTime(c) {
-    if (!c.timestamp) return "";
-    const label = relativeTimeLabel(c.timestamp);
+  function timeTag(timestamp, extraClass) {
+    if (!timestamp) return "";
+    const label = relativeTimeLabel(timestamp);
     if (!label) return "";
-    const ts = attrEsc(c.timestamp);
-    return `<time class="comment-time" datetime="${ts}" title="${ts}">${esc(label)}</time>`;
+    const ts = attrEsc(timestamp);
+    const cls = extraClass ? `comment-time ${extraClass}` : "comment-time";
+    return `<time class="${attrEsc(cls)}" datetime="${ts}" title="${ts}">${esc(label)}</time>`;
+  }
+
+  function commentTime(c) {
+    return timeTag(c.timestamp);
+  }
+
+  function activityTime(timestamp) {
+    return timeTag(timestamp, "ix-time");
   }
 
   function refreshRelativeTimes(root = document) {
@@ -915,7 +924,7 @@
   function renderNoteEntry(note) {
     const id = esc(note.id || "");
     const agent = esc(note.author || "unknown");
-    const ts = esc(note.timestamp || "");
+    const ts = activityTime(note.timestamp || "");
     const body = esc(note.body || "");
     return `<div class="activity-entry note-entry" data-note-id="${id}" data-key="note/${id}" data-kind="note">
         <div class="ix-q">
@@ -923,7 +932,7 @@
             <span class="agent">${agent}</span>
             <span class="qid mono">${id}</span>
             <span class="kind">note</span>
-            <span class="ts mono">${ts}</span>
+            ${ts}
           </span>
           <pre class="ix-body note-body">${body}</pre>
         </div>
@@ -933,17 +942,17 @@
   function renderInboxEntry(entry) {
     const agent = esc(entry.agent || "");
     const qid = esc(entry.id || "");
-    const qts = esc(entry.timestamp || "");
+    const qts = activityTime(entry.timestamp || "");
     const qtext = esc(entry.question || "");
     let replyHtml;
     if (entry.reply) {
-      const ats = esc(entry.reply.timestamp || "");
+      const ats = activityTime(entry.reply.timestamp || "");
       const aby = esc(entry.reply.answered_by || "orchestrator");
       const atext = esc(entry.reply.answer || "");
       replyHtml = `<div class="ix-r">
           <span class="ix-meta">
             <span class="agent">↳ ${aby}</span>
-            <span class="ts mono">${ats}</span>
+            ${ats}
           </span>
           <pre class="ix-body">${atext}</pre>
         </div>`;
@@ -958,7 +967,7 @@
             <span class="agent">${agent}</span>
             <span class="qid mono">${qid}</span>
             <span class="kind">question</span>
-            <span class="ts mono">${qts}</span>
+            ${qts}
           </span>
           <pre class="ix-body">${qtext}</pre>
         </div>
