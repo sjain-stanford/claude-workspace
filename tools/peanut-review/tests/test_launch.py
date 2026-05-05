@@ -176,7 +176,9 @@ def test_launch_dry_run_codex_agent_cmd():
     cmd = results[0]["cmd"]
     assert cmd[0].endswith("codex-agent-task.sh")
     assert "--model" in cmd and "gpt-5.5" in cmd
-    # Codex needs the session dir writable so the agent can post comments.
+    # Codex needs unrestricted writes because workspace-write + --add-dir is
+    # still read-only for the out-of-workspace session dir in current Codex.
+    assert "--sandbox" in cmd and "danger-full-access" in cmd
     assert "--add-dir" in cmd
     assert sd in cmd
 

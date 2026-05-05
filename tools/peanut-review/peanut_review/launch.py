@@ -226,12 +226,15 @@ def _build_agent_cmd(
         "--prompt-file", str(prompt_path),
     ]
     if agent.runner == "codex":
-        # Codex sandboxes the agent to the workspace by default; the session
-        # dir lives outside it, so without --add-dir the agent can't write
-        # comments/signals through `peanut-review add-comment`. /tmp is added
-        # for ad-hoc body files (agent-prompt.md instructs agents to use
-        # `--body-file /tmp/...` to dodge backtick-quoting issues).
-        cmd += ["--add-dir", str(session_dir), "--add-dir", "/tmp"]
+        # Codex must be able to write comments/signals to the session dir,
+        # which lives outside the reviewed workspace. In current local Codex,
+        # workspace-write + --add-dir still leaves that path read-only for
+        # shell commands, so use the unrestricted sandbox for this runner.
+        cmd += [
+            "--sandbox", "danger-full-access",
+            "--add-dir", str(session_dir),
+            "--add-dir", "/tmp",
+        ]
     return cmd
 
 
