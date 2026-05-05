@@ -290,7 +290,9 @@ def test_render_sidebar_action_shortcuts_use_namespaced_bindings(
     html = render.render_page(s, s.id, files, [], head_shifted=False)
 
     assert '<kbd class="prefix">␣</kbd><kbd>c</kbd><kbd>a</kbd>' in html
+    assert '<kbd class="prefix">␣</kbd><kbd>c</kbd><kbd>c</kbd>' in html
     assert '<kbd class="prefix">␣</kbd><kbd>a</kbd><kbd>K</kbd>' in html
+    assert '<kbd class="prefix">⌃␣</kbd><kbd>a</kbd><kbd>b</kbd>' in html
     assert '<kbd class="prefix">␣</kbd><kbd>a</kbd></span><span class="desc">add global comment' not in html
 
 
@@ -461,6 +463,47 @@ def test_render_thread_swaps_to_unresolve_when_resolved(
                                   head_shifted=False)
     assert f'data-unresolve="{parent.id}"' in html_out
     assert f'data-resolve="{parent.id}"' not in html_out
+
+
+def test_render_resolved_thread_collapsed_by_default(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    parent = Comment(author="vera", file="foo.py", line=1, body="x",
+                     severity="warning", resolved=True)
+    store.append_comment(session_dir, parent)
+    store.append_comment(session_dir, Comment(
+        author="felix", file="foo.py", line=1, body="reply",
+        severity="suggestion", reply_to=parent.id,
+    ))
+    html_out = render.render_page(s, s.id, files,
+                                  store.read_all_comments(session_dir),
+                                  head_shifted=False)
+
+    assert 'class="thread resolved collapsed"' in html_out
+    assert 'data-default-collapsed="1"' in html_out
+    assert f'data-thread-collapse="{parent.id}"' in html_out
+    assert 'aria-expanded="false"' in html_out
+    assert "comment hidden, 1 reply hidden" in html_out
+
+
+def test_render_unresolved_thread_has_expanded_collapse_button(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    parent = Comment(author="vera", file="foo.py", line=1, body="x",
+                     severity="warning")
+    store.append_comment(session_dir, parent)
+    html_out = render.render_page(s, s.id, files,
+                                  store.read_all_comments(session_dir),
+                                  head_shifted=False)
+
+    assert f'data-thread-collapse="{parent.id}"' in html_out
+    assert 'aria-expanded="true"' in html_out
+    assert 'data-default-collapsed="0"' in html_out
+    assert 'class="thread collapsed"' not in html_out
 
 
 def test_sidebar_counts_exclude_replies(session_dir: Path, repo: Path):
@@ -1418,6 +1461,19 @@ def test_client_global_composer_includes_category_selector():
     assert 'form.querySelector(".category")?.value || "comment"' in block
 
 
+def test_client_composer_chord_sets_global_review_category():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function startPendingComposerActions")
+    end = text.index("function handlePending", start)
+    block = text[start:end]
+
+    assert 'const category = composer.querySelector(".category")' in block
+    assert 'map.a = { label: "approve"' in block
+    assert 'setCategory("approve", "approve")' in block
+    assert 'map.b = { label: "blocking"' in block
+    assert 'setCategory("request-changes", "blocking")' in block
+
+
 def test_client_comment_renderer_includes_relative_time():
     text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
     start = text.index("function relativeTimeLabel")
@@ -1428,6 +1484,42 @@ def test_client_comment_renderer_includes_relative_time():
     assert "function commentTime" in block
     assert '"comment-time"' in block
     assert "${commentTime(c)}" in block
+
+
+def test_client_comment_renderer_supports_thread_collapse():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function collapseSummary")
+    end = text.index("function ensureThread", start)
+    block = text[start:end]
+
+    assert "function collapseButton" in block
+    assert 'class="thread-collapse"' in block
+    assert "THREAD_COLLAPSE_KEY" in block
+    assert "localStorage" in block
+    assert "applyThreadCollapsePreferences()" in block
+    assert 'data-default-collapsed="${defaultCollapsed}"' in block
+
+
+def test_client_click_handler_toggles_thread_collapse():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("// Resolve / Unresolve / Delete / Reply")
+    end = text.index("  // --- Live comment merge ---", start)
+    block = text[start:end]
+
+    assert 'ev.target.closest("[data-thread-collapse]")' in block
+    assert "setThreadCollapsed(threadEl, !threadEl.classList.contains(\"collapsed\"))" in block
+    assert "resetCollapsePreference: true" in block
+
+
+def test_client_keymap_has_comment_collapse_chord():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("const KEYMAP =")
+    end = text.index("  let pendingMap", start)
+    block = text[start:end]
+
+    assert 'c: { label: "comment…", submap:' in block
+    assert 'c: { label: "toggle collapse"' in block
+    assert 'clickInFocused("[data-thread-collapse]")' in block
 
 
 def test_client_agent_activity_renderer_uses_relative_time():

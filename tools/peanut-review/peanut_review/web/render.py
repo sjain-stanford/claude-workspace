@@ -315,7 +315,19 @@ def _render_comment(c: Comment, *, is_reply: bool = False) -> str:
         classes.append("resolved")
     if c.edited_at:
         classes.append("edited")
+    if not is_reply:
+        classes.append("top-level")
     cid = html.escape(c.id)
+    collapse_html = ""
+    if not is_reply:
+        expanded = not c.resolved
+        label = "Collapse thread" if expanded else "Expand thread"
+        icon = "▾" if expanded else "▸"
+        collapse_html = (
+            f'<button type="button" class="thread-collapse" '
+            f'data-thread-collapse="{cid}" aria-expanded="{str(expanded).lower()}" '
+            f'title="{label}"><span aria-hidden="true">{icon}</span></button>'
+        )
     buttons = [
         f'<button data-edit="{cid}">Edit</button>',
         f'<button class="danger" data-delete="{cid}">Delete</button>',
@@ -327,7 +339,7 @@ def _render_comment(c: Comment, *, is_reply: bool = False) -> str:
     if c.stale:
         badges.append('<span class="round">stale</span>')
     if c.resolved and not is_reply:
-        badges.append('<span class="round">resolved</span>')
+        badges.append('<span class="round resolved-badge">resolved</span>')
     # Replies don't carry their own severity — they inherit the thread's.
     sev_html = (
         ""
@@ -365,6 +377,7 @@ def _render_comment(c: Comment, *, is_reply: bool = False) -> str:
     return (
         f'<div class="{" ".join(classes)}" data-cid="{cid}">'
         f'<div class="comment-meta">'
+        f'{collapse_html}'
         f'<span class="author">{html.escape(c.author or "unknown")}</span>'
         f'{time_html}'
         f'{sev_html}'
@@ -379,6 +392,14 @@ def _render_comment(c: Comment, *, is_reply: bool = False) -> str:
     )
 
 
+def _collapsed_summary(reply_count: int) -> str:
+    if reply_count == 1:
+        return "comment hidden, 1 reply hidden"
+    if reply_count > 1:
+        return f"comment hidden, {reply_count} replies hidden"
+    return "comment hidden"
+
+
 def _render_thread(thread: list[Comment]) -> str:
     """Render a thread: parent comment, replies (inset), then thread actions.
 
@@ -391,6 +412,7 @@ def _render_thread(thread: list[Comment]) -> str:
     parent_html = _render_comment(parent)
     replies_html = "".join(_render_comment(r, is_reply=True) for r in replies)
     pid = html.escape(parent.id)
+    default_collapsed = "1" if parent.resolved else "0"
     if parent.resolved:
         toggle_btn = f'<button data-unresolve="{pid}">Unresolve</button>'
     else:
@@ -403,8 +425,17 @@ def _render_thread(thread: list[Comment]) -> str:
     )
     cls = "thread"
     if parent.resolved:
-        cls += " resolved"
-    return f'<div class="{cls}" data-thread-id="{pid}">{parent_html}{replies_html}{actions}</div>'
+        cls += " resolved collapsed"
+    summary = (
+        '<div class="thread-collapsed-summary" data-collapse-summary>'
+        f'{html.escape(_collapsed_summary(len(replies)))}'
+        '</div>'
+    )
+    return (
+        f'<div class="{cls}" data-thread-id="{pid}" '
+        f'data-default-collapsed="{default_collapsed}">'
+        f'{parent_html}{summary}{replies_html}{actions}</div>'
+    )
 
 
 def _render_file(fd: FileDiff, threads_at_line: dict[tuple[str, int], list[list[Comment]]]) -> str:
@@ -657,6 +688,8 @@ def _render_sidebar(
         '<span class="desc">delete</span></li>'
         f'<li><span class="keys"><kbd class="prefix">{PREFIX_LABEL}</kbd><kbd>c</kbd><kbd>a</kbd></span>'
         '<span class="desc">add global comment</span></li>'
+        f'<li><span class="keys"><kbd class="prefix">{PREFIX_LABEL}</kbd><kbd>c</kbd><kbd>c</kbd></span>'
+        '<span class="desc">toggle collapse</span></li>'
         f'<li><span class="keys"><kbd class="prefix">{PREFIX_LABEL}</kbd><kbd>a</kbd><kbd>K</kbd></span>'
         '<span class="desc">kill all agents</span></li>'
         f'<li><span class="keys"><kbd class="prefix">{PREFIX_LABEL}</kbd><kbd>g</kbd><kbd>f</kbd></span>'
@@ -673,6 +706,8 @@ def _render_sidebar(
         f'<li><span class="keys"><kbd class="prefix">{COMPOSER_PREFIX_LABEL}</kbd>'
         '<kbd>c</kbd><kbd>w</kbd><kbd>s</kbd><kbd>n</kbd><kbd>f</kbd></span>'
         '<span class="desc">set severity</span></li>'
+        f'<li><span class="keys"><kbd class="prefix">{COMPOSER_PREFIX_LABEL}</kbd><kbd>a</kbd><kbd>b</kbd></span>'
+        '<span class="desc">approve / block (global)</span></li>'
         f'<li><span class="keys"><kbd class="prefix">{COMPOSER_PREFIX_LABEL}</kbd><kbd>i</kbd></span>'
         '<span class="desc">insert suggestion (inline only)</span></li>'
         '</ul>'

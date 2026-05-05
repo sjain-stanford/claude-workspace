@@ -152,21 +152,39 @@
     return `<span class="category ${esc(c.category)}">${esc(label)}</span>`;
   }
 
+  function collapseSummary(replyCount) {
+    if (replyCount === 1) return "comment hidden, 1 reply hidden";
+    if (replyCount > 1) return `comment hidden, ${replyCount} replies hidden`;
+    return "comment hidden";
+  }
+
+  function collapseButton(c, isReply) {
+    if (isReply) return "";
+    const expanded = !c.resolved;
+    const label = expanded ? "Collapse thread" : "Expand thread";
+    const icon = expanded ? "▾" : "▸";
+    return `<button type="button" class="thread-collapse" data-thread-collapse="${esc(c.id)}" ` +
+      `aria-expanded="${expanded ? "true" : "false"}" title="${label}">` +
+      `<span aria-hidden="true">${icon}</span></button>`;
+  }
+
   function renderComment(c, { isReply = false } = {}) {
     const cls = ["comment"];
     if (isReply) cls.push("reply");
     if (c.stale) cls.push("stale");
     if (c.resolved && !isReply) cls.push("resolved");
     if (c.edited_at) cls.push("edited");
+    if (!isReply) cls.push("top-level");
     const editBtn = `<button data-edit="${esc(c.id)}">Edit</button>`;
     const deleteBtn = `<button class="danger" data-delete="${esc(c.id)}">Delete</button>`;
     const sevHtml = isReply
       ? ""
       : `<span class="sev ${esc(c.severity)}">${esc(c.severity)}</span>`;
-    const resolvedBadge = c.resolved && !isReply ? '<span class="round">resolved</span>' : "";
+    const resolvedBadge = c.resolved && !isReply ? '<span class="round resolved-badge">resolved</span>' : "";
     return `
       <div class="${cls.join(" ")}" data-cid="${esc(c.id)}">
         <div class="comment-meta">
+          ${collapseButton(c, isReply)}
           <span class="author">${esc(c.author || "unknown")}</span>
           ${commentTime(c)}
           ${sevHtml}
@@ -200,14 +218,88 @@
   function renderThread(parent) {
     // Initial render only — replies arrive via insertFetchedComment.
     const cls = ["thread"];
-    if (parent.resolved) cls.push("resolved");
+    if (parent.resolved) cls.push("resolved", "collapsed");
+    const defaultCollapsed = parent.resolved ? "1" : "0";
     return `
-      <div class="${cls.join(" ")}" data-thread-id="${esc(parent.id)}">
+      <div class="${cls.join(" ")}" data-thread-id="${esc(parent.id)}" data-default-collapsed="${defaultCollapsed}">
         ${renderComment(parent)}
+        <div class="thread-collapsed-summary" data-collapse-summary>${collapseSummary(0)}</div>
         ${renderThreadActions(parent.id, parent.resolved)}
       </div>
     `;
   }
+
+  const THREAD_COLLAPSE_KEY = `pr.thread-collapse.${sessionId || "unknown"}`;
+
+  function readThreadCollapsePrefs() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(THREAD_COLLAPSE_KEY) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeThreadCollapsePrefs(prefs) {
+    try {
+      localStorage.setItem(THREAD_COLLAPSE_KEY, JSON.stringify(prefs));
+    } catch {
+      // Ignore storage failures; collapsing still works for this page load.
+    }
+  }
+
+  function hasThreadCollapsePreference(threadId) {
+    return Object.prototype.hasOwnProperty.call(readThreadCollapsePrefs(), threadId);
+  }
+
+  function clearThreadCollapsePreference(threadId) {
+    const prefs = readThreadCollapsePrefs();
+    if (!Object.prototype.hasOwnProperty.call(prefs, threadId)) return;
+    delete prefs[threadId];
+    writeThreadCollapsePrefs(prefs);
+  }
+
+  function updateCollapseSummary(threadEl) {
+    if (!threadEl) return;
+    const summary = threadEl.querySelector("[data-collapse-summary]");
+    if (!summary) return;
+    summary.textContent = collapseSummary(threadEl.querySelectorAll(":scope > .comment.reply").length);
+  }
+
+  function setThreadCollapsed(threadEl, collapsed, { persist = true } = {}) {
+    if (!threadEl) return;
+    threadEl.classList.toggle("collapsed", collapsed);
+    updateCollapseSummary(threadEl);
+    const btn = threadEl.querySelector("[data-thread-collapse]");
+    if (btn) {
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      btn.title = collapsed ? "Expand thread" : "Collapse thread";
+      const icon = btn.querySelector("[aria-hidden='true']");
+      if (icon) icon.textContent = collapsed ? "▸" : "▾";
+    }
+    if (!persist) return;
+    const threadId = threadEl.dataset.threadId;
+    if (!threadId) return;
+    const prefs = readThreadCollapsePrefs();
+    prefs[threadId] = collapsed;
+    writeThreadCollapsePrefs(prefs);
+  }
+
+  function applyThreadCollapsePreferences(root = document) {
+    const prefs = readThreadCollapsePrefs();
+    const threads = [];
+    if (root.matches && root.matches(".thread[data-thread-id]")) threads.push(root);
+    root.querySelectorAll?.(".thread[data-thread-id]").forEach((el) => threads.push(el));
+    for (const threadEl of threads) {
+      const id = threadEl.dataset.threadId;
+      const collapsed = Object.prototype.hasOwnProperty.call(prefs, id)
+        ? !!prefs[id]
+        : threadEl.dataset.defaultCollapsed === "1";
+      setThreadCollapsed(threadEl, collapsed, { persist: false });
+    }
+  }
+
+  applyThreadCollapsePreferences();
 
   function ensureThread(row, file, line) {
     let thread = row.nextElementSibling;
@@ -500,9 +592,10 @@
     };
   }
 
-  function setThreadResolved(threadEl, resolved) {
+  function setThreadResolved(threadEl, resolved, { resetCollapsePreference = false } = {}) {
     if (!threadEl) return;
     threadEl.classList.toggle("resolved", resolved);
+    threadEl.dataset.defaultCollapsed = resolved ? "1" : "0";
     const parent = threadEl.querySelector(".comment:not(.reply)");
     if (parent) parent.classList.toggle("resolved", resolved);
     // Swap the action button: Resolve <-> Unresolve.
@@ -533,6 +626,13 @@
         meta.insertBefore(span, meta.querySelector("button"));
       }
       if (!resolved && badge) badge.remove();
+    }
+    const tid = threadEl.dataset.threadId;
+    if (tid && resetCollapsePreference) clearThreadCollapsePreference(tid);
+    if (resetCollapsePreference || !tid || !hasThreadCollapsePreference(tid)) {
+      setThreadCollapsed(threadEl, resolved, { persist: false });
+    } else {
+      updateCollapseSummary(threadEl);
     }
   }
 
@@ -652,11 +752,17 @@
       openGlobalForm();
       return;
     }
+    const collapseBtn = ev.target.closest("[data-thread-collapse]");
+    if (collapseBtn) {
+      const threadEl = collapseBtn.closest(".thread");
+      if (threadEl) setThreadCollapsed(threadEl, !threadEl.classList.contains("collapsed"));
+      return;
+    }
     const rb = ev.target.closest("[data-resolve]");
     if (rb) {
       const cid = rb.dataset.resolve;
       api("POST", "/api/resolve", { comment_id: cid }).then(() => {
-        setThreadResolved(rb.closest(".thread"), true);
+        setThreadResolved(rb.closest(".thread"), true, { resetCollapsePreference: true });
       }).catch((e) => alert("Resolve failed: " + e.message));
       return;
     }
@@ -664,7 +770,7 @@
     if (ub) {
       const cid = ub.dataset.unresolve;
       api("POST", "/api/unresolve", { comment_id: cid }).then(() => {
-        setThreadResolved(ub.closest(".thread"), false);
+        setThreadResolved(ub.closest(".thread"), false, { resetCollapsePreference: true });
       }).catch((e) => alert("Unresolve failed: " + e.message));
       return;
     }
@@ -672,21 +778,38 @@
     if (replyBtn) {
       const pid = replyBtn.dataset.replyTo;
       const threadEl = replyBtn.closest(".thread");
-      if (threadEl) openReplyForm(threadEl, pid);
+      if (threadEl) {
+        if (threadEl.classList.contains("collapsed")) {
+          setThreadCollapsed(threadEl, false);
+        }
+        openReplyForm(threadEl, pid);
+      }
       return;
     }
     const eb = ev.target.closest("[data-edit]");
     if (eb) {
       const cid = eb.dataset.edit;
       const node = eb.closest(".comment");
-      if (node) openEditForm(node, cid);
+      if (node) {
+        const threadEl = node.closest(".thread");
+        if (threadEl && threadEl.classList.contains("collapsed")) {
+          setThreadCollapsed(threadEl, false);
+        }
+        openEditForm(node, cid);
+      }
       return;
     }
     const hb = ev.target.closest("[data-history]");
     if (hb) {
       const cid = hb.dataset.history;
       const node = hb.closest(".comment");
-      if (node) toggleHistory(node, cid);
+      if (node) {
+        const threadEl = node.closest(".thread");
+        if (threadEl && threadEl.classList.contains("collapsed")) {
+          setThreadCollapsed(threadEl, false);
+        }
+        toggleHistory(node, cid);
+      }
       return;
     }
     const db = ev.target.closest("[data-delete]");
@@ -698,6 +821,7 @@
         const threadEl = node && node.closest(".thread");
         const anchor = node && node.closest(".comment-thread");
         if (node) node.remove();
+        if (threadEl) updateCollapseSummary(threadEl);
         // If we removed the parent comment, drop the entire thread block.
         // If the thread block still has comments (replies remain after a top-
         // level delete is impossible because the parent went, so this branch
@@ -750,6 +874,7 @@
       if (actions) threadEl.insertBefore(node, actions);
       else threadEl.appendChild(node);
     }
+    updateCollapseSummary(threadEl);
   }
 
   function insertFetchedComment(c) {
@@ -763,6 +888,7 @@
     const newThread = document.createElement("div");
     newThread.innerHTML = renderThread(c);
     const threadEl = newThread.firstElementChild;
+    applyThreadCollapsePreferences(threadEl);
     if (!c.file) {
       const container = document.getElementById("global-comments");
       if (!container) return;
@@ -889,6 +1015,7 @@
           const threadEl = el.closest(".thread");
           const anchor = el.closest(".comment-thread");
           el.remove();
+          if (threadEl) updateCollapseSummary(threadEl);
           // If we removed the parent (only top-levels can fully empty a
           // .thread), drop the empty thread block.
           if (threadEl && !threadEl.querySelector(".comment")) threadEl.remove();
@@ -1809,6 +1936,8 @@
          run: () => clickInFocused(':scope > .comment:not(.reply) [data-delete]') },
     c: { label: "comment…", submap: {
            a: { label: "add global comment", run: () => clickById("add-global-btn") },
+           c: { label: "toggle collapse",
+                run: () => clickInFocused("[data-thread-collapse]") },
          } },
     a: { label: "agent…", submap: {
            K: { label: "kill all agents", run: () => clickById("kill-all-agents-btn") },
@@ -1866,15 +1995,21 @@
     renderPendingIndicator();
   }
 
-  // Composer-scoped chord (severity + insert-suggestion). Captures the
+  // Composer-scoped chord (severity/category + insert-suggestion). Captures the
   // composer in closure so a mid-chord focus change doesn't retarget.
   function startPendingComposerActions(composer) {
     const sev = composer.querySelector(".sev");
+    const category = composer.querySelector(".category");
     const suggest = composer.querySelector(".suggest");
     const setSeverity = (value, label) => {
       if (!sev) return;
       sev.value = value;
       flashToast(`severity → ${label}`, 1200);
+    };
+    const setCategory = (value, label) => {
+      if (!category) return;
+      category.value = value;
+      flashToast(`review → ${label}`, 1200);
     };
     const map = {};
     if (sev) {
@@ -1883,6 +2018,10 @@
       map.s = { label: "suggestion", run: () => setSeverity("suggestion", "suggestion") };
       map.n = { label: "nit",      run: () => setSeverity("nit", "nit") };
       map.f = { label: "feedback", run: () => setSeverity("feedback", "feedback") };
+    }
+    if (category) {
+      map.a = { label: "approve", run: () => setCategory("approve", "approve") };
+      map.b = { label: "blocking", run: () => setCategory("request-changes", "blocking") };
     }
     if (suggest) {
       map.i = { label: "insert suggestion", run: () => suggest.click() };
@@ -1955,12 +2094,13 @@
     }
     // Ctrl+PREFIX_KEY (primary) or Alt+s (fallback for IMEs that grab
     // Ctrl+Space) open the composer-actions chord. Only opens if there's
-    // something chord-worthy in this composer (.sev select or .suggest button).
+    // something chord-worthy in this composer.
     const isCtrlPrefix = (ev.ctrlKey || ev.metaKey)
       && !ev.altKey && !ev.shiftKey && ev.key === PREFIX_KEY;
     const isAltS = ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.key === "s";
     if (isCtrlPrefix || isAltS) {
-      if (!composer.querySelector(".sev") && !composer.querySelector(".suggest")) return;
+      if (!composer.querySelector(".sev") && !composer.querySelector(".category") &&
+          !composer.querySelector(".suggest")) return;
       ev.preventDefault();
       startPendingComposerActions(composer);
     }

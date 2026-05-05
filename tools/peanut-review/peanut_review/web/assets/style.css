@@ -307,6 +307,22 @@ body.gutter-drag, body.gutter-drag * { user-select: none; cursor: ns-resize !imp
 .thread { scroll-margin-top: var(--sticky-target-offset); }
 .thread + .thread { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .thread.resolved .comment.top-level { opacity: 0.85; }
+.thread.collapsed > .comment.top-level { margin-bottom: 0; }
+.thread.collapsed > .comment.top-level .comment-body,
+.thread.collapsed > .comment.top-level .edit-form,
+.thread.collapsed > .comment.top-level .version-history,
+.thread.collapsed > .comment.reply,
+.thread.collapsed > .thread-actions,
+.thread.collapsed > .new-comment {
+  display: none;
+}
+.thread-collapsed-summary {
+  display: none;
+  margin: 6px 0 0 34px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.thread.collapsed > .thread-collapsed-summary { display: block; }
 .thread.focused {
   outline: 2px solid var(--focus);
   outline-offset: 4px;
@@ -385,7 +401,7 @@ body.gutter-drag, body.gutter-drag * { user-select: none; cursor: ns-resize !imp
   white-space: nowrap;
 }
 .comment-meta button {
-  margin-left: auto;
+  margin-left: 0;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
@@ -395,6 +411,14 @@ body.gutter-drag, body.gutter-drag * { user-select: none; cursor: ns-resize !imp
   font-size: 11px;
 }
 .comment-meta button:hover { color: var(--fg); border-color: var(--accent); }
+.comment-meta .thread-collapse {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  flex: 0 0 20px;
+  line-height: 1;
+}
+.comment-meta [data-edit] { margin-left: auto; }
 .comment-meta button.danger { margin-left: 0; }
 .comment-meta button.danger:hover { color: #fff; border-color: var(--critical); background: rgba(214, 96, 96, 0.18); }
 .comment-body { white-space: pre-wrap; word-break: break-word; }
