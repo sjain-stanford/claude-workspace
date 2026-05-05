@@ -7,7 +7,7 @@ description: Comprehensive knowledge base for the Fusilli project - a C++ Graph 
 
 Fusilli is a C++ Graph API and JIT Frontend for IREE that leverages just-in-time compiled and code-generated kernels to accelerate training and inference workloads. Inspired by cuDNN's graph API, it exposes cuDNN-like primitives backed by the IREE compiler and runtime stack.
 
-Note: All paths in this document are relative within the active Fusilli checkout unless specified otherwise. The active checkout may be `projects/fusilli` or a task worktree under `projects/worktrees/fusilli/`.
+Note: All paths in this document are relative within the active Fusilli checkout unless specified otherwise. Use `projects/fusilli` for reading, planning, debugging, and gathering context. Before making implementation edits, create or switch to a task worktree under `projects/worktrees/fusilli/<task-slug>/` and work there unless the user explicitly asks to modify the canonical checkout.
 
 ## Architecture Overview
 
@@ -106,6 +106,14 @@ Fusilli has a **source dependency on IREE runtime** but expects the **compiler t
 - **Profiling**: Depends on `rocprofv3` for capturing kernel profile traces on AMD GPUs
 
 ## Development Workflow
+
+### Worktree Discipline
+
+- Treat `projects/fusilli/` as the canonical checkout for reading context, inspecting history, and understanding the codebase.
+- Before modifying Fusilli source, tests, samples, benchmarks, or build files, create or switch to a task-specific worktree under `projects/worktrees/fusilli/...`.
+- Run build, test, lint, commit, and PR commands from the worktree, not from `projects/fusilli/`.
+- At handoff, include the worktree path, branch name, verification performed, and remaining follow-up.
+- Only edit `projects/fusilli/` directly when the user explicitly asks for that checkout to be modified.
 
 ### Adding a New Operation
 

@@ -61,11 +61,13 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 ## Sub-Repo Git Usage
 
-Run git commands from the relevant repository directory. For sub-repos under `projects/`, set the command working directory to `projects/<repo>` and use plain `git` commands.
+Run git commands from the relevant repository directory. For sub-repos under `projects/`, set the command working directory to `projects/<repo>` or its task worktree and use plain `git` commands.
+
+The canonical checkouts under `projects/<repo>/` are for reading, planning, debugging, and gathering context. Before making implementation edits, create or switch to a task-specific worktree under `projects/worktrees/<repo>/...` and do the edits, build, test, lint, commit, and PR work there. Only edit a canonical checkout directly when the user explicitly asks for that exact checkout to be modified.
 
 ## Parallel Agent Worktrees
 
-Use git worktrees for autonomous feature work so independent agents do not share one mutable checkout. The canonical checkouts under `projects/<repo>/` are for reading, planning, review, and occasional direct user-directed work. For Bead-driven implementation, create a task worktree under `projects/worktrees/<repo>/<bead-id>-<short-slug>/`.
+Use git worktrees for autonomous feature work so independent agents do not share one mutable checkout. The canonical checkouts under `projects/<repo>/` are for reading, planning, review, and context only unless the user explicitly directs otherwise. For Bead-driven implementation, create a task worktree under `projects/worktrees/<repo>/<bead-id>-<short-slug>/` before modifying files.
 
 Recommended pattern:
 

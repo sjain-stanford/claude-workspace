@@ -18,3 +18,5 @@ plans/*
 
 # Ignore beads local issue tracker
 .beads/
+
+__pycache__/
