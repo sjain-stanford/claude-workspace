@@ -22,6 +22,9 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - This is a sparse checkout of the `ROCm/rocm-libraries` monorepo
   - This also serves as reference for the C++ graph API
   - Fusilli gets integrated as a plugin into the hipDNN kernel provider ecosystem
+- `projects/TheRock/` - ROCm TheRock source checkout
+  - This is the upstream `ROCm/TheRock` repository for ROCm build, packaging, and nightly artifact workflows
+  - Use as reference for TheRock releases, ROCm source builds, and Fusilli dependency bump context
 - `projects/docker/` - Docker for ML compiler development environment
   - This is the unified development docker for all builds and tests
   - Use as reference but expect Claude/Codex is launched from a dev-container already

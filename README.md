@@ -4,7 +4,7 @@ A meta workspace for Claude Code and Codex-assisted development across my curren
 
 ## Overview
 
-This workspace is the shared root for local agent configuration, reusable skills, saved plans/reviews, local Beads task state, git worktrees, and the independent git repositories cloned under `projects/`. The main active project is Fusilli, with IREE, Torch-MLIR, cuDNN frontend, hipDNN, and related tooling checked out as dependencies or API references.
+This workspace is the shared root for local agent configuration, reusable skills, saved plans/reviews, local Beads task state, git worktrees, and the independent git repositories cloned under `projects/`. The main active project is Fusilli, with IREE, Torch-MLIR, cuDNN frontend, hipDNN, TheRock, and related tooling checked out as dependencies or API references.
 
 ## Structure
 
@@ -18,6 +18,7 @@ claude-workspace/
 │   ├── dot-files/
 │   ├── hipdnn/
 │   ├── iree/
+│   ├── TheRock/
 │   ├── torch-mlir/
 │   └── worktrees/   # Local per-task git worktrees for parallel agents
 ├── skills/          # Project specific skills and shared references
@@ -85,6 +86,7 @@ claude-workspace/
    git clone https://github.com/iree-org/iree.git
    git clone https://github.com/llvm/torch-mlir.git
    git clone https://github.com/NVIDIA/cudnn-frontend.git
+   git clone git@github.com:ROCm/TheRock.git
 
    # Workspace support repos
    git clone https://github.com/sjain-stanford/docker.git
