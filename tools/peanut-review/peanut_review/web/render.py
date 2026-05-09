@@ -579,11 +579,34 @@ def _render_sidebar(
         info = runtime_by_agent.get(a.name, {})
         process = info.get("process_status", "")
         review = info.get("protocol_status", "")
-        detail = f" p:{process} r:{review}" if process and review else ""
-        status = html.escape(a.status + detail)
-        title = (
-            f' title="process={html.escape(process)} review={html.escape(review)}"'
-            if process and review else ""
+        status_title = "Overall agent status derived from process and review state"
+        status = (
+            '<span class="agent-state-field agent-summary" '
+            f'title="{html.escape(status_title, quote=True)}">'
+            '<span class="agent-state-label">status</span> '
+            f'<span class="agent-state-value">{html.escape(a.status)}</span>'
+            '</span>'
+        )
+        detail_fields = []
+        if process:
+            detail_fields.append(
+                '<span class="agent-state-field" '
+                'title="Local reviewer process lifecycle">'
+                '<span class="agent-state-label">process</span> '
+                f'<span class="agent-state-value">{html.escape(process)}</span>'
+                '</span>'
+            )
+        if review:
+            detail_fields.append(
+                '<span class="agent-state-field" '
+                'title="Review protocol state: pending, asking, or done">'
+                '<span class="agent-state-label">review</span> '
+                f'<span class="agent-state-value">{html.escape(review)}</span>'
+                '</span>'
+            )
+        detail_row = (
+            f'<div class="agent-state-row">{"".join(detail_fields)}</div>'
+            if detail_fields else ""
         )
         agent_name = html.escape(a.name)
         agent_attr = html.escape(a.name, quote=True)
@@ -598,14 +621,17 @@ def _render_sidebar(
         )
         agent_rows += (
             f'<li class="agent-row" data-agent="{agent_attr}">'
+            '<div class="agent-main">'
             '<span class="agent-ident">'
             f'<span class="agent-name">{agent_name}</span>'
             f'<span class="agent-model mono" title="{model_attr}">{model}</span>'
             '</span>'
             '<span class="agent-controls">'
-            f'<span class="v"{title}>{status}</span>'
+            f'{status}'
             f'{kill_button}'
             '</span>'
+            '</div>'
+            f'{detail_row}'
             '</li>'
         )
     kill_all_hidden = "" if any_killable else " hidden"

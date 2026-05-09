@@ -267,6 +267,11 @@ def test_render_sidebar_agents_show_model_and_hides_kill_controls_when_idle(
 
     assert '<span class="agent-name">felix</span>' in html
     assert '<span class="agent-model mono" title="m">m</span>' in html
+    assert 'class="agent-main"' in html
+    assert '<span class="agent-state-label">status</span> <span class="agent-state-value">pending</span>' in html
+    agent_list = html[html.index('<ul id="agent-list"'):html.index("</ul>", html.index('<ul id="agent-list"'))]
+    assert " p:" not in agent_list
+    assert " r:" not in agent_list
     assert 'id="kill-all-agents-btn"' in html
     assert 'id="kill-all-agents-btn" type="button" class="agent-kill-all" title="Stop all agents" hidden' in html
     assert 'data-agent-kill="felix"' not in html
@@ -289,6 +294,9 @@ def test_render_sidebar_agents_show_kill_controls_when_running(
 
     assert 'id="kill-all-agents-btn" type="button" class="agent-kill-all" title="Stop all agents" hidden' not in html
     assert 'data-agent-kill="felix"' in html
+    assert 'class="agent-state-row"' in html
+    assert '<span class="agent-state-label">process</span> <span class="agent-state-value">running</span>' in html
+    assert '<span class="agent-state-label">review</span> <span class="agent-state-value">pending</span>' in html
 
 
 def test_render_sidebar_action_shortcuts_use_namespaced_bindings(
@@ -1510,6 +1518,37 @@ def test_client_comment_renderer_supports_thread_collapse():
     assert 'data-default-collapsed="${defaultCollapsed}"' in block
 
 
+def test_client_agent_renderer_uses_labeled_two_line_state_fields():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function agentStateField")
+    end = text.index("function updateAgentList", start)
+    block = text[start:end]
+
+    assert "function agentStateField" in block
+    assert '"status"' in block
+    assert '"process"' in block
+    assert '"review"' in block
+    assert "agent-main" in block
+    assert "agent-state-row" in block
+    assert "agent-state-label" in block
+    assert "p:${process}" not in block
+    assert "r:${protocol}" not in block
+
+
+def test_client_edit_forms_size_textarea_to_existing_body_height():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function fitEditTextarea")
+    end = text.index("function toggleHistory", start)
+    block = text[start:end]
+
+    assert "function fitEditTextarea" in block
+    assert "ta.style.minHeight" in block
+    assert "ta.scrollHeight" in block
+    assert "const bodyHeight = body.getBoundingClientRect().height" in block
+    assert "fitEditTextarea(ta, bodyHeight)" in block
+    assert 'ta.addEventListener("input", () => fitEditTextarea(ta, bodyHeight))' in block
+
+
 def test_client_click_handler_toggles_thread_collapse():
     text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
     start = text.index("// Resolve / Unresolve / Delete / Reply")
@@ -1571,6 +1610,8 @@ def test_client_gh_push_modal_includes_selection_controls():
     assert 'data-push-edit="' in block
     assert '>Edit</button>' in block
     assert '>Delete</button>' in block
+    assert "const targetHeight = target.getBoundingClientRect().height" in block
+    assert "fitEditTextarea(ta, targetHeight)" in block
     assert 'api("POST", "/api/edit", { comment_id: cid, body: newBody })' in block
     assert 'api("POST", "/api/delete", { comment_id: cid })' in block
 

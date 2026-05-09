@@ -716,11 +716,19 @@
     }
   }
 
+  function fitEditTextarea(ta, minHeight = 0) {
+    const floor = Math.max(70, Math.ceil(minHeight));
+    ta.style.minHeight = `${floor}px`;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.max(floor, ta.scrollHeight)}px`;
+  }
+
   function openEditForm(node, cid) {
     if (node.querySelector(".edit-form")) return;  // already editing
     const body = node.querySelector(".comment-body");
     if (!body) return;
     const current = body.textContent || "";
+    const bodyHeight = body.getBoundingClientRect().height;
     const form = document.createElement("form");
     form.className = "edit-form";
     form.innerHTML = `
@@ -733,6 +741,8 @@
     body.style.display = "none";
     body.insertAdjacentElement("afterend", form);
     const ta = form.querySelector("textarea");
+    fitEditTextarea(ta, bodyHeight);
+    ta.addEventListener("input", () => fitEditTextarea(ta, bodyHeight));
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
     form.querySelector(".cancel").addEventListener("click", () => {
@@ -1241,13 +1251,13 @@
   }
   setInterval(refreshInbox, 3000);
 
-  function agentStatusText(agent) {
-    const status = agent.status || "";
-    const process = agent.process_status || "";
-    const protocol = agent.protocol_status || "";
-    return process && protocol
-      ? `${status} p:${process} r:${protocol}`
-      : status;
+  function agentStateField(label, value, title, extraClass = "") {
+    if (!value) return "";
+    const cls = extraClass ? `agent-state-field ${extraClass}` : "agent-state-field";
+    return `<span class="${cls}" title="${attrEsc(title)}">`
+      + `<span class="agent-state-label">${esc(label)}</span> `
+      + `<span class="agent-state-value">${esc(value)}</span>`
+      + `</span>`;
   }
 
   function agentCanKill(agent) {
@@ -1260,21 +1270,31 @@
     const model = String(agent.model || "");
     const process = String(agent.process_status || "");
     const protocol = String(agent.protocol_status || "");
-    const title = process && protocol
-      ? ` title="process=${attrEsc(process)} review=${attrEsc(protocol)}"`
-      : "";
+    const summary = agentStateField(
+      "status",
+      String(agent.status || ""),
+      "Overall agent status derived from process and review state",
+      "agent-summary",
+    );
+    const detailRow = [
+      agentStateField("process", process, "Local reviewer process lifecycle"),
+      agentStateField("review", protocol, "Review protocol state: pending, asking, or done"),
+    ].join("");
     const killButton = agentCanKill(agent)
       ? `<button type="button" class="agent-kill" data-agent-kill="${attrEsc(name)}" title="Stop ${attrEsc(name)}">kill</button>`
       : "";
     return `<li class="agent-row" data-agent="${attrEsc(name)}">`
+      + `<div class="agent-main">`
       + `<span class="agent-ident">`
       + `<span class="agent-name">${esc(name)}</span>`
       + `<span class="agent-model mono" title="${attrEsc(model)}">${esc(model)}</span>`
       + `</span>`
       + `<span class="agent-controls">`
-      + `<span class="v"${title}>${esc(agentStatusText(agent))}</span>`
+      + summary
       + killButton
       + `</span>`
+      + `</div>`
+      + (detailRow ? `<div class="agent-state-row">${detailRow}</div>` : "")
       + `</li>`;
   }
 
@@ -1629,6 +1649,7 @@
     const current = pushPreviewBody(item);
     const target = node.querySelector(".push-edit-cmp") || node.querySelector(".push-body");
     if (!target) return;
+    const targetHeight = target.getBoundingClientRect().height;
     const form = document.createElement("form");
     form.className = "edit-form push-edit-form";
     form.innerHTML = `
@@ -1641,6 +1662,8 @@
     target.style.display = "none";
     target.insertAdjacentElement("afterend", form);
     const ta = form.querySelector("textarea");
+    fitEditTextarea(ta, targetHeight);
+    ta.addEventListener("input", () => fitEditTextarea(ta, targetHeight));
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
     const close = () => {
