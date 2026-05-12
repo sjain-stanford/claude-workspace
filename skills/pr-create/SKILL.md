@@ -1,11 +1,11 @@
 ---
 name: pr-create
-description: Create a GitHub pull request for a sub-repo branch. Use when asked to create a PR, open a pull request, or submit changes for review.
+description: Create a GitHub pull request for a sub-repo branch with PR-body agent attribution. Use when asked to create a PR, open a pull request, or submit changes for review.
 ---
 
 # PR Create Skill
 
-Creates GitHub pull requests following workspace conventions: compact prose descriptions.
+Creates GitHub pull requests following workspace conventions: compact prose descriptions with PR-body agent attribution.
 
 ## Usage
 
@@ -53,6 +53,10 @@ cd projects/<repo> && git push -u origin HEAD
 <One concise paragraph describing the primary change and why it matters.>
 
 <Optional second concise paragraph for supporting changes, cleanup, or test adjustments.>
+
+Co-authored-by: <active agent and model> <agent email>
+
+🤖 Generated with [<active tool>](<active tool URL>)
 ```
 
 **Rules**:
@@ -61,7 +65,20 @@ cd projects/<repo> && git push -u origin HEAD
 - Do not use bullets or headings for normal PRs
 - Keep each paragraph short and specific; avoid restating every changed file
 - Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
-- Do NOT include `Co-Authored-By` in the PR body — co-authorship is already tracked in commit messages
+- Include a final PR-body attribution footer for the active tool and model.
+- For Codex, use:
+  ```markdown
+  Co-authored-by: GPT 5.5 <codex@openai.com>
+
+  🤖 Generated with [Codex](https://openai.com/codex)
+  ```
+- For Claude Code, use:
+  ```markdown
+  Co-authored-by: Claude Opus 4.7 <noreply@anthropic.com>
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+  ```
+- Do NOT include agent `Co-authored-by` trailers in individual commit messages
 
 ### 4. Create the PR
 
@@ -74,6 +91,10 @@ cd projects/<repo> && gh pr create \
 <One concise paragraph describing the primary change and why it matters.>
 
 <Optional second concise paragraph for supporting changes, cleanup, or test adjustments.>
+
+Co-authored-by: <active agent and model> <agent email>
+
+🤖 Generated with [<active tool>](<active tool URL>)
 EOF
 )"
 ```
@@ -101,6 +122,10 @@ cd projects/docker && gh pr create \
   --title "Mount ~/.cursor into dev container for Cursor config access" \
   --body "$(cat <<'EOF'
 Mounts `~/.cursor` into the dev container so Cursor IDE settings and MCP configs are available inside the workspace.
+
+Co-authored-by: GPT 5.5 <codex@openai.com>
+
+🤖 Generated with [Codex](https://openai.com/codex)
 EOF
 )"
 ```

@@ -1,11 +1,11 @@
 ---
 name: stage-and-commit
-description: Stage and commit changes to the current branch with signed commits and co-authorship. Use when asked to commit, save changes, or create a commit.
+description: Stage and commit changes to the current branch with signed commits. Use when asked to commit, save changes, or create a commit.
 ---
 
 # Stage and Commit Skill
 
-Stages and commits changes following workspace conventions: signed commits with co-authorship attribution.
+Stages and commits changes following workspace conventions: signed commits only. Agent attribution is added to pull request descriptions, not individual commit messages.
 
 ## Usage
 
@@ -20,9 +20,7 @@ Stages and commits changes following workspace conventions: signed commits with 
 **CRITICAL**: These rules must always be followed:
 
 1. **Signed commits**: Always use `git commit -s` to include `Signed-off-by` trailer
-2. **Co-authorship**: Always include the active agent's co-author trailer:
-   - Codex/OpenAI: `Co-Authored-By: GPT <model> <codex@openai.com>` (for example, `GPT 5.5`)
-   - Claude/Anthropic: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` (for example, `Claude Opus 4.6`)
+2. **No commit co-authorship**: Do not include agent `Co-authored-by` trailers in commit messages. The PR creation workflow handles agent attribution in the pull request description.
 3. **No push**: NEVER push to remote. Only commit locally. User must explicitly request push separately.
 4. **Specific staging**: Prefer staging specific files by name over `git add -A` or `git add .`
 
@@ -72,15 +70,9 @@ Use HEREDOC format to ensure proper formatting of multi-line commit messages:
 ```bash
 git commit -s -m "$(cat <<'EOF'
 <commit message>
-
-Co-Authored-By: <active agent and model> <agent email>
 EOF
 )"
 ```
-
-Replace the co-author trailer with the actual agent and model being used:
-- Codex/OpenAI: `Co-Authored-By: GPT 5.5 <codex@openai.com>`
-- Claude/Anthropic: `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
 
 ### 5. Verify
 
@@ -93,7 +85,6 @@ Run `git status` after commit to confirm success.
 
 <optional body explaining why, not what>
 
-Co-Authored-By: <active agent and model> <agent email>
 Signed-off-by: <user name> <user email>
 ```
 
@@ -109,9 +100,7 @@ git commit -s -m "$(cat <<'EOF'
 Add stage-and-commit skill for standardized commits
 
 Introduces /stage-and-commit skill that enforces signed commits
-and co-authorship attribution per workspace conventions.
-
-Co-Authored-By: GPT 5.5 <codex@openai.com>
+per workspace conventions.
 EOF
 )"
 ```

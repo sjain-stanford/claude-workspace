@@ -26,10 +26,21 @@ and separate from IREE/TheRock version bumps).
 
 ## Agent Attribution
 
-Use the active agent's identity in commits and generated PR footers:
-- Codex/OpenAI commit trailer: `Co-Authored-By: GPT <model> <codex@openai.com>` (for example, `GPT 5.5`)
-- Claude/Anthropic commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` (for example, `Claude Opus 4.6`)
-- PR footer: use `Generated with Codex` for Codex or `Generated with Claude Code` for Claude Code
+Use the active agent's identity in generated PR footers only. Do not add agent co-authorship trailers to individual commit messages.
+
+For Codex, use:
+```markdown
+Co-authored-by: GPT 5.5 <codex@openai.com>
+
+🤖 Generated with [Codex](https://openai.com/codex)
+```
+
+For Claude Code, use:
+```markdown
+Co-authored-by: Claude Opus 4.7 <noreply@anthropic.com>
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+```
 
 ## Architecture
 
@@ -125,8 +136,6 @@ Run Fusilli repo commands from `projects/fusilli`.
      Bump IREE to MM/DD nightly
 
      IREE: OLD_VERSION -> NEW_VERSION
-
-     Co-Authored-By: <active agent and model> <agent email>
      EOF
      )"
      ```
@@ -146,7 +155,9 @@ Run Fusilli repo commands from `projects/fusilli`.
 
      **IREE changelog**: https://github.com/iree-org/iree/compare/iree-OLD_VERSION...iree-NEW_VERSION
 
-     Generated with <active agent>
+     Co-authored-by: <active agent and model> <agent email>
+
+     🤖 Generated with [<active tool>](<active tool URL>)
      EOF
      )"
      ```
@@ -168,8 +179,6 @@ Run Fusilli repo commands from `projects/fusilli`.
      Bump TheRock to MM/DD nightly
 
      TheRock: OLD_VERSION -> NEW_VERSION
-
-     Co-Authored-By: <active agent and model> <agent email>
      EOF
      )"
      ```
@@ -187,7 +196,9 @@ Run Fusilli repo commands from `projects/fusilli`.
      |------------|-----|-----|
      | TheRock | `OLD_VERSION` | `NEW_VERSION` |
 
-     Generated with <active agent>
+     Co-authored-by: <active agent and model> <agent email>
+
+     🤖 Generated with [<active tool>](<active tool URL>)
      EOF
      )"
      ```

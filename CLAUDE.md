@@ -53,10 +53,10 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/fusilli-project/` - Use when adding new features or debugging issues in Fusilli
 - `skills/gh-address-comments/` - Use when addressing GitHub PR or issue comments on the current branch
 - `skills/gh-fix-ci/` - Use when debugging and fixing failing GitHub Actions checks for a PR
-- `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions and agent co-authorship)
+- `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions and PR-body agent attribution)
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
-- `skills/stage-and-commit/` - Use when asked to commit local changes (enforces signed commits and agent co-authorship)
+- `skills/stage-and-commit/` - Use when asked to commit local changes (enforces signed commits)
 - `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
 - `skills/llvm-coding-standards.md` - Reference for C++ coding standards from LLVM (shared across skills)
 
@@ -92,6 +92,7 @@ longer needs local follow-up.
 ## PR Preferences
 
 - Do not include a "Test Plan" section in pull request descriptions unless test coverage is not handled by CI.
+- Put active-agent attribution in pull request descriptions as a final footer block, not individual commit messages. Use the active tool/model-specific `Co-authored-by: ...` line followed by the matching `Generated with ...` link.
 
 ## Plans
 
