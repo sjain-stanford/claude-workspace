@@ -1,0 +1,4 @@
+interface:
+  display_name: "Find Security Vulnerabilities"
+  short_description: "Audit projects for exploitable security flaws"
+  default_prompt: "Use $find-security-vulnerabilities to audit this project for exploitable security vulnerabilities and practical fixes."
