@@ -49,7 +49,13 @@ git log --oneline -5
 - Summarize the nature of changes (new feature, enhancement, bug fix, refactor, test, docs, etc.)
 - Use appropriate verbs: "add" for new features, "update" for enhancements, "fix" for bugs
 - Keep the first line under 72 characters
-- Focus on "why" rather than "what" when possible
+- Include a concise body for every non-trivial commit. Do not leave the
+  message as just a subject line plus sign-off.
+- Use 2-3 short body lines to explain both why the change is needed and what
+  behavior, workflow, or contract it changes.
+- If the user provides only a terse phrase, expand it into a clear subject and
+  body based on the staged diff while preserving the user's intent.
+- Focus on "why" as well as "what"
 - Follow the commit message style observed in recent commits
 
 ### 3. Stage Files
@@ -83,10 +89,14 @@ Run `git status` after commit to confirm success.
 ```
 <short description>
 
-<optional body explaining why, not what>
+<body explaining why the change is needed and what it changes>
 
 Signed-off-by: <user name> <user email>
 ```
+
+Only omit the body for a truly tiny mechanical commit, such as a typo fix or
+single-value metadata bump, and only when that matches the repository's recent
+commit style.
 
 Do not add a type prefix such as `feat:`, `fix:`, `docs:`, or `chore:`
 unless the user explicitly asks for one or the repository's recent history
