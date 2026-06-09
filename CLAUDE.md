@@ -68,6 +68,14 @@ Run git commands from the relevant repository directory. For sub-repos under `pr
 
 The canonical checkouts under `projects/<repo>/` are for reading, planning, debugging, and gathering context. Before making implementation edits, create or switch to a task-specific worktree under `projects/worktrees/<repo>/...` and do the edits, build, test, lint, commit, and PR work there. Only edit a canonical checkout directly when the user explicitly asks for that exact checkout to be modified.
 
+If `git push` or any other remote-write command is denied by permissions,
+stop and ask the user how to proceed. Do not bypass the denial with alternate
+remote mutation paths such as `gh api`, GitHub REST/GraphQL calls, `gh pr edit`,
+direct ref updates, contents API writes, or any other tool that changes remote
+repository, branch, PR, release, workflow, or gist state. Treat permission
+denial for one remote-write mechanism as denial for all equivalent remote-write
+mechanisms unless the user explicitly approves a specific alternative.
+
 ## Parallel Agent Worktrees
 
 Use git worktrees for autonomous feature work so independent agents do not share one mutable checkout. The canonical checkouts under `projects/<repo>/` are for reading, planning, review, and context only unless the user explicitly directs otherwise. For Bead-driven implementation, create a task worktree under `projects/worktrees/<repo>/<bead-id>-<short-slug>/` before modifying files.

@@ -4,7 +4,6 @@ prefix_rule(pattern=["gh", "pr", "diff"], decision="allow")
 prefix_rule(pattern=["gh", "pr", "list"], decision="allow")
 prefix_rule(pattern=["gh", "run", "view"], decision="allow")
 prefix_rule(pattern=["gh", "run", "list"], decision="allow")
-prefix_rule(pattern=["gh", "api"], decision="allow")
 prefix_rule(pattern=["gh", "workflow", "list"], decision="allow")
 prefix_rule(pattern=["gh", "issue"], decision="allow")
 prefix_rule(pattern=["gh", "auth"], decision="allow")
@@ -58,6 +57,7 @@ prefix_rule(pattern=["./build_tools/scripts/coverage.sh"], decision="allow")
 # prompt
 prefix_rule(pattern=["gh", "pr", "create"], decision="prompt")
 prefix_rule(pattern=["gh", "pr", "edit"], decision="prompt")
+prefix_rule(pattern=["gh", "api"], decision="prompt")
 
 # forbidden
 prefix_rule(pattern=["git", "push"], decision="forbidden")
