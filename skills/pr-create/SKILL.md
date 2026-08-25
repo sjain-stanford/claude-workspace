@@ -66,9 +66,11 @@ Co-authored-by: <active agent and model> <agent email>
 - Keep each paragraph short and specific; avoid restating every changed file
 - Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
 - Include a final PR-body attribution footer for the active tool and model.
-- For Codex, use:
+- For Codex, use the active model display name supplied by the runtime or
+  system context. Do not copy a model version from an old PR or skill example.
+  If the exact model variant is unavailable, use `Codex` instead of guessing:
   ```markdown
-  Co-authored-by: GPT 5.5 <codex@openai.com>
+  Co-authored-by: <active Codex model display name> <codex@openai.com>
 
   🤖 Generated with [Codex](https://openai.com/codex)
   ```
@@ -123,7 +125,7 @@ cd projects/docker && gh pr create \
   --body "$(cat <<'EOF'
 Mounts `~/.cursor` into the dev container so Cursor IDE settings and MCP configs are available inside the workspace.
 
-Co-authored-by: GPT 5.5 <codex@openai.com>
+Co-authored-by: <active Codex model display name> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 EOF
