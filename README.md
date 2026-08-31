@@ -27,12 +27,16 @@ claude-workspace/
 │   ├── fusilli-project/
 │   ├── gh-address-comments/
 │   ├── gh-fix-ci/
+│   ├── peanut-review/
 │   ├── pr-create/
 │   ├── pr-review/
 │   ├── self-review/
 │   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
+├── tools/           # Workspace tools and upstream synchronization helpers
+│   ├── peanut-review/
+│   └── peanut-review-upstream
 ├── plans/           # Mandatory saved implementation plans for larger work
 ├── reviews/         # Saved PR and self-review outputs
 ├── .agents/         # Agent configuration
@@ -106,6 +110,22 @@ claude-workspace/
 
 4. **Start developing:**
    - Use Claude Code or Codex for AI-assisted development
+
+### peanut-review
+
+Use `skills/peanut-review/` for explicit multi-agent review sessions and
+`tools/peanut-review/bin/peanut-review` for the CLI. The imported tool and skill
+are ordinary tracked files rather than a submodule. Upstream provenance and
+synchronization instructions live in `tools/README.md`.
+
+Inside the interactive development container, start the web UI with:
+
+```bash
+tools/peanut-review/bin/peanut_review_serve.sh
+```
+
+The Docker launcher publishes it at `http://127.0.0.1:27183/pr` and stores
+sessions under `.cache/peanut-review/sessions` by default.
 
 ## Agent Workflow
 
