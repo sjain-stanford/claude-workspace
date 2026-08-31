@@ -1,0 +1,2645 @@
+// peanut-review web UI client.
+// Comments are rendered on initial page load; this script only handles new
+// comment creation, resolving, and periodic session-metadata refresh.
+
+(function () {
+  const sessionUrl = window.PR_SESSION_URL;  // set in index template
+  const sessionId = window.PR_SESSION_ID;
+  const THEME_KEY = "pr.theme";
+  const THEMES = [
+    { value: "system", label: "system" },
+    { value: "dark-plus", label: "Dark+" },
+    { value: "light", label: "light" },
+  ];
+  const COPY_SESSION_ICON = "▣";
+  let reviewTerminal = document.querySelector("header .review-progress")
+    ?.dataset.progressStatus === "done";
+  let knownCommentIds = new Set(window.PR_KNOWN_COMMENT_IDS || []);
+  if (!knownCommentIds.size) {
+    document.querySelectorAll(".comment[data-cid]").forEach((el) => {
+      if (el.dataset.cid) knownCommentIds.add(el.dataset.cid);
+    });
+  }
+
+  // --- Utilities ---
+  function esc(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+  function attrEsc(s) {
+    return esc(s).replace(/"/g, "&quot;");
+  }
+  function updateHeaderProgress(progress) {
+    const badge = document.querySelector("header .review-progress");
+    if (!badge) return;
+    const status = String(progress?.status || "pending");
+    badge.textContent = String(progress?.label || "no review agents");
+    badge.dataset.progressStatus = status;
+    for (const cls of Array.from(badge.classList)) {
+      if (cls.startsWith("progress-")) badge.classList.remove(cls);
+    }
+    badge.classList.add(`progress-${status}`);
+    reviewTerminal = status === "done";
+  }
+
+  function startPoll(task, delayForState) {
+    let timer = null;
+    let inFlight = false;
+    const schedule = (delay) => {
+      clearTimeout(timer);
+      timer = setTimeout(tick, delay);
+    };
+    const tick = async () => {
+      if (document.hidden) {
+        schedule(30000);
+        return;
+      }
+      if (!inFlight) {
+        inFlight = true;
+        try { await task(); }
+        finally { inFlight = false; }
+      }
+      schedule(delayForState());
+    };
+    document.addEventListener("visibilitychange", () => {
+      schedule(document.hidden ? 30000 : 0);
+    });
+    schedule(delayForState());
+  }
+  function themeConfig(value) {
+    return THEMES.find((t) => t.value === value) || THEMES[0];
+  }
+  function storedTheme() {
+    try {
+      return localStorage.getItem(THEME_KEY) || "system";
+    } catch {
+      return "system";
+    }
+  }
+  function applyTheme(value) {
+    const theme = themeConfig(value);
+    if (theme.value === "system") {
+      document.documentElement.removeAttribute("data-theme");
+    } else {
+      document.documentElement.dataset.theme = theme.value;
+    }
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      btn.textContent = `theme: ${theme.label}`;
+      btn.title = `Color theme: ${theme.label}`;
+      btn.dataset.theme = theme.value;
+    }
+  }
+  function setStoredTheme(value) {
+    const theme = themeConfig(value);
+    try {
+      if (theme.value === "system") localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, theme.value);
+    } catch { /* ignore */ }
+    applyTheme(theme.value);
+  }
+  function cycleTheme() {
+    const current = themeConfig(storedTheme()).value;
+    const idx = THEMES.findIndex((t) => t.value === current);
+    setStoredTheme(THEMES[(idx + 1) % THEMES.length].value);
+    updateStickyOffsets();
+  }
+  applyTheme(storedTheme());
+  document.getElementById("theme-toggle")?.addEventListener("click", cycleTheme);
+
+  function fallbackCopyText(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    ta.style.top = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      if (!document.execCommand("copy")) {
+        throw new Error("copy command failed");
+      }
+    } finally {
+      ta.remove();
+    }
+  }
+
+  async function copyTextToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch { /* fall back below */ }
+    }
+    fallbackCopyText(text);
+  }
+
+  async function copySessionId() {
+    const btn = document.getElementById("copy-session-id");
+    if (!btn) return;
+    const value = btn.dataset.sessionId || sessionId || "";
+    if (!value) return;
+    try {
+      await copyTextToClipboard(value);
+      btn.classList.add("copied");
+      btn.textContent = COPY_SESSION_ICON;
+      btn.title = "Session name copied";
+      flashToast("Session name copied", 1200);
+      setTimeout(() => {
+        btn.classList.remove("copied");
+        btn.textContent = COPY_SESSION_ICON;
+        btn.title = "Copy session name";
+      }, 1600);
+    } catch {
+      flashToast("Could not copy session name", 1800);
+    }
+  }
+  document.getElementById("copy-session-id")?.addEventListener("click", copySessionId);
+
+  function api(method, path, body) {
+    const opts = { method, headers: { "Content-Type": "application/json" } };
+    if (method === "GET") opts.cache = "no-cache";
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    return fetch(sessionUrl + path, opts).then((r) => {
+      if (!r.ok) return r.text().then((t) => { throw new Error(t); });
+      return r.json();
+    });
+  }
+
+  const pollEtags = new Map(Object.entries(window.PR_POLL_ETAGS || {}));
+  async function pollJson(path) {
+    const headers = {};
+    const etag = pollEtags.get(path);
+    if (etag) headers["If-None-Match"] = etag;
+    const response = await fetch(sessionUrl + path, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+    if (response.status === 304) return { changed: false, data: null };
+    if (!response.ok) throw new Error(await response.text());
+    const nextEtag = response.headers.get("ETag");
+    if (nextEtag) pollEtags.set(path, nextEtag);
+    return { changed: true, data: await response.json() };
+  }
+
+  function cssPxVar(name, fallback = 0) {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function updateStickyOffsets() {
+    const root = document.documentElement;
+    const header = document.querySelector("header");
+    const fileHeader = document.querySelector(".file-header");
+    if (header) {
+      root.style.setProperty(
+        "--sticky-app-header-height",
+        `${Math.ceil(header.getBoundingClientRect().height)}px`,
+      );
+    }
+    if (fileHeader) {
+      root.style.setProperty(
+        "--sticky-file-header-height",
+        `${Math.ceil(fileHeader.getBoundingClientRect().height)}px`,
+      );
+    }
+  }
+
+  function stickyTargetOffset() {
+    return (
+      cssPxVar("--sticky-app-header-height", 0) +
+      cssPxVar("--sticky-file-header-height", 0) +
+      12
+    );
+  }
+
+  updateStickyOffsets();
+  window.addEventListener("resize", updateStickyOffsets);
+  requestAnimationFrame(updateStickyOffsets);
+
+  // --- Rendering new comment form / thread ---
+  function rangeBadge(c) {
+    if (c.end_line == null || c.end_line === c.line) return "";
+    const lo = Math.min(c.line, c.end_line);
+    const hi = Math.max(c.line, c.end_line);
+    return `<span class="round range">L${lo}–L${hi}</span>`;
+  }
+
+  function relativeTimeLabel(timestamp) {
+    const then = new Date(timestamp);
+    const ms = Date.now() - then.getTime();
+    if (!Number.isFinite(ms)) return "";
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 45) return "just now";
+    if (seconds < 90) return "1 minute ago";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} minutes ago`;
+    if (minutes < 90) return "1 hour ago";
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    if (hours < 48) return "yesterday";
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days} days ago`;
+    const months = Math.max(1, Math.floor(days / 30));
+    if (days < 365) return `${months} month${months === 1 ? "" : "s"} ago`;
+    const years = Math.max(1, Math.floor(days / 365));
+    return `${years} year${years === 1 ? "" : "s"} ago`;
+  }
+
+  function timeTag(timestamp, extraClass) {
+    if (!timestamp) return "";
+    const label = relativeTimeLabel(timestamp);
+    if (!label) return "";
+    const ts = attrEsc(timestamp);
+    const cls = extraClass ? `comment-time ${extraClass}` : "comment-time";
+    return `<time class="${attrEsc(cls)}" datetime="${ts}" title="${ts}">${esc(label)}</time>`;
+  }
+
+  function commentTime(c) {
+    return timeTag(c.timestamp);
+  }
+
+  function activityTime(timestamp) {
+    return timeTag(timestamp, "ix-time");
+  }
+
+  function refreshRelativeTimes(root = document) {
+    root.querySelectorAll("time.comment-time[datetime]").forEach((el) => {
+      const label = relativeTimeLabel(el.getAttribute("datetime"));
+      if (label) el.textContent = label;
+    });
+  }
+
+  function editedBadge(c) {
+    if (!c.edited_at) return "";
+    const n = (c.versions || []).length;
+    let title = `edited by ${c.edited_by || "unknown"} at ${c.edited_at}`;
+    if (n) title += ` (${n} prior version${n === 1 ? "" : "s"})`;
+    return `<button class="edited-badge" type="button" data-history="${esc(c.id)}" title="${esc(title)}">edited</button>`;
+  }
+  function externalLink(c) {
+    if (!c.external_url) return "";
+    return `<a class="external-link" href="${esc(c.external_url)}" target="_blank" rel="noopener" title="View on GitHub">↗ gh</a>`;
+  }
+
+  function categoryBadge(c) {
+    if (!c.category || c.category === "comment") return "";
+    const label = c.category === "approve" ? "approved" : "blocking";
+    return `<span class="category ${esc(c.category)}">${esc(label)}</span>`;
+  }
+
+  function collapseSummary(replyCount) {
+    if (replyCount === 1) return "comment hidden, 1 reply hidden";
+    if (replyCount > 1) return `comment hidden, ${replyCount} replies hidden`;
+    return "comment hidden";
+  }
+
+  function collapseButton(c, isReply) {
+    if (isReply) return "";
+    const expanded = !c.resolved;
+    const label = expanded ? "Collapse thread" : "Expand thread";
+    const icon = expanded ? "▾" : "▸";
+    return `<button type="button" class="thread-collapse" data-thread-collapse="${esc(c.id)}" ` +
+      `aria-expanded="${expanded ? "true" : "false"}" title="${label}">` +
+      `<span aria-hidden="true">${icon}</span></button>`;
+  }
+
+  function renderComment(c, { isReply = false } = {}) {
+    const cls = ["comment"];
+    if (isReply) cls.push("reply");
+    if (c.stale) cls.push("stale");
+    if (c.resolved && !isReply) cls.push("resolved");
+    if (c.edited_at) cls.push("edited");
+    if (!isReply) cls.push("top-level");
+    const editBtn = `<button data-edit="${esc(c.id)}">Edit</button>`;
+    const deleteBtn = `<button class="danger" data-delete="${esc(c.id)}">Delete</button>`;
+    const sevHtml = isReply
+      ? ""
+      : `<span class="sev ${esc(c.severity)}">${esc(c.severity)}</span>`;
+    const resolvedBadge = c.resolved && !isReply ? '<span class="round resolved-badge">resolved</span>' : "";
+    return `
+      <div class="${cls.join(" ")}" data-cid="${esc(c.id)}">
+        <div class="comment-meta">
+          ${collapseButton(c, isReply)}
+          <span class="author">${esc(c.author || "unknown")}</span>
+          ${commentTime(c)}
+          ${sevHtml}
+          ${isReply ? "" : categoryBadge(c)}
+          ${rangeBadge(c)}
+          ${c.stale ? '<span class="round">stale</span>' : ""}
+          ${resolvedBadge}
+          ${editedBadge(c)}
+          ${externalLink(c)}
+          ${editBtn}
+          ${deleteBtn}
+        </div>
+        <div class="comment-body">${esc(c.body)}</div>
+      </div>
+    `;
+  }
+
+  function renderThreadActions(parentId, resolved, allowReply) {
+    const toggle = resolved
+      ? `<button data-unresolve="${esc(parentId)}">Unresolve</button>`
+      : `<button data-resolve="${esc(parentId)}">Resolve</button>`;
+    const reply = allowReply
+      ? `<button class="reply-btn" data-reply-to="${esc(parentId)}">Reply</button>`
+      : "";
+    return `<div class="thread-actions">
+      ${reply}
+      ${toggle}
+    </div>`;
+  }
+
+  refreshRelativeTimes();
+  setInterval(refreshRelativeTimes, 60000);
+
+  function renderThread(parent) {
+    // Initial render only — replies arrive via insertFetchedComment.
+    const cls = ["thread"];
+    if (parent.resolved) cls.push("resolved", "collapsed");
+    const defaultCollapsed = parent.resolved ? "1" : "0";
+    return `
+      <div class="${cls.join(" ")}" data-thread-id="${esc(parent.id)}" data-default-collapsed="${defaultCollapsed}">
+        ${renderComment(parent)}
+        <div class="thread-collapsed-summary" data-collapse-summary>${collapseSummary(0)}</div>
+        ${renderThreadActions(parent.id, parent.resolved, parent.file !== "")}
+      </div>
+    `;
+  }
+
+  const THREAD_COLLAPSE_KEY = `pr.thread-collapse.${sessionId || "unknown"}`;
+
+  function readThreadCollapsePrefs() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(THREAD_COLLAPSE_KEY) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeThreadCollapsePrefs(prefs) {
+    try {
+      localStorage.setItem(THREAD_COLLAPSE_KEY, JSON.stringify(prefs));
+    } catch {
+      // Ignore storage failures; collapsing still works for this page load.
+    }
+  }
+
+  function hasThreadCollapsePreference(threadId) {
+    return Object.prototype.hasOwnProperty.call(readThreadCollapsePrefs(), threadId);
+  }
+
+  function clearThreadCollapsePreference(threadId) {
+    const prefs = readThreadCollapsePrefs();
+    if (!Object.prototype.hasOwnProperty.call(prefs, threadId)) return;
+    delete prefs[threadId];
+    writeThreadCollapsePrefs(prefs);
+  }
+
+  function updateCollapseSummary(threadEl) {
+    if (!threadEl) return;
+    const summary = threadEl.querySelector("[data-collapse-summary]");
+    if (!summary) return;
+    summary.textContent = collapseSummary(threadEl.querySelectorAll(":scope > .comment.reply").length);
+  }
+
+  function setThreadCollapsed(threadEl, collapsed, { persist = true } = {}) {
+    if (!threadEl) return;
+    threadEl.classList.toggle("collapsed", collapsed);
+    updateCollapseSummary(threadEl);
+    const btn = threadEl.querySelector("[data-thread-collapse]");
+    if (btn) {
+      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      btn.title = collapsed ? "Expand thread" : "Collapse thread";
+      const icon = btn.querySelector("[aria-hidden='true']");
+      if (icon) icon.textContent = collapsed ? "▸" : "▾";
+    }
+    if (!persist) return;
+    const threadId = threadEl.dataset.threadId;
+    if (!threadId) return;
+    const prefs = readThreadCollapsePrefs();
+    prefs[threadId] = collapsed;
+    writeThreadCollapsePrefs(prefs);
+  }
+
+  function applyThreadCollapsePreferences(root = document) {
+    const prefs = readThreadCollapsePrefs();
+    const threads = [];
+    if (root.matches && root.matches(".thread[data-thread-id]")) threads.push(root);
+    root.querySelectorAll?.(".thread[data-thread-id]").forEach((el) => threads.push(el));
+    for (const threadEl of threads) {
+      const id = threadEl.dataset.threadId;
+      const collapsed = Object.prototype.hasOwnProperty.call(prefs, id)
+        ? !!prefs[id]
+        : threadEl.dataset.defaultCollapsed === "1";
+      setThreadCollapsed(threadEl, collapsed, { persist: false });
+    }
+  }
+
+  applyThreadCollapsePreferences();
+
+  function ensureThread(row, file, line) {
+    let thread = row.nextElementSibling;
+    if (thread && thread.classList.contains("comment-thread") &&
+        thread.dataset.file === file && thread.dataset.line === String(line)) {
+      return thread;
+    }
+    thread = document.createElement("div");
+    thread.className = "comment-thread";
+    thread.dataset.file = file;
+    thread.dataset.line = String(line);
+    row.insertAdjacentElement("afterend", thread);
+    return thread;
+  }
+
+  function openForm(file, startLine, startRow, endLine, endRow) {
+    // Normalize [startLine, endLine] → [lo, hi]. Thread always anchors at hi,
+    // which matches render.py's _group_comments and GitHub's UX regardless of
+    // drag direction.
+    let lo, hi, anchorRow;
+    if (endLine == null) {
+      lo = hi = startLine;
+      anchorRow = startRow;
+    } else {
+      lo = Math.min(startLine, endLine);
+      hi = Math.max(startLine, endLine);
+      anchorRow = hi === startLine ? startRow : endRow;
+    }
+    const isRange = lo !== hi;
+    const label = isRange ? `${file}:${lo}–${hi}` : `${file}:${lo}`;
+
+    const thread = ensureThread(anchorRow, file, hi);
+    if (thread.querySelector(".new-comment")) return;  // already open
+
+    // Persist the highlight while the form is open; removed on cancel/submit.
+    const highlighted = highlightRange(file, lo, hi);
+
+    const form = document.createElement("div");
+    form.className = "new-comment";
+    form.innerHTML = `
+      <textarea placeholder="Review comment for ${esc(label)}..."></textarea>
+      <div class="controls">
+        <button class="cancel">Cancel</button>
+        <button class="suggest" title="Insert a code suggestion block for the selected lines">Suggest change</button>
+        <select class="sev">
+          <option value="suggestion">suggestion</option>
+          <option value="warning">warning</option>
+          <option value="critical">critical</option>
+          <option value="nit">nit</option>
+          <option value="feedback" title="Non-actionable: question, FYI, or praise">feedback</option>
+        </select>
+        <button class="submit">Post</button>
+      </div>
+    `;
+    thread.appendChild(form);
+    const ta = form.querySelector("textarea");
+    ta.focus();
+
+    form.querySelector(".suggest").onclick = () => {
+      insertSuggestionBlock(ta, file, lo, hi);
+      form.querySelector(".sev").value = "suggestion";
+    };
+
+    const cleanup = () => clearRangeHighlight(highlighted);
+    const removeFormAndEmptyThread = () => {
+      form.remove();
+      // If the thread is now empty (no comments, no other form), drop it so
+      // we don't leave a blank row between code lines.
+      if (!thread.querySelector(".comment") && !thread.querySelector(".new-comment")) {
+        thread.remove();
+      }
+    };
+    form.querySelector(".cancel").onclick = () => { cleanup(); removeFormAndEmptyThread(); };
+    form.querySelector(".submit").onclick = async () => {
+      const body = form.querySelector("textarea").value.trim();
+      if (!body) return;
+      const severity = form.querySelector(".sev").value;
+      const payload = { file, line: lo, body, severity };
+      if (isRange) payload.end_line = hi;
+      try {
+        const c = await api("POST", "/api/comments", payload);
+        insertFetchedComment(c);
+        knownCommentIds.add(c.id);
+        cleanup();
+        form.remove();
+      } catch (e) {
+        alert("Post failed: " + e.message);
+      }
+    };
+  }
+
+  // --- Reply form (opens at thread bottom, posts with reply_to) ---
+  function openReplyForm(threadEl, parentId) {
+    if (threadEl.querySelector(".new-comment")) return;
+    const actions = threadEl.querySelector(".thread-actions");
+    const form = document.createElement("div");
+    form.className = "new-comment reply-form";
+    form.innerHTML = `
+      <textarea placeholder="Reply..."></textarea>
+      <div class="controls">
+        <button class="cancel">Cancel</button>
+        <button class="submit">Reply</button>
+      </div>
+    `;
+    if (actions) threadEl.insertBefore(form, actions);
+    else threadEl.appendChild(form);
+    form.querySelector("textarea").focus();
+    form.querySelector(".cancel").onclick = () => form.remove();
+    form.querySelector(".submit").onclick = async () => {
+      const body = form.querySelector("textarea").value.trim();
+      if (!body) return;
+      try {
+        const c = await api("POST", "/api/comments",
+                            { reply_to: parentId, body });
+        insertFetchedComment(c);
+        knownCommentIds.add(c.id);
+        form.remove();
+      } catch (e) {
+        alert("Reply failed: " + e.message);
+      }
+    };
+  }
+
+  // --- Range selection via click-and-drag on gutter line numbers ---
+  // Mousedown on .ln starts a drag; mousemove extends the end anchor to any
+  // .ln under the cursor (same file only); mouseup opens the form. A plain
+  // click (mousedown + mouseup on the same line) produces a single-line form,
+  // preserving the prior click-to-comment behaviour.
+  let drag = null;  // { file, startLine, startRow, endLine, endRow, highlighted }
+
+  function lineElsBetween(file, lo, hi) {
+    const fileEl = document.querySelector(`.file[data-file="${cssEsc(file)}"]`);
+    if (!fileEl) return [];
+    if (lo === hi) {
+      const row = rowForNewLine(fileEl, lo);
+      return row ? [row] : [];
+    }
+    const out = [];
+    for (const el of fileEl.querySelectorAll(".line[data-new-line]")) {
+      const n = Number(el.dataset.newLine);
+      if (Number.isInteger(n) && n >= lo && n <= hi) out.push(el);
+    }
+    return out;
+  }
+
+  function cssEsc(s) {
+    // Minimal attribute-selector escape for paths — double quotes and backslashes only.
+    return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  function highlightRange(file, lo, hi) {
+    const els = lineElsBetween(file, lo, hi);
+    for (const el of els) el.classList.add("range-selected");
+    return els;
+  }
+
+  function clearRangeHighlight(els) {
+    if (!els) return;
+    for (const el of els) el.classList.remove("range-selected");
+  }
+
+  // Build a GitHub-compatible ```suggestion block from the new-side text of
+  // [lo, hi] in `file`. Deleted lines must be excluded — a suggestion
+  // replaces the *current* state of the file, and on GitHub that's the new
+  // (right) side of the diff. lineElsBetween can pick up deleted rows by
+  // coincidental old_lineno overlap (render.py sets data-line=old_lineno on
+  // the new-gutter cell of deleted rows), so filter them here.
+  function insertSuggestionBlock(ta, file, lo, hi) {
+    const els = lineElsBetween(file, lo, hi).filter(
+      (el) => !el.classList.contains("deleted")
+    );
+    const lines = els.map((el) => {
+      const c = el.querySelector(".content");
+      return c ? c.textContent : "";
+    });
+    const block = "```suggestion\n" + lines.join("\n") + "\n```";
+    const cur = ta.value;
+    const sep = cur ? (cur.endsWith("\n") ? "\n" : "\n\n") : "";
+    const insertAt = cur.length + sep.length;
+    ta.value = cur + sep + block;
+    // Select the suggested lines so the user can immediately edit/replace them.
+    const contentStart = insertAt + "```suggestion\n".length;
+    const contentEnd = contentStart + lines.join("\n").length;
+    ta.focus();
+    ta.setSelectionRange(contentStart, contentEnd);
+  }
+
+  function lnInfo(target) {
+    const ln = target.closest(".ln");
+    if (!ln || !ln.dataset.line) return null;
+    const row = ln.parentElement;
+    const fileEl = ln.closest(".file");
+    if (!fileEl) return null;
+    return {
+      file: fileEl.dataset.file,
+      line: Number(ln.dataset.line),
+      row,
+    };
+  }
+
+  document.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;  // left button only
+    const info = lnInfo(ev.target);
+    if (!info) return;
+    ev.preventDefault();  // suppress text selection during drag
+    document.body.classList.add("gutter-drag");
+    drag = {
+      file: info.file,
+      startLine: info.line,
+      startRow: info.row,
+      endLine: info.line,
+      endRow: info.row,
+      highlighted: highlightRange(info.file, info.line, info.line),
+    };
+  });
+
+  document.addEventListener("mousemove", (ev) => {
+    if (!drag) return;
+    const info = lnInfo(ev.target);
+    if (!info || info.file !== drag.file) return;  // ignore cross-file drags
+    if (info.line === drag.endLine) return;
+    clearRangeHighlight(drag.highlighted);
+    drag.endLine = info.line;
+    drag.endRow = info.row;
+    const lo = Math.min(drag.startLine, drag.endLine);
+    const hi = Math.max(drag.startLine, drag.endLine);
+    drag.highlighted = highlightRange(drag.file, lo, hi);
+  });
+
+  document.addEventListener("mouseup", (ev) => {
+    if (!drag) return;
+    document.body.classList.remove("gutter-drag");
+    // Clear the drag highlight — openForm re-applies it for the form's lifetime.
+    clearRangeHighlight(drag.highlighted);
+    const { file, startLine, endLine, startRow, endRow } = drag;
+    drag = null;
+    if (!file) return;
+    if (startLine === endLine) {
+      openForm(file, startLine, startRow);
+    } else {
+      openForm(file, startLine, startRow, endLine, endRow);
+    }
+  });
+
+  // --- Global ("high-level") comment composer ---
+  function openGlobalForm() {
+    const container = document.getElementById("global-comments");
+    if (!container) return;
+    if (container.querySelector(".new-comment")) return;  // already open
+
+    const form = document.createElement("div");
+    form.className = "new-comment";
+    form.innerHTML = `
+      <textarea placeholder="High-level feedback (architecture, scope, testing strategy, etc.)..."></textarea>
+      <div class="controls">
+        <button class="cancel">Cancel</button>
+        <select class="sev">
+          <option value="suggestion">suggestion</option>
+          <option value="warning">warning</option>
+          <option value="critical">critical</option>
+          <option value="nit">nit</option>
+          <option value="feedback" title="Non-actionable: question, FYI, or praise">feedback</option>
+        </select>
+        <select class="category" title="GitHub review category">
+          <option value="comment">comment</option>
+          <option value="approve">approve</option>
+          <option value="request-changes">blocking</option>
+        </select>
+        <button class="submit">Post</button>
+      </div>
+    `;
+    container.appendChild(form);
+    form.querySelector("textarea").focus();
+
+    form.querySelector(".cancel").onclick = () => { form.remove(); };
+    form.querySelector(".submit").onclick = async () => {
+      const body = form.querySelector("textarea").value.trim();
+      if (!body) return;
+      const severity = form.querySelector(".sev").value;
+      const category = form.querySelector(".category")?.value || "comment";
+      try {
+        const c = await api("POST", "/api/comments",
+                            { scope: "global", body, severity, category });
+        insertFetchedComment(c);
+        knownCommentIds.add(c.id);
+        form.remove();
+      } catch (e) {
+        alert("Post failed: " + e.message);
+      }
+    };
+  }
+
+  function setThreadResolved(threadEl, resolved, { resetCollapsePreference = false } = {}) {
+    if (!threadEl) return;
+    threadEl.classList.toggle("resolved", resolved);
+    threadEl.dataset.defaultCollapsed = resolved ? "1" : "0";
+    const parent = threadEl.querySelector(".comment:not(.reply)");
+    if (parent) parent.classList.toggle("resolved", resolved);
+    // Swap the action button: Resolve <-> Unresolve.
+    const actions = threadEl.querySelector(".thread-actions");
+    if (actions) {
+      const tid = threadEl.dataset.threadId;
+      const old = actions.querySelector("[data-resolve], [data-unresolve]");
+      if (old) {
+        const repl = document.createElement("button");
+        if (resolved) {
+          repl.dataset.unresolve = tid;
+          repl.textContent = "Unresolve";
+        } else {
+          repl.dataset.resolve = tid;
+          repl.textContent = "Resolve";
+        }
+        old.replaceWith(repl);
+      }
+    }
+    // Toggle the resolved badge on the parent comment-meta.
+    if (parent) {
+      const meta = parent.querySelector(".comment-meta");
+      const badge = meta && meta.querySelector(".round.resolved-badge");
+      if (resolved && !badge && meta) {
+        const span = document.createElement("span");
+        span.className = "round resolved-badge";
+        span.textContent = "resolved";
+        meta.insertBefore(span, meta.querySelector("button"));
+      }
+      if (!resolved && badge) badge.remove();
+    }
+    const tid = threadEl.dataset.threadId;
+    if (tid && resetCollapsePreference) clearThreadCollapsePreference(tid);
+    if (resetCollapsePreference || !tid || !hasThreadCollapsePreference(tid)) {
+      setThreadCollapsed(threadEl, resolved, { persist: false });
+    } else {
+      updateCollapseSummary(threadEl);
+    }
+  }
+
+  const MAX_FOLD_EXPAND_LINES = 100;
+  let dynamicFoldId = 0;
+
+  function renderExpandedFoldLine(line) {
+    const kind = ["context", "added", "deleted"].includes(line.kind)
+      ? line.kind
+      : "context";
+    const row = document.createElement("div");
+    row.className = `line ${kind}`;
+
+    const oldLn = document.createElement("span");
+    oldLn.className = "ln old";
+    oldLn.textContent = line.old_lineno == null ? "" : String(line.old_lineno);
+    if (line.old_lineno != null) row.dataset.oldLine = String(line.old_lineno);
+
+    const newLn = document.createElement("span");
+    newLn.className = "ln new";
+    newLn.textContent = line.new_lineno == null ? "" : String(line.new_lineno);
+    const dataLine = line.new_lineno == null ? line.old_lineno : line.new_lineno;
+    if (dataLine != null) newLn.dataset.line = String(dataLine);
+    if (line.new_lineno != null) row.dataset.newLine = String(line.new_lineno);
+
+    const content = document.createElement("span");
+    content.className = "content";
+    content.textContent = line.content || "";
+
+    row.append(oldLn, newLn, content);
+    return row;
+  }
+
+  function numberedBounds(lines, field) {
+    const nums = lines
+      .map((line) => line[field])
+      .filter((n) => Number.isInteger(n));
+    if (!nums.length) return [null, null];
+    return [nums[0], nums[nums.length - 1]];
+  }
+
+  function lineSpanLabel(start, end) {
+    if (start == null || end == null) return "";
+    return start === end ? String(start) : `${start}-${end}`;
+  }
+
+  function foldLabel(count, kind = "unchanged") {
+    return `${count} ${kind} line${count === 1 ? "" : "s"} hidden`;
+  }
+
+  function updateFoldGapMetadata(gap, lines, { file = "", startIndex = null } = {}) {
+    const count = lines.length;
+    const kinds = new Set(lines.map((line) => line.kind || "context"));
+    let kind = "diff";
+    if (kinds.size === 1 && kinds.has("context")) kind = "unchanged";
+    else if (kinds.size === 1 && kinds.has("added")) kind = "added";
+    else if (kinds.size === 1 && kinds.has("deleted")) kind = "deleted";
+    const label = foldLabel(count, kind);
+    const [oldStart, oldEnd] = numberedBounds(lines, "old_lineno");
+    const [newStart, newEnd] = numberedBounds(lines, "new_lineno");
+    gap.dataset.foldedLines = String(count);
+    if (file) gap.dataset.foldFile = file;
+    if (Number.isInteger(startIndex)) {
+      gap.dataset.foldStartIndex = String(startIndex);
+      gap.dataset.foldEndIndex = String(startIndex + count);
+    }
+    const attrs = [
+      ["foldOldStart", oldStart],
+      ["foldOldEnd", oldEnd],
+      ["foldNewStart", newStart],
+      ["foldNewEnd", newEnd],
+    ];
+    for (const [name, value] of attrs) {
+      if (value == null) delete gap.dataset[name];
+      else gap.dataset[name] = String(value);
+    }
+    const titleParts = [label];
+    const oldSpan = lineSpanLabel(oldStart, oldEnd);
+    const newSpan = lineSpanLabel(newStart, newEnd);
+    if (oldSpan) titleParts.push(`old ${oldSpan}`);
+    if (newSpan) titleParts.push(`new ${newSpan}`);
+    gap.title = titleParts.join(" | ");
+    const countEl = gap.querySelector(".fold-count");
+    if (countEl) countEl.textContent = label;
+  }
+
+  function createFoldGapBase(foldId) {
+    const gap = document.createElement("div");
+    gap.className = "line fold-gap";
+
+    const oldMarker = document.createElement("span");
+    oldMarker.className = "ln old fold-marker";
+    oldMarker.textContent = "...";
+
+    const newMarker = document.createElement("span");
+    newMarker.className = "ln new fold-marker";
+    newMarker.textContent = "...";
+
+    const content = document.createElement("span");
+    content.className = "content fold-summary";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "fold-toggle";
+    button.dataset.foldExpand = foldId;
+    button.textContent = "Expand";
+
+    const count = document.createElement("span");
+    count.className = "fold-count";
+
+    content.append(button, count);
+    gap.append(oldMarker, newMarker, content);
+    return gap;
+  }
+
+  function createFoldGapNodes(foldId, lines, options = {}) {
+    const gap = createFoldGapBase(foldId);
+    updateFoldGapMetadata(gap, lines, options);
+
+    const payload = document.createElement("script");
+    payload.type = "application/json";
+    payload.id = `fold-data-${foldId}`;
+    payload.className = "fold-payload";
+    payload.textContent = JSON.stringify(lines);
+    return [gap, payload];
+  }
+
+  function appendFoldGap(fragment, baseId, label, lines, options = {}) {
+    if (!lines.length) return;
+    const foldId = `${baseId}-${label}-${dynamicFoldId++}`;
+    const [gap, payload] = createFoldGapNodes(foldId, lines, options);
+    fragment.append(gap, payload);
+  }
+
+  function appendLazyFoldGap(fragment, baseId, label, options) {
+    const start = Number(options.startIndex);
+    const end = Number(options.endIndex);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start) return;
+    const foldId = `${baseId}-${label}-${dynamicFoldId++}`;
+    const gap = createFoldGapBase(foldId);
+    gap.dataset.foldFile = options.file || "";
+    gap.dataset.foldStartIndex = String(start);
+    gap.dataset.foldEndIndex = String(end);
+    gap.dataset.foldedLines = String(end - start);
+    gap.title = foldLabel(end - start, "diff");
+    const countEl = gap.querySelector(".fold-count");
+    if (countEl) countEl.textContent = gap.title;
+    fragment.append(gap);
+  }
+
+  function chunkStartForFold(lines, lineNo) {
+    if (lineNo == null) return 0;
+    const idx = lines.findIndex((line) => line.new_lineno === lineNo);
+    if (idx < 0) return 0;
+    const halfWindow = Math.floor(MAX_FOLD_EXPAND_LINES / 2);
+    return Math.max(
+      0,
+      Math.min(idx - halfWindow, Math.max(0, lines.length - MAX_FOLD_EXPAND_LINES)),
+    );
+  }
+
+  function foldIndex(gap, name) {
+    const value = Number(gap?.dataset?.[name]);
+    return Number.isInteger(value) ? value : null;
+  }
+
+  function foldFile(gap) {
+    return gap?.dataset?.foldFile || gap?.closest(".file")?.dataset?.file || "";
+  }
+
+  async function fetchFoldLines(gap, start, end) {
+    const file = foldFile(gap);
+    if (!file) throw new Error("fold is missing file metadata");
+    const params = new URLSearchParams({
+      file,
+      start: String(start),
+      end: String(end),
+    });
+    return api("GET", `/api/diff/fold?${params.toString()}`);
+  }
+
+  async function expandLazyFoldGap(gap, { lineNo = null } = {}) {
+    const start = foldIndex(gap, "foldStartIndex");
+    const end = foldIndex(gap, "foldEndIndex");
+    if (start == null || end == null || end <= start) return false;
+    const button = gap.querySelector("[data-fold-expand]");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Loading";
+    }
+
+    let fetchStart = start;
+    const newStart = Number(gap.dataset.foldNewStart);
+    const newEnd = Number(gap.dataset.foldNewEnd);
+    if (lineNo != null && Number.isFinite(newStart) && Number.isFinite(newEnd)) {
+      const lo = Math.min(newStart, newEnd);
+      const hi = Math.max(newStart, newEnd);
+      if (lineNo >= lo && lineNo <= hi) {
+        const approxOffset = Math.max(0, Math.min(lineNo - lo, end - start));
+        fetchStart = Math.max(
+          start,
+          Math.min(
+            start + approxOffset - Math.floor(MAX_FOLD_EXPAND_LINES / 2),
+            Math.max(start, end - MAX_FOLD_EXPAND_LINES),
+          ),
+        );
+      }
+    }
+    const fetchEnd = Math.min(end, fetchStart + MAX_FOLD_EXPAND_LINES);
+    const data = await fetchFoldLines(gap, fetchStart, fetchEnd);
+    const lines = data.lines || [];
+    const baseId = gap.querySelector("[data-fold-expand]")?.dataset.foldExpand || "fold";
+    const frag = document.createDocumentFragment();
+    appendLazyFoldGap(frag, baseId, "before", {
+      file: foldFile(gap),
+      startIndex: start,
+      endIndex: fetchStart,
+    });
+    for (const line of lines) frag.appendChild(renderExpandedFoldLine(line));
+    appendLazyFoldGap(frag, baseId, "after", {
+      file: foldFile(gap),
+      startIndex: fetchStart + lines.length,
+      endIndex: end,
+    });
+    gap.before(frag);
+    gap.remove();
+    updateStickyOffsets();
+    return true;
+  }
+
+  function expandFoldGap(gap, { lineNo = null, allowFetch = true } = {}) {
+    if (!gap) return false;
+    const btn = gap.querySelector("[data-fold-expand]");
+    const foldId = btn && btn.dataset.foldExpand;
+    if (!foldId) return false;
+    const payload = document.getElementById(`fold-data-${foldId}`);
+    if (!payload) {
+      if (!allowFetch) return false;
+      expandLazyFoldGap(gap, { lineNo }).catch((e) => {
+        const retry = gap.querySelector("[data-fold-expand]");
+        if (retry) {
+          retry.disabled = false;
+          retry.textContent = "Expand";
+        }
+        alert("Could not load folded lines: " + e.message);
+      });
+      return true;
+    }
+    let lines;
+    try {
+      lines = JSON.parse(payload.textContent || "[]");
+    } catch {
+      return false;
+    }
+    const chunkStart = chunkStartForFold(lines, lineNo);
+    const chunkEnd = Math.min(lines.length, chunkStart + MAX_FOLD_EXPAND_LINES);
+    const before = lines.slice(0, chunkStart);
+    const chunk = lines.slice(chunkStart, chunkEnd);
+    const after = lines.slice(chunkEnd);
+    const frag = document.createDocumentFragment();
+    const file = foldFile(gap);
+    const startIndex = foldIndex(gap, "foldStartIndex") || 0;
+    appendFoldGap(frag, foldId, "before", before, {
+      file,
+      startIndex,
+    });
+    for (const line of chunk) frag.appendChild(renderExpandedFoldLine(line));
+    appendFoldGap(frag, foldId, "after", after, {
+      file,
+      startIndex: startIndex + chunkEnd,
+    });
+    gap.before(frag);
+    payload.remove();
+    gap.remove();
+    updateStickyOffsets();
+    return true;
+  }
+
+  function expandFoldGapContainingLine(fileEl, lineNo) {
+    for (const gap of fileEl.querySelectorAll(".fold-gap")) {
+      const start = Number(gap.dataset.foldNewStart);
+      const end = Number(gap.dataset.foldNewEnd);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      if (lineNo >= Math.min(start, end) && lineNo <= Math.max(start, end)) {
+        return expandFoldGap(gap, { lineNo, allowFetch: false });
+      }
+    }
+    return false;
+  }
+
+  // Edit + history. Edit replaces the comment-body with a textarea + Save/Cancel.
+  // History toggles a panel under the comment showing prior versions inline.
+  function applyEditedComment(node, c) {
+    const body = node.querySelector(".comment-body");
+    if (body) body.textContent = c.body || "";
+    if (c.edited_at) node.classList.add("edited");
+    const meta = node.querySelector(".comment-meta");
+    if (!meta) return;
+    let badge = meta.querySelector(".edited-badge");
+    const n = (c.versions || []).length;
+    let title = `edited by ${c.edited_by || "unknown"} at ${c.edited_at}`;
+    if (n) title += ` (${n} prior version${n === 1 ? "" : "s"})`;
+    if (!badge) {
+      badge = document.createElement("button");
+      badge.type = "button";
+      badge.className = "edited-badge";
+      badge.dataset.history = c.id;
+      badge.textContent = "edited";
+      const editBtn = meta.querySelector("[data-edit]");
+      meta.insertBefore(badge, editBtn || meta.lastElementChild);
+    }
+    badge.title = title;
+    badge.dataset.history = c.id;
+    // Stash latest payload on the node so toggleHistory can render without
+    // hitting the network — the JSON came back from the POST already.
+    node.__prComment = c;
+    // Refresh any open history panel.
+    const panel = node.querySelector(".version-history");
+    if (panel) {
+      panel.remove();
+      toggleHistory(node, c.id);
+    }
+  }
+
+  function fitEditTextarea(ta, minHeight = 0) {
+    const floor = Math.max(70, Math.ceil(minHeight));
+    ta.style.minHeight = `${floor}px`;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.max(floor, ta.scrollHeight)}px`;
+  }
+
+  function openEditForm(node, cid) {
+    if (node.querySelector(".edit-form")) return;  // already editing
+    const body = node.querySelector(".comment-body");
+    if (!body) return;
+    const current = body.textContent || "";
+    const bodyHeight = body.getBoundingClientRect().height;
+    const form = document.createElement("form");
+    form.className = "edit-form";
+    form.innerHTML = `
+      <textarea rows="4">${esc(current)}</textarea>
+      <div class="edit-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel">Cancel</button>
+      </div>
+    `;
+    body.style.display = "none";
+    body.insertAdjacentElement("afterend", form);
+    const ta = form.querySelector("textarea");
+    fitEditTextarea(ta, bodyHeight);
+    ta.addEventListener("input", () => fitEditTextarea(ta, bodyHeight));
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    form.querySelector(".cancel").addEventListener("click", () => {
+      form.remove();
+      body.style.display = "";
+    });
+    form.addEventListener("submit", async (sev) => {
+      sev.preventDefault();
+      const newBody = ta.value;
+      if (newBody === current) {
+        form.remove();
+        body.style.display = "";
+        return;
+      }
+      try {
+        const c = await api("POST", "/api/edit", { comment_id: cid, body: newBody });
+        form.remove();
+        body.style.display = "";
+        applyEditedComment(node, c);
+      } catch (e) {
+        alert("Edit failed: " + e.message);
+      }
+    });
+  }
+
+  async function toggleHistory(node, cid) {
+    const existing = node.querySelector(".version-history");
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    let c = node.__prComment;
+    if (!c || c.id !== cid) {
+      try {
+        const list = await api("GET", "/api/comments?include_deleted=1");
+        c = list.find((x) => x.id === cid);
+        if (!c) return;
+        node.__prComment = c;
+      } catch (e) {
+        alert("Could not load history: " + e.message);
+        return;
+      }
+    }
+    const panel = document.createElement("div");
+    panel.className = "version-history";
+    const versions = c.versions || [];
+    const items = versions.map((v, i) => {
+      const ver = i + 1;
+      const who = v.edited_by ? esc(v.edited_by) : "original";
+      const when = v.edited_at ? ` at ${esc(v.edited_at)}` : "";
+      return `<li><div class="vh-meta">v${ver} (${who}${when})</div><pre>${esc(v.body || "")}</pre></li>`;
+    }).join("");
+    const currentVer = versions.length + 1;
+    const curWho = c.edited_by ? esc(c.edited_by) : "current";
+    const curWhen = c.edited_at ? ` at ${esc(c.edited_at)}` : "";
+    panel.innerHTML = `<ol>${items}<li class="current"><div class="vh-meta">v${currentVer} (${curWho}${curWhen}, current)</div><pre>${esc(c.body || "")}</pre></li></ol>`;
+    node.appendChild(panel);
+  }
+
+  // Resolve / Unresolve / Delete / Reply — plain-click handlers, no drag involvement.
+  document.addEventListener("click", (ev) => {
+    if (ev.target.id === "add-global-btn") {
+      openGlobalForm();
+      return;
+    }
+    const foldBtn = ev.target.closest("[data-fold-expand]");
+    if (foldBtn) {
+      expandFoldGap(foldBtn.closest(".fold-gap"));
+      return;
+    }
+    const collapseBtn = ev.target.closest("[data-thread-collapse]");
+    if (collapseBtn) {
+      const threadEl = collapseBtn.closest(".thread");
+      if (threadEl) setThreadCollapsed(threadEl, !threadEl.classList.contains("collapsed"));
+      return;
+    }
+    const rb = ev.target.closest("[data-resolve]");
+    if (rb) {
+      const cid = rb.dataset.resolve;
+      api("POST", "/api/resolve", { comment_id: cid }).then(() => {
+        setThreadResolved(rb.closest(".thread"), true, { resetCollapsePreference: true });
+      }).catch((e) => alert("Resolve failed: " + e.message));
+      return;
+    }
+    const ub = ev.target.closest("[data-unresolve]");
+    if (ub) {
+      const cid = ub.dataset.unresolve;
+      api("POST", "/api/unresolve", { comment_id: cid }).then(() => {
+        setThreadResolved(ub.closest(".thread"), false, { resetCollapsePreference: true });
+      }).catch((e) => alert("Unresolve failed: " + e.message));
+      return;
+    }
+    const replyBtn = ev.target.closest("[data-reply-to]");
+    if (replyBtn) {
+      const pid = replyBtn.dataset.replyTo;
+      const threadEl = replyBtn.closest(".thread");
+      if (threadEl) {
+        if (threadEl.classList.contains("collapsed")) {
+          setThreadCollapsed(threadEl, false);
+        }
+        openReplyForm(threadEl, pid);
+      }
+      return;
+    }
+    const eb = ev.target.closest("[data-edit]");
+    if (eb) {
+      const cid = eb.dataset.edit;
+      const node = eb.closest(".comment");
+      if (node) {
+        const threadEl = node.closest(".thread");
+        if (threadEl && threadEl.classList.contains("collapsed")) {
+          setThreadCollapsed(threadEl, false);
+        }
+        openEditForm(node, cid);
+      }
+      return;
+    }
+    const hb = ev.target.closest("[data-history]");
+    if (hb) {
+      const cid = hb.dataset.history;
+      const node = hb.closest(".comment");
+      if (node) {
+        const threadEl = node.closest(".thread");
+        if (threadEl && threadEl.classList.contains("collapsed")) {
+          setThreadCollapsed(threadEl, false);
+        }
+        toggleHistory(node, cid);
+      }
+      return;
+    }
+    const db = ev.target.closest("[data-delete]");
+    if (db) {
+      const cid = db.dataset.delete;
+      if (!confirm("Delete this comment? It's a soft-delete — the record is kept but hidden from agents and the default view.")) return;
+      api("POST", "/api/delete", { comment_id: cid }).then(() => {
+        const node = db.closest(".comment");
+        const threadEl = node && node.closest(".thread");
+        const anchor = node && node.closest(".comment-thread");
+        if (node) node.remove();
+        if (threadEl) updateCollapseSummary(threadEl);
+        // If we removed the parent comment, drop the entire thread block.
+        // If the thread block still has comments (replies remain after a top-
+        // level delete is impossible because the parent went, so this branch
+        // only applies to reply deletes), keep the actions intact.
+        if (threadEl && !threadEl.querySelector(".comment")) threadEl.remove();
+        // If the per-line .comment-thread anchor has no surviving threads or
+        // forms, drop it so the gap between code lines closes.
+        if (anchor && !anchor.querySelector(".comment") &&
+            !anchor.querySelector(".new-comment")) {
+          anchor.remove();
+        }
+      }).catch((e) => alert("Delete failed: " + e.message));
+    }
+  });
+
+  // --- Live comment merge ---
+  // Poll the server for the current (non-deleted) comment set and reconcile
+  // against the DOM: insert new ones, remove vanished ones, reflect resolved
+  // state changes. Meant to run while agents are posting during a review.
+
+  function rowForNewLine(fileEl, lineNo) {
+    return fileEl.querySelector(`.line[data-new-line="${lineNo}"]`);
+  }
+
+  function findRowForAnchor(fileEl, lineNo) {
+    // Match the `.ln.new` (right-gutter) cell that carries the new-file line
+    // number, same axis threads are keyed on server-side.
+    const row = rowForNewLine(fileEl, lineNo);
+    if (row) return row;
+    if (expandFoldGapContainingLine(fileEl, lineNo)) {
+      return rowForNewLine(fileEl, lineNo);
+    }
+    return null;
+  }
+
+  function anchorLineFor(c) {
+    return (c.end_line != null && c.end_line !== c.line) ? c.end_line : c.line;
+  }
+
+  function findThreadEl(parentId) {
+    return document.querySelector(`.thread[data-thread-id="${cssEsc(parentId)}"]`);
+  }
+
+  function insertReplyIntoThread(threadEl, c) {
+    const rendered = document.createElement("div");
+    rendered.innerHTML = renderComment(c, { isReply: true });
+    const node = rendered.firstElementChild;
+    // Replies sit between the existing replies and the thread-actions; if a
+    // reply form is open, drop the reply just above it so the user's
+    // in-progress composition stays at the bottom.
+    const form = threadEl.querySelector(".new-comment");
+    if (form) threadEl.insertBefore(node, form);
+    else {
+      const actions = threadEl.querySelector(".thread-actions");
+      if (actions) threadEl.insertBefore(node, actions);
+      else threadEl.appendChild(node);
+    }
+    updateCollapseSummary(threadEl);
+  }
+
+  function insertFetchedComment(c) {
+    // A local POST and the background poll can observe the same new comment
+    // in either order. Keep insertion idempotent so that race cannot create a
+    // second DOM copy of one stored record.
+    if (!c?.id || document.querySelector(
+      `.comment[data-cid="${cssEsc(c.id)}"]`,
+    )) return;
+    if (c.reply_to) {
+      const threadEl = findThreadEl(c.reply_to);
+      if (threadEl) insertReplyIntoThread(threadEl, c);
+      return;
+    }
+    // Top-level comment — render as a new .thread block in the appropriate
+    // container.
+    const newThread = document.createElement("div");
+    newThread.innerHTML = renderThread(c);
+    const threadEl = newThread.firstElementChild;
+    applyThreadCollapsePreferences(threadEl);
+    if (!c.file) {
+      const container = document.getElementById("global-comments");
+      if (!container) return;
+      const composer = container.querySelector(".new-comment");
+      if (composer) container.insertBefore(threadEl, composer);
+      else container.appendChild(threadEl);
+      return;
+    }
+    const fileEl = document.querySelector(`.file[data-file="${cssEsc(c.file)}"]`);
+    if (!fileEl) return;
+    const anchor = anchorLineFor(c);
+    const row = findRowForAnchor(fileEl, anchor);
+    if (!row) return;
+    const anchorContainer = ensureThread(row, c.file, anchor);
+    const composer = anchorContainer.querySelector(":scope > .new-comment");
+    if (composer) anchorContainer.insertBefore(threadEl, composer);
+    else anchorContainer.appendChild(threadEl);
+  }
+
+  function pickScrollAnchor() {
+    // Topmost element still (partially) on-screen. Prefer `.file` headers
+    // because they don't move around as comments insert, but fall back to
+    // any visible `.line` so a reviewer mid-scroll inside one file stays
+    // pinned to that exact line.
+    const candidates = document.querySelectorAll(".file, .line, .comment");
+    for (const el of candidates) {
+      const r = el.getBoundingClientRect();
+      if (r.bottom > 0 && r.top < window.innerHeight) {
+        return { el, top: r.top };
+      }
+    }
+    return null;
+  }
+
+  function withStableScroll(mutate) {
+    const anchor = pickScrollAnchor();
+    mutate();
+    if (!anchor || !anchor.el.isConnected) return;
+    const after = anchor.el.getBoundingClientRect().top;
+    const delta = after - anchor.top;
+    if (Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+  }
+
+  function renderCountsHTML(open, total) {
+    if (open > 0) {
+      return `<span class="count open">${open}</span>` +
+             `<span class="count muted">/${total}</span>`;
+    }
+    if (total > 0) return `<span class="count muted">${total}</span>`;
+    return `<span class="count empty">—</span>`;
+  }
+
+  function updateFileCounts(fetched) {
+    const total = new Map();
+    const open = new Map();
+    let globalTotal = 0, globalOpen = 0;
+    for (const c of fetched) {
+      if (c.reply_to) continue;  // replies don't inflate the open badge
+      if (!c.file) {
+        globalTotal++;
+        if (!c.resolved) globalOpen++;
+        continue;
+      }
+      total.set(c.file, (total.get(c.file) || 0) + 1);
+      if (!c.resolved) open.set(c.file, (open.get(c.file) || 0) + 1);
+    }
+    for (const li of document.querySelectorAll('#sidebar ul.files li.file-row')) {
+      // The report row also lives in this list but its count is owned by
+      // refreshReports — don't clobber it with comment-count data.
+      if (li.dataset.reports) continue;
+      const cell = li.querySelector('[data-counts]');
+      if (!cell) continue;
+      if (li.dataset.global) {
+        cell.innerHTML = renderCountsHTML(globalOpen, globalTotal);
+      } else {
+        const file = li.dataset.file;
+        cell.innerHTML = renderCountsHTML(open.get(file) || 0, total.get(file) || 0);
+      }
+    }
+  }
+
+  async function refreshComments() {
+    let fetched;
+    try {
+      const result = await pollJson("/api/comments");
+      if (!result.changed) return;
+      fetched = result.data;
+    } catch { return; }
+
+    updateFileCounts(fetched);
+
+    const fetchedById = new Map();
+    for (const c of fetched) fetchedById.set(c.id, c);
+
+    const domNodes = document.querySelectorAll(".comment[data-cid]");
+    const domIds = new Set();
+    for (const el of domNodes) domIds.add(el.dataset.cid);
+
+    // Nothing to change? Skip the scroll dance entirely.
+    let anyNew = false;
+    for (const c of fetched) if (!knownCommentIds.has(c.id)) { anyNew = true; break; }
+    let anyGone = false;
+    for (const el of domNodes) if (!fetchedById.has(el.dataset.cid)) { anyGone = true; break; }
+    let anyStateChange = false;
+    for (const el of domNodes) {
+      const c = fetchedById.get(el.dataset.cid);
+      if (!c) continue;
+      const threadEl = el.closest(".thread");
+      if (!threadEl) continue;
+      const threadResolved = threadEl.classList.contains("resolved");
+      // Top-level comments drive the thread's resolved state; ignore reply
+      // resolved flags (they shouldn't be set in practice but defensively
+      // we don't want them to flicker the UI).
+      if (!c.reply_to && c.resolved !== threadResolved) {
+        anyStateChange = true; break;
+      }
+    }
+    if (!anyNew && !anyGone && !anyStateChange) {
+      knownCommentIds = new Set(fetchedById.keys());
+      return;
+    }
+
+    withStableScroll(() => {
+      // Removals first — a comment disappearing shifts content upward.
+      for (const el of domNodes) {
+        if (!fetchedById.has(el.dataset.cid)) {
+          const threadEl = el.closest(".thread");
+          const anchor = el.closest(".comment-thread");
+          el.remove();
+          if (threadEl) updateCollapseSummary(threadEl);
+          // If we removed the parent (only top-levels can fully empty a
+          // .thread), drop the empty thread block.
+          if (threadEl && !threadEl.querySelector(".comment")) threadEl.remove();
+          if (anchor && !anchor.querySelector(".comment") &&
+              !anchor.querySelector(".new-comment")) {
+            anchor.remove();
+          }
+        }
+      }
+      // State flips on what remains — toggle thread.resolved class + button.
+      for (const el of document.querySelectorAll(".comment[data-cid]")) {
+        const c = fetchedById.get(el.dataset.cid);
+        if (!c || c.reply_to) continue;
+        const threadEl = el.closest(".thread");
+        if (!threadEl) continue;
+        if (c.resolved !== threadEl.classList.contains("resolved")) {
+          setThreadResolved(threadEl, !!c.resolved);
+        }
+      }
+      // Inserts last so new IDs don't collide with nodes we're about to drop.
+      for (const c of fetched) {
+        if (knownCommentIds.has(c.id)) continue;
+        insertFetchedComment(c);
+      }
+    });
+    knownCommentIds = new Set(fetchedById.keys());
+  }
+  startPoll(refreshComments, () => reviewTerminal ? 10000 : 3000);
+
+  // --- Agent reports ---
+  // Read-only notes for non-review output such as test execution and comment
+  // curation. Polled on the same 3s cadence as comments.
+  function renderReportEntry(note) {
+    const id = esc(note.id || "");
+    const agent = esc(note.author || "unknown");
+    const ts = activityTime(note.timestamp || "");
+    const body = esc(note.body || "");
+    return `<div class="report-entry note-entry" data-note-id="${id}" data-key="note/${id}" data-kind="report">
+        <div class="ix-q">
+          <span class="ix-meta">
+            <span class="agent">${agent}</span>
+            <span class="qid mono">${id}</span>
+            <span class="kind">report</span>
+            ${ts}
+          </span>
+          <pre class="ix-body note-body">${body}</pre>
+        </div>
+      </div>`;
+  }
+
+  function reportKey(note) {
+    return `note/${note.id}`;
+  }
+
+  function updateReportCounts(fetched) {
+    const el = document.getElementById("report-counts");
+    if (!el) return;
+    const total = fetched.length;
+    const html = total > 0
+      ? `<span class="count muted">${total}</span>`
+      : '<span class="count empty">—</span>';
+    if (el.innerHTML !== html) el.innerHTML = html;
+  }
+
+  async function refreshReports() {
+    const list = document.getElementById("report-list");
+    if (!list) return;
+    let fetched;
+    try {
+      const result = await pollJson("/api/notes");
+      if (!result.changed) return;
+      fetched = result.data;
+    } catch { return; }
+    fetched.sort((a, b) => String(a.timestamp || "").localeCompare(String(b.timestamp || "")));
+    updateReportCounts(fetched);
+
+    // Snapshot current DOM state keyed by note id so we can detect:
+    //   - new entries (insert)
+    //   - vanished entries (remove — rare, only via manual file deletion)
+    const fetchedByKey = new Map();
+    for (const note of fetched) fetchedByKey.set(reportKey(note), note);
+    const domByKey = new Map();
+    for (const el of list.querySelectorAll(".report-entry")) {
+      domByKey.set(el.dataset.key, el);
+    }
+
+    // Cheap no-op short-circuit.
+    let dirty = fetched.length !== domByKey.size;
+    if (!dirty) {
+      for (const key of fetchedByKey.keys()) {
+        if (!domByKey.has(key)) { dirty = true; break; }
+      }
+    }
+    if (!dirty) return;
+
+    withStableScroll(() => {
+      // Rebuild the list in fetched order. Stable-scroll handles the reflow
+      // so reviewers reading mid-page do not jump.
+      list.innerHTML = "";
+      for (const note of fetched) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = renderReportEntry(note);
+        const node = wrap.firstElementChild;
+        node.dataset.key = reportKey(note);
+        list.appendChild(node);
+      }
+      if (!fetched.length) {
+        list.innerHTML = '<p class="muted empty-reports">No agent reports yet.</p>';
+      }
+    });
+  }
+  startPoll(refreshReports, () => reviewTerminal ? 10000 : 3000);
+
+  function agentStateField(label, value, title, extraClass = "") {
+    if (!value) return "";
+    const cls = extraClass ? `agent-state-field ${extraClass}` : "agent-state-field";
+    return `<span class="${cls}" title="${attrEsc(title)}">`
+      + `<span class="agent-state-label">${esc(label)}</span> `
+      + `<span class="agent-state-value">${esc(value)}</span>`
+      + `</span>`;
+  }
+
+  function agentCanKill(agent) {
+    const process = String(agent.process_status || "");
+    return process === "launching" || process === "running";
+  }
+
+  function isReviewerAgent(agent) {
+    return String(agent.role || "reviewer") !== "curator";
+  }
+
+  function renderAgentRow(agent) {
+    const name = String(agent.name || "");
+    const model = String(agent.model || "");
+    const process = String(agent.process_status || "");
+    const protocol = String(agent.protocol_status || "");
+    const summary = agentStateField(
+      "status",
+      String(agent.status || ""),
+      "Overall agent status derived from process and review state",
+      "agent-summary",
+    );
+    const detailRow = [
+      agentStateField("process", process, "Local reviewer process lifecycle"),
+      agentStateField("review", protocol, "Review protocol state: pending or done"),
+    ].join("");
+    const killButton = agentCanKill(agent)
+      ? `<button type="button" class="agent-kill" data-agent-kill="${attrEsc(name)}" title="Stop ${attrEsc(name)}">kill</button>`
+      : "";
+    return `<li class="agent-row" data-agent="${attrEsc(name)}">`
+      + `<div class="agent-main">`
+      + `<span class="agent-ident">`
+      + `<span class="agent-name">${esc(name)}</span>`
+      + `<span class="agent-model mono" title="${attrEsc(model)}">${esc(model)}</span>`
+      + `</span>`
+      + `<span class="agent-controls">`
+      + summary
+      + killButton
+      + `</span>`
+      + `</div>`
+      + (detailRow ? `<div class="agent-state-row">${detailRow}</div>` : "")
+      + `</li>`;
+  }
+
+  function updateAgentList(agents) {
+    const list = document.getElementById("agent-list");
+    if (list) {
+      list.innerHTML = agents.length
+        ? agents.map(renderAgentRow).join("")
+        : "<li>(none)</li>";
+    }
+    const killAll = document.getElementById("kill-all-agents-btn");
+    if (killAll) {
+      const anyKillable = agents.some(agentCanKill);
+      killAll.hidden = !anyKillable;
+      killAll.disabled = !anyKillable;
+    }
+    const rerunAll = document.getElementById("rerun-all-agents-btn");
+    if (rerunAll) {
+      const reviewers = agents.filter(isReviewerAgent);
+      rerunAll.disabled = reviewers.length === 0 || reviewers.some(agentCanKill);
+      rerunAll.title = reviewers.some(agentCanKill)
+        ? "Wait for live reviewer agents to finish before rerunning"
+        : "Rerun all reviewer agents";
+    }
+    const curatorRun = document.getElementById("curator-run-btn");
+    if (curatorRun) {
+      const curator = agents.find((agent) => !isReviewerAgent(agent));
+      curatorRun.disabled = curator ? agentCanKill(curator) : false;
+      curatorRun.title = curatorRun.disabled
+        ? "Wait for the live curator to finish before rerunning"
+        : "Run comment curator";
+    }
+  }
+
+  function killSummary(results) {
+    const counts = {};
+    for (const r of results || []) counts[r.status] = (counts[r.status] || 0) + 1;
+    const parts = Object.entries(counts).map(([k, v]) => `${v} ${k}`);
+    return parts.length ? parts.join(", ") : "No agents selected";
+  }
+
+  async function killAgents(agentName) {
+    const payload = agentName ? { agent: agentName } : {};
+    const label = agentName || "all agents";
+    if (!confirm(`Kill ${label}?`)) return;
+    document.querySelectorAll(".agent-kill, #kill-all-agents-btn").forEach((b) => {
+      b.disabled = true;
+    });
+    try {
+      const res = await api("POST", "/api/agents/kill", payload);
+      updateAgentList(res.agents || []);
+      const errors = (res.results || []).filter((r) => r.status === "error");
+      if (errors.length) {
+        alert("Kill failed: " + errors.map((r) => `${r.name}: ${r.reason}`).join("; "));
+      } else {
+        flashToast(killSummary(res.results));
+      }
+    } catch (e) {
+      alert("Kill failed: " + e.message);
+    } finally {
+      document.querySelectorAll(".agent-kill, #kill-all-agents-btn").forEach((b) => {
+        b.disabled = false;
+      });
+      refreshSidebar();
+    }
+  }
+
+  const agentList = document.getElementById("agent-list");
+  if (agentList) {
+    agentList.addEventListener("click", (ev) => {
+      if (!(ev.target instanceof Element)) return;
+      const btn = ev.target.closest("[data-agent-kill]");
+      if (!btn) return;
+      killAgents(btn.dataset.agentKill);
+    });
+  }
+  const killAllAgentsBtn = document.getElementById("kill-all-agents-btn");
+  if (killAllAgentsBtn) {
+    killAllAgentsBtn.addEventListener("click", () => killAgents(null));
+  }
+
+  async function rerunAllAgents() {
+    const btn = document.getElementById("rerun-all-agents-btn");
+    if (!confirm("Rerun all reviewer agents?")) return;
+    document.querySelectorAll(".agent-kill, #kill-all-agents-btn, #rerun-all-agents-btn").forEach((b) => {
+      b.disabled = true;
+    });
+    try {
+      const res = await api("POST", "/api/agents/rerun", {});
+      updateAgentList(res.agents || []);
+      const names = (res.results || []).map((r) => r.name).filter(Boolean);
+      flashToast(names.length ? `Rerun: ${names.join(", ")}` : "Rerun started");
+    } catch (e) {
+      alert("Rerun failed: " + e.message);
+    } finally {
+      await refreshSidebar();
+    }
+  }
+
+  const rerunAllAgentsBtn = document.getElementById("rerun-all-agents-btn");
+  if (rerunAllAgentsBtn) {
+    rerunAllAgentsBtn.addEventListener("click", rerunAllAgents);
+  }
+
+  async function launchCurator() {
+    const btn = document.getElementById("curator-run-btn");
+    if (btn) btn.disabled = true;
+    try {
+      const res = await api("POST", "/api/curator/launch", {});
+      updateAgentList(res.agents || []);
+      const first = (res.results || [])[0];
+      const detail = first && first.supervisor_pid
+        ? `supervisor=${first.supervisor_pid}`
+        : "started";
+      flashToast(`Curator ${detail}`);
+    } catch (e) {
+      alert("Curator launch failed: " + e.message);
+    } finally {
+      await refreshSidebar();
+    }
+  }
+
+  const curatorRunBtn = document.getElementById("curator-run-btn");
+  if (curatorRunBtn) {
+    curatorRunBtn.addEventListener("click", launchCurator);
+  }
+
+  // --- Periodic session refresh (for progress/signals) ---
+  async function refreshSidebar() {
+    try {
+      const result = await pollJson("/api/session");
+      if (!result.changed) return;
+      const s = result.data;
+      const set = (id, val) => {
+        const el = document.querySelector(`#sidebar [data-k="${id}"] .v`);
+        if (el) el.textContent = val;
+      };
+      updateHeaderProgress(s.progress);
+      set("head", (s.current_head || "").slice(0, 12));
+      set("stale_comments", s.stale_count);
+      updatePushButton(s.pending_push);
+      updateAgentList(s.agents || []);
+      const h = document.querySelector("header .badge.head");
+      if (h && s.workspace_mismatch) {
+        h.textContent = "workspace differs";
+        h.title = "The checkout differs from the pinned review snapshot";
+        h.classList.add("head-shifted");
+      } else if (h) {
+        h.textContent = "";
+        h.title = "";
+        h.classList.remove("head-shifted");
+      }
+    } catch { /* ignore */ }
+  }
+  // Faster than the original 15s so the push button reflects local edits
+  // soon after they happen — `pending_push` is the main reason to poll.
+  startPoll(refreshSidebar, () => reviewTerminal ? 15000 : 5000);
+
+  function updatePushButton(pending) {
+    if (!ghPushBtn) return;
+    if (pending == null) return;  // non-gh session: leave hidden
+    const n = Number(pending) || 0;
+    ghPushBtn.dataset.pending = String(n);
+    ghPushBtn.textContent = `Push to GitHub (${n} pending)`;
+    ghPushBtn.disabled = n === 0;
+    ghPushBtn.classList.toggle("has-pending", n > 0);
+  }
+
+  // --- GitHub push modal ---
+  const ghModal = document.getElementById("gh-push-modal");
+  const ghBody = document.getElementById("gh-push-body");
+  const ghConfirm = document.getElementById("gh-push-confirm");
+  const ghPushBtn = document.getElementById("gh-push-btn");
+  let ghPreviewItems = new Map();
+
+  function openGhModal() {
+    if (!ghModal) return;
+    ghModal.hidden = false;
+    ghBody.textContent = "Loading…";
+    ghConfirm.disabled = true;
+    ghConfirm.textContent = "Confirm push";
+    ghConfirm.classList.remove("danger");
+    ghConfirm.dataset.mode = "confirm";
+    document.body.classList.add("modal-open");
+    fetchGhPreview();
+  }
+
+  function closeGhModal() {
+    if (!ghModal) return;
+    ghModal.hidden = true;
+    document.body.classList.remove("modal-open");
+  }
+
+  function bodyPreview(text) {
+    const t = (text || "").trim();
+    if (t.length <= 240) return esc(t);
+    return esc(t.slice(0, 240)) + "<span class=\"muted\">…</span>";
+  }
+
+  function renderPlanList(title, items, renderItem) {
+    if (!items.length) return "";
+    return `<section class="push-group">`
+      + `<h3>${esc(title)} <span class="count">${items.length}</span></h3>`
+      + `<ul class="push-list">${items.map(renderItem).join("")}</ul>`
+      + `</section>`;
+  }
+
+  function allPlanItems(plan) {
+    return [
+      ...(plan.new_top || []),
+      ...(plan.new_replies || []),
+      ...(plan.edits || []),
+    ];
+  }
+
+  function renderIncludeControl(it, action) {
+    const checked = it.default_included ? " checked" : "";
+    const disabled = it.orphaned ? " disabled" : "";
+    const agent = it.is_agent ? "1" : "0";
+    return `<label class="push-include">`
+      + `<input type="checkbox" class="push-select" value="${attrEsc(it.id)}"`
+      + ` data-agent-comment="${agent}"`
+      + ` data-push-action="${attrEsc(action)}"`
+      + ` data-parent-id="${attrEsc(it.parent_id || "")}"`
+      + ` data-parent-external-id="${attrEsc(it.parent_external_id || "")}"`
+      + `${checked}${disabled}>`
+      + `<span>include</span>`
+      + `</label>`;
+  }
+
+  function renderPushActions(it) {
+    return `<span class="push-actions">`
+      + `<button type="button" data-push-edit="${attrEsc(it.id)}">Edit</button>`
+      + `<button type="button" class="push-delete" data-push-delete="${attrEsc(it.id)}">Delete</button>`
+      + `</span>`;
+  }
+
+  function renderNewItem(it) {
+    const cls = it.promoted_to_global ? "push-item promoted" : "push-item";
+    const ref = it.promoted_to_global ? (it.original_ref || it.ref) : it.ref;
+    const promoted = it.promoted_to_global
+      ? `<span class="warn">promote to global (${esc(it.promotion_reason || "invalid anchor")})</span>`
+      : "";
+    return `<li class="${cls}" data-id="${esc(it.id)}">`
+      + `<div class="push-meta">`
+      +   renderIncludeControl(it, "new")
+      +   `<span class="mono">${esc(it.id)}</span>`
+      +   `<span class="sev ${esc(it.severity)}">${esc(it.severity)}</span>`
+      +   categoryBadge(it)
+      +   `<span class="ref mono">${esc(ref)}</span>`
+      +   promoted
+      +   `<span class="muted">by ${esc(it.author || "unknown")}</span>`
+      +   renderPushActions(it)
+      + `</div>`
+      + `<pre class="push-body">${bodyPreview(it.body)}</pre>`
+      + `</li>`;
+  }
+  function renderReplyItem(it) {
+    let tag;
+    if (it.unsupported_reason) {
+      tag = `<span class="warn">${esc(it.unsupported_reason)}</span>`;
+    } else if (it.parent_promoted_to_global) {
+      tag = `<span class="warn">skipped (parent promoted to global)</span>`;
+    } else if (it.orphaned) {
+      tag = `<span class="warn">orphaned (parent not pushed)</span>`;
+    } else if (it.parent_pending) {
+      tag = `<span class="muted">→ local parent</span>`;
+    } else {
+      tag = `<span class="muted">→ gh#${esc(it.parent_external_id)}</span>`;
+    }
+    const cls = it.orphaned ? "push-item orphaned" : "push-item";
+    return `<li class="${cls}" data-id="${esc(it.id)}">`
+      + `<div class="push-meta">`
+      +   renderIncludeControl(it, "reply")
+      +   `<span class="mono">${esc(it.id)}</span>`
+      +   `<span class="ref mono">${esc(it.ref)}</span>`
+      +   tag
+      +   `<span class="muted">by ${esc(it.author || "unknown")}</span>`
+      +   renderPushActions(it)
+      + `</div>`
+      + `<pre class="push-body">${bodyPreview(it.body)}</pre>`
+      + `</li>`;
+  }
+  function renderEditItem(it) {
+    return `<li class="push-item" data-id="${esc(it.id)}">`
+      + `<div class="push-meta">`
+      +   renderIncludeControl(it, "edit")
+      +   `<span class="mono">${esc(it.id)}</span>`
+      +   `<span class="sev ${esc(it.severity)}">${esc(it.severity)}</span>`
+      +   categoryBadge(it)
+      +   `<span class="ref mono">${esc(it.ref)}</span>`
+      +   `<span class="muted">→ gh#${esc(it.external_id)}</span>`
+      +   renderPushActions(it)
+      + `</div>`
+      + `<div class="push-edit-cmp">`
+      +   `<pre class="push-body old"><span class="muted">old:</span> ${bodyPreview(it.old_body)}</pre>`
+      +   `<pre class="push-body new"><span class="muted">new:</span> ${bodyPreview(it.new_body)}</pre>`
+      + `</div>`
+      + `</li>`;
+  }
+
+  function captureGhSelectionState() {
+    const state = new Map();
+    if (!ghBody) return state;
+    ghBody.querySelectorAll(".push-select").forEach((box) => {
+      state.set(box.value, box.checked);
+    });
+    return state;
+  }
+
+  function restoreGhSelectionState(state) {
+    if (!ghBody || !state) return;
+    ghBody.querySelectorAll(".push-select").forEach((box) => {
+      if (state.has(box.value)) box.checked = state.get(box.value);
+    });
+  }
+
+  async function fetchGhPreview(selectionState = null) {
+    let plan;
+    try {
+      plan = await api("GET", "/api/gh/preview");
+    } catch (e) {
+      ghBody.innerHTML = `<p class="error">Failed to load plan: ${esc(String(e))}</p>`;
+      return;
+    }
+    ghPreviewItems = new Map(allPlanItems(plan).map((it) => [String(it.id), it]));
+    const total = plan.total || 0;
+    const orphans = (plan.new_replies || []).filter((r) => r.orphaned).length;
+    const pushable = total - orphans;
+    let html = `<p class="push-summary">`
+      + `Repo <span class="mono">${esc(plan.repo)}</span> · `
+      + `PR <a href="${esc(plan.url)}" target="_blank" rel="noopener" class="mono">#${plan.number}</a></p>`;
+    if (total === 0) {
+      html += `<p class="muted">Nothing to push.`
+        + (plan.skipped_meta ? ` (${plan.skipped_meta} __meta__ comment${plan.skipped_meta === 1 ? "" : "s"} skipped)` : "")
+        + (plan.skipped_imported_reviews ? ` (${plan.skipped_imported_reviews} imported review${plan.skipped_imported_reviews === 1 ? "" : "s"} skipped)` : "")
+        + `</p>`;
+    } else {
+      const agentCount = allPlanItems(plan).filter((it) => it.is_agent).length;
+      html += `<label class="push-agent-toggle">`
+        + `<input id="gh-include-agents" type="checkbox"${agentCount ? "" : " disabled"}>`
+        + `<span>include agent comments</span>`
+        + `<span class="count">${agentCount}</span>`
+        + `</label>`;
+      html += renderPlanList("New comments", plan.new_top, renderNewItem);
+      html += renderPlanList("New replies", plan.new_replies, renderReplyItem);
+      html += renderPlanList("Edits (PATCH)", plan.edits, renderEditItem);
+      if (plan.skipped_meta) {
+        html += `<p class="muted">Skipping ${plan.skipped_meta} __meta__ comment${plan.skipped_meta === 1 ? "" : "s"} (no GitHub equivalent).</p>`;
+      }
+      if (plan.skipped_imported_reviews) {
+        html += `<p class="muted">Skipping ${plan.skipped_imported_reviews} imported review${plan.skipped_imported_reviews === 1 ? "" : "s"} (already backed by GitHub review objects).</p>`;
+      }
+      if (plan.anchor_validation_error) {
+        html += `<p class="warn">Anchor validation skipped: ${esc(plan.anchor_validation_error)}</p>`;
+      } else if (plan.promoted) {
+        html += `<p class="warn">${plan.promoted} comment${plan.promoted === 1 ? "" : "s"} outside the GitHub review diff will be promoted to global.</p>`;
+      }
+      if (orphans) {
+        html += `<p class="warn">${orphans} repl${orphans === 1 ? "y is" : "ies are"} orphaned and will be skipped.</p>`;
+      }
+    }
+    ghBody.innerHTML = html;
+    restoreGhSelectionState(selectionState);
+    bindGhSelectionControls(pushable);
+  }
+
+  function selectedGhPushIds() {
+    if (!ghBody) return [];
+    const checked = Array.from(ghBody.querySelectorAll(".push-select:checked:not(:disabled)"));
+    const checkedIds = new Set(checked.map((box) => box.value));
+    return checked
+      .filter((box) => {
+        if (box.dataset.pushAction !== "reply") return true;
+        if (box.dataset.parentExternalId) return true;
+        const parentId = box.dataset.parentId || "";
+        return !parentId || checkedIds.has(parentId);
+      })
+      .map((box) => box.value);
+  }
+
+  function updateAgentToggleState() {
+    const toggle = document.getElementById("gh-include-agents");
+    if (!toggle || !ghBody) return;
+    const boxes = Array.from(
+      ghBody.querySelectorAll(".push-select[data-agent-comment='1']:not(:disabled)"),
+    );
+    if (!boxes.length) {
+      toggle.checked = false;
+      toggle.indeterminate = false;
+      toggle.disabled = true;
+      return;
+    }
+    const checked = boxes.filter((box) => box.checked).length;
+    toggle.checked = checked === boxes.length;
+    toggle.indeterminate = checked > 0 && checked < boxes.length;
+  }
+
+  function updateGhSelectionState() {
+    if (!ghConfirm || ghConfirm.dataset.mode === "done") return;
+    updateAgentToggleState();
+    const boxes = ghBody ? ghBody.querySelectorAll(".push-select") : [];
+    if (!boxes.length) {
+      ghConfirm.disabled = true;
+      ghConfirm.textContent = "Nothing to push";
+      return;
+    }
+    const n = selectedGhPushIds().length;
+    ghConfirm.disabled = n === 0;
+    ghConfirm.textContent = n > 0
+      ? `Confirm: push ${n} comment${n === 1 ? "" : "s"}`
+      : "Nothing selected";
+  }
+
+  function bindGhSelectionControls(pushable) {
+    const toggle = document.getElementById("gh-include-agents");
+    if (toggle) {
+      toggle.addEventListener("change", () => {
+        ghBody.querySelectorAll(".push-select[data-agent-comment='1']:not(:disabled)")
+          .forEach((box) => { box.checked = toggle.checked; });
+        updateGhSelectionState();
+      });
+    }
+    ghBody.querySelectorAll(".push-select").forEach((box) => {
+      box.addEventListener("change", updateGhSelectionState);
+    });
+    ghBody.querySelectorAll("[data-push-edit]").forEach((btn) => {
+      btn.addEventListener("click", openPushPreviewEditForm);
+    });
+    ghBody.querySelectorAll("[data-push-delete]").forEach((btn) => {
+      btn.addEventListener("click", deletePushPreviewComment);
+    });
+    if (pushable > 0) {
+      updateGhSelectionState();
+    } else {
+      ghConfirm.disabled = true;
+      ghConfirm.textContent = "Nothing to push";
+    }
+  }
+
+  function pushPreviewBody(item) {
+    if (!item) return "";
+    if (item.new_body != null) return item.new_body;
+    return item.body || "";
+  }
+
+  function openPushPreviewEditForm(ev) {
+    const btn = ev.currentTarget;
+    const cid = btn.dataset.pushEdit;
+    const item = ghPreviewItems.get(String(cid));
+    const node = btn.closest(".push-item");
+    if (!cid || !item || !node || node.querySelector(".edit-form")) return;
+    const current = pushPreviewBody(item);
+    const target = node.querySelector(".push-edit-cmp") || node.querySelector(".push-body");
+    if (!target) return;
+    const targetHeight = target.getBoundingClientRect().height;
+    const form = document.createElement("form");
+    form.className = "edit-form push-edit-form";
+    form.innerHTML = `
+      <textarea rows="5">${esc(current)}</textarea>
+      <div class="edit-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel">Cancel</button>
+      </div>
+    `;
+    target.style.display = "none";
+    target.insertAdjacentElement("afterend", form);
+    const ta = form.querySelector("textarea");
+    fitEditTextarea(ta, targetHeight);
+    ta.addEventListener("input", () => fitEditTextarea(ta, targetHeight));
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    const close = () => {
+      form.remove();
+      target.style.display = "";
+    };
+    form.querySelector(".cancel").addEventListener("click", close);
+    form.addEventListener("submit", async (submitEv) => {
+      submitEv.preventDefault();
+      const newBody = ta.value;
+      if (newBody === current) {
+        close();
+        return;
+      }
+      const selectionState = captureGhSelectionState();
+      try {
+        await api("POST", "/api/edit", { comment_id: cid, body: newBody });
+        await fetchGhPreview(selectionState);
+        refreshSidebar();
+        refreshComments();
+      } catch (e) {
+        alert("Edit failed: " + e.message);
+      }
+    });
+  }
+
+  async function deletePushPreviewComment(ev) {
+    const btn = ev.currentTarget;
+    const cid = btn.dataset.pushDelete;
+    if (!cid) return;
+    if (!confirm("Delete this comment? It's a soft-delete — the record is kept but hidden from agents and the default view.")) return;
+    const selectionState = captureGhSelectionState();
+    btn.disabled = true;
+    try {
+      await api("POST", "/api/delete", { comment_id: cid });
+      await fetchGhPreview(selectionState);
+      refreshSidebar();
+      refreshComments();
+    } catch (e) {
+      btn.disabled = false;
+      alert("Delete failed: " + e.message);
+    }
+  }
+
+  function renderResultItem(it) {
+    if (it.error) {
+      return `<li class="push-result failed">`
+        + `<span class="mono">${esc(it.id)}</span> `
+        + `<span class="action">${esc(it.action)}</span> `
+        + `<span class="error">FAILED: ${esc(it.error)}</span></li>`;
+    }
+    const ext = it.external_url
+      ? `<a href="${esc(it.external_url)}" target="_blank" rel="noopener" class="mono">gh#${esc(it.external_id)}</a>`
+      : `<span class="mono">gh#${esc(it.external_id || "?")}</span>`;
+    return `<li class="push-result ok">`
+      + `<span class="mono">${esc(it.id)}</span> `
+      + `<span class="action">${esc(it.action)}</span> → ${ext}</li>`;
+  }
+
+  async function confirmGhPush() {
+    const commentIds = selectedGhPushIds();
+    if (!commentIds.length) {
+      updateGhSelectionState();
+      return;
+    }
+    ghConfirm.disabled = true;
+    ghConfirm.textContent = "Pushing…";
+    let res;
+    try {
+      res = await api("POST", "/api/gh/push", { comment_ids: commentIds });
+    } catch (e) {
+      ghBody.innerHTML = `<p class="error">Push failed: ${esc(String(e))}</p>`;
+      ghConfirm.disabled = false;
+      ghConfirm.textContent = "Retry push";
+      return;
+    }
+    let html = `<p class="push-summary">${esc(res.summary || "")}</p>`;
+    if ((res.items || []).length) {
+      html += `<ul class="push-results">${res.items.map(renderResultItem).join("")}</ul>`;
+    }
+    ghBody.innerHTML = html;
+    ghConfirm.textContent = "Done";
+    ghConfirm.disabled = false;
+    ghConfirm.dataset.mode = "done";
+  }
+
+  if (ghPushBtn) {
+    ghPushBtn.addEventListener("click", openGhModal);
+  }
+  if (ghModal) {
+    ghModal.addEventListener("click", (ev) => {
+      if (ev.target.matches("[data-modal-close]")) closeGhModal();
+    });
+    ghConfirm.addEventListener("click", () => {
+      if (ghConfirm.dataset.mode === "done") {
+        closeGhModal();
+        // After a push, comment external_id/url may have changed. Easiest
+        // way to reflect that without partial-update wrangling is a reload.
+        location.reload();
+      } else {
+        confirmGhPush();
+      }
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (!ghModal.hidden && ev.key === "Escape") closeGhModal();
+    });
+  }
+
+  // --- Keyboard navigation ---
+  // n / p: next / prev thread (DOM order — globals first, then per-file).
+  // N / P: jump to first thread in next file / last thread in previous file.
+  // u / d: scroll up / down one viewport (vim-style), minus the sticky header
+  //        so context near the seam isn't lost.
+  // Threads are re-queried on every press so comments arriving via the 3s
+  // poll loop participate in navigation immediately.
+  let focusedThreadId = null;
+
+  function getOrderedThreads() {
+    const out = [];
+    for (const el of document.querySelectorAll(".thread[data-thread-id]")) {
+      out.push({ el, id: el.dataset.threadId });
+    }
+    return out;
+  }
+
+  function threadFileKey(el) {
+    if (el.closest(".global-section")) return "__global__";
+    const f = el.closest(".file");
+    return f ? f.dataset.file : "__unknown__";
+  }
+
+  function groupThreadsByFile(threads) {
+    const map = new Map();
+    const order = [];
+    for (const t of threads) {
+      const k = threadFileKey(t.el);
+      if (!map.has(k)) { map.set(k, []); order.push(k); }
+      map.get(k).push(t);
+    }
+    return order.map((k) => map.get(k));
+  }
+
+  function focusThread(t) {
+    for (const el of document.querySelectorAll(".thread.focused")) {
+      el.classList.remove("focused");
+    }
+    if (!t) { focusedThreadId = null; return; }
+    t.el.classList.add("focused");
+    focusedThreadId = t.id;
+    scrollIfOffscreen(t.el);
+  }
+
+  function scrollIfOffscreen(el) {
+    // Only re-center when the thread isn't already fully visible. Sticky
+    // headers occlude the top of the viewport, so anything under them counts
+    // as offscreen.
+    const r = el.getBoundingClientRect();
+    const topOffset = stickyTargetOffset();
+    if (r.top >= topOffset && r.bottom <= window.innerHeight) return;
+    el.scrollIntoView({ behavior: "instant", block: "center" });
+  }
+
+  function indexOfFocused(threads) {
+    if (!focusedThreadId) return -1;
+    for (let i = 0; i < threads.length; i++) {
+      if (threads[i].id === focusedThreadId) return i;
+    }
+    return -1;
+  }
+
+  function indexNearViewport(threads, direction) {
+    // Used when there's no focused thread (first press, or focus was deleted).
+    // "next" → first thread starting at or below the viewport top so a
+    // mid-page user moves to the comment they're already looking at.
+    // "prev" → last thread ending at or above the viewport bottom.
+    const vh = window.innerHeight;
+    const topOffset = stickyTargetOffset();
+    if (direction === "next") {
+      for (let i = 0; i < threads.length; i++) {
+        if (threads[i].el.getBoundingClientRect().top >= topOffset) return i;
+      }
+      return threads.length - 1;
+    }
+    for (let i = threads.length - 1; i >= 0; i--) {
+      if (threads[i].el.getBoundingClientRect().bottom <= vh) return i;
+    }
+    return 0;
+  }
+
+  function navigateThread(direction) {
+    const threads = getOrderedThreads();
+    if (!threads.length) return;
+    const cur = indexOfFocused(threads);
+    let next;
+    if (cur < 0) {
+      next = indexNearViewport(threads, direction);
+    } else if (direction === "next") {
+      if (cur >= threads.length - 1) return;
+      next = cur + 1;
+    } else {
+      if (cur <= 0) return;
+      next = cur - 1;
+    }
+    focusThread(threads[next]);
+  }
+
+  function navigateFile(direction) {
+    const threads = getOrderedThreads();
+    if (!threads.length) return;
+    const groups = groupThreadsByFile(threads);
+    let curGroup = -1;
+    if (focusedThreadId) {
+      for (let g = 0; g < groups.length; g++) {
+        if (groups[g].some((t) => t.id === focusedThreadId)) { curGroup = g; break; }
+      }
+    }
+    let target;
+    if (curGroup < 0) {
+      target = direction === "next"
+        ? groups[0][0]
+        : groups[groups.length - 1].slice(-1)[0];
+    } else if (direction === "next") {
+      if (curGroup >= groups.length - 1) return;
+      target = groups[curGroup + 1][0];
+    } else {
+      if (curGroup <= 0) return;
+      target = groups[curGroup - 1].slice(-1)[0];
+    }
+    focusThread(target);
+  }
+
+  function centerFocused() {
+    if (!focusedThreadId) return;
+    const el = document.querySelector(
+      `.thread[data-thread-id="${cssEsc(focusedThreadId)}"]`
+    );
+    if (el) el.scrollIntoView({ behavior: "instant", block: "center" });
+  }
+
+  function pageScroll(direction) {
+    // Subtract sticky-header height so a couple of lines from the
+    // previous viewport remain visible after the jump.
+    const delta = Math.max(window.innerHeight - stickyTargetOffset(), 100);
+    window.scrollBy({
+      top: direction === "down" ? delta : -delta,
+      behavior: "instant",
+    });
+  }
+
+  function isTyping() {
+    const a = document.activeElement;
+    if (!a) return false;
+    return a.matches('textarea, input, select, [contenteditable="true"]');
+  }
+
+  // --- Prefix-key bindings for transformative actions ---
+  // Press PREFIX_KEY (default: space), then a sequence. Pending state is shown
+  // in a floating indicator and resets after PREFIX_TIMEOUT_MS of inactivity
+  // or on Escape. Actions reuse existing DOM buttons via .click() so all the
+  // API + confirm() flow stays in one place.
+  const PREFIX_KEY = " ";
+  const PREFIX_LABEL = "␣";  // visual label for PREFIX_KEY in the indicator
+  const COMPOSER_PREFIX_LABEL = "⌃" + PREFIX_LABEL;  // Ctrl+space chord entry
+  const PREFIX_TIMEOUT_MS = 2000;
+
+  function focusedThreadEl() {
+    if (!focusedThreadId) return null;
+    return document.querySelector(
+      `.thread[data-thread-id="${cssEsc(focusedThreadId)}"]`
+    );
+  }
+
+  function clickInFocused(selector) {
+    const t = focusedThreadEl();
+    if (!t) return false;
+    const btn = t.querySelector(selector);
+    if (!btn || btn.disabled) return false;
+    btn.click();
+    return true;
+  }
+
+  function clickById(id) {
+    const btn = document.getElementById(id);
+    if (!btn || btn.disabled || btn.hidden) return false;
+    btn.click();
+    return true;
+  }
+
+  function flashToast(msg, ms = 2500) {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), ms);
+  }
+
+  async function ghFetch() {
+    let r;
+    try {
+      r = await api("POST", "/api/gh/pull");
+    } catch (e) {
+      alert("Fetch from GitHub failed: " + e.message);
+      return;
+    }
+    flashToast(r.summary || "Pulled.");
+    if ((r.new_global || 0) || (r.new_reviews || 0) || (r.edited || 0) ||
+        (r.retimestamped || 0) || (r.recategorized || 0) ||
+        (r.resolution_changed || 0)) {
+      location.reload();
+      return;
+    }
+    refreshComments();
+  }
+
+  // Soft line-wrap toggle. Persisted in localStorage so the choice
+  // survives reloads. CSS does the actual wrapping (`body.wrap-lines`).
+  const WRAP_KEY = "pr.wrap-lines";
+  function applyWrapPreference() {
+    document.body.classList.toggle(
+      "wrap-lines", localStorage.getItem(WRAP_KEY) === "1"
+    );
+  }
+  function toggleWrap() {
+    const next = !document.body.classList.contains("wrap-lines");
+    document.body.classList.toggle("wrap-lines", next);
+    localStorage.setItem(WRAP_KEY, next ? "1" : "0");
+    flashToast(`line wrap: ${next ? "on" : "off"}`, 1200);
+  }
+  applyWrapPreference();
+
+  const KEYMAP = {
+    r: { label: "reply",
+         run: () => clickInFocused('.thread-actions [data-reply-to]') },
+    e: { label: "edit",
+         run: () => clickInFocused(':scope > .comment:not(.reply) [data-edit]') },
+    R: { label: "toggle resolved",
+         run: () => clickInFocused(
+           '.thread-actions [data-resolve], .thread-actions [data-unresolve]'
+         ) },
+    D: { label: "delete",
+         run: () => clickInFocused(':scope > .comment:not(.reply) [data-delete]') },
+    c: { label: "comment…", submap: {
+           a: { label: "add global comment", run: () => clickById("add-global-btn") },
+           c: { label: "toggle collapse",
+                run: () => clickInFocused("[data-thread-collapse]") },
+         } },
+    a: { label: "agent…", submap: {
+           K: { label: "kill all agents", run: () => clickById("kill-all-agents-btn") },
+         } },
+    g: { label: "github…", submap: {
+           f: { label: "fetch from GitHub", run: ghFetch },
+           p: { label: "push", run: () => clickById("gh-push-btn") },
+         } },
+  };
+
+  let pendingMap = null;
+  let pendingPath = [];
+  let pendingPrefixLabel = PREFIX_LABEL;
+  let pendingTimer = null;
+
+  function getOrCreatePendingIndicator() {
+    let el = document.getElementById("kbd-pending");
+    if (el) return el;
+    el = document.createElement("div");
+    el.id = "kbd-pending";
+    el.className = "kbd-pending";
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function renderPendingIndicator() {
+    const el = getOrCreatePendingIndicator();
+    if (!pendingMap) {
+      el.classList.remove("active");
+      return;
+    }
+    const seq = [pendingPrefixLabel, ...pendingPath].join(" ");
+    el.textContent = seq + " …";
+    el.classList.add("active");
+  }
+
+  function resetPending() {
+    pendingMap = null;
+    pendingPath = [];
+    pendingPrefixLabel = PREFIX_LABEL;
+    if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+    renderPendingIndicator();
+  }
+
+  function bumpPendingTimer() {
+    if (pendingTimer) clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(resetPending, PREFIX_TIMEOUT_MS);
+  }
+
+  function startPending() {
+    pendingMap = KEYMAP;
+    pendingPath = [];
+    pendingPrefixLabel = PREFIX_LABEL;
+    bumpPendingTimer();
+    renderPendingIndicator();
+  }
+
+  // Composer-scoped chord (severity/category + insert-suggestion). Captures the
+  // composer in closure so a mid-chord focus change doesn't retarget.
+  function startPendingComposerActions(composer) {
+    const sev = composer.querySelector(".sev");
+    const category = composer.querySelector(".category");
+    const suggest = composer.querySelector(".suggest");
+    const setSeverity = (value, label) => {
+      if (!sev) return;
+      sev.value = value;
+      flashToast(`severity → ${label}`, 1200);
+    };
+    const setCategory = (value, label) => {
+      if (!category) return;
+      category.value = value;
+      flashToast(`review → ${label}`, 1200);
+    };
+    const map = {};
+    if (sev) {
+      map.c = { label: "critical", run: () => setSeverity("critical", "critical") };
+      map.w = { label: "warning",  run: () => setSeverity("warning", "warning") };
+      map.s = { label: "suggestion", run: () => setSeverity("suggestion", "suggestion") };
+      map.n = { label: "nit",      run: () => setSeverity("nit", "nit") };
+      map.f = { label: "feedback", run: () => setSeverity("feedback", "feedback") };
+    }
+    if (category) {
+      map.a = { label: "approve", run: () => setCategory("approve", "approve") };
+      map.b = { label: "blocking", run: () => setCategory("request-changes", "blocking") };
+    }
+    if (suggest) {
+      map.i = { label: "insert suggestion", run: () => suggest.click() };
+    }
+    pendingMap = map;
+    pendingPath = [];
+    pendingPrefixLabel = COMPOSER_PREFIX_LABEL;
+    bumpPendingTimer();
+    renderPendingIndicator();
+    // Keep textarea focus so the user can keep typing after the chord.
+    const ta = composer.querySelector("textarea");
+    if (ta) ta.focus();
+  }
+
+  function handlePending(key) {
+    const entry = pendingMap[key];
+    if (!entry) { resetPending(); return; }
+    if (entry.submap) {
+      pendingMap = entry.submap;
+      pendingPath.push(key);
+      bumpPendingTimer();
+      renderPendingIndicator();
+      return;
+    }
+    try { entry.run(); }
+    finally { resetPending(); }
+  }
+
+  function findComposer(target) {
+    return target && target.closest && target.closest(".new-comment, .edit-form");
+  }
+
+  // Pending-chord interception runs FIRST so it works even while typing in
+  // a textarea (the composer chord is opened from inside one).
+  document.addEventListener("keydown", (ev) => {
+    if (!pendingMap) return;
+    if (ev.key === "Escape") { ev.preventDefault(); resetPending(); return; }
+    // Modifier keys (Shift/Ctrl/Alt/Meta/CapsLock) fire their own keydown
+    // before the chorded key. Ignore them so e.g. pressing Shift+D doesn't
+    // reset on the Shift event and miss the D event entirely.
+    if (ev.key === "Shift" || ev.key === "Control" || ev.key === "Alt"
+        || ev.key === "Meta" || ev.key === "CapsLock") return;
+    ev.preventDefault();
+    handlePending(ev.key);
+  });
+
+  // Esc / Ctrl+Enter / Cmd+Enter inside an open composer (new comment /
+  // reply / edit) cancel and submit, respectively. Plain Enter still inserts
+  // a newline so it never blocks typing. Same convention as GitHub, Slack,
+  // JIRA, etc. Also handles Ctrl+Space / Alt+s as a composer-scoped chord
+  // entry (severity + insert-suggestion).
+  document.addEventListener("keydown", (ev) => {
+    if (pendingMap) return;  // hoisted handler took it
+    const composer = findComposer(document.activeElement);
+    if (!composer) return;
+
+    if (ev.key === "Escape") {
+      const cancel = composer.querySelector(".cancel");
+      if (!cancel) return;
+      ev.preventDefault();
+      cancel.click();
+      return;
+    }
+    if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
+      const submit = composer.querySelector(".submit, button[type='submit']");
+      if (!submit || submit.disabled) return;
+      ev.preventDefault();
+      submit.click();
+      return;
+    }
+    // Ctrl+PREFIX_KEY (primary) or Alt+s (fallback for IMEs that grab
+    // Ctrl+Space) open the composer-actions chord. Only opens if there's
+    // something chord-worthy in this composer.
+    const isCtrlPrefix = (ev.ctrlKey || ev.metaKey)
+      && !ev.altKey && !ev.shiftKey && ev.key === PREFIX_KEY;
+    const isAltS = ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.key === "s";
+    if (isCtrlPrefix || isAltS) {
+      if (!composer.querySelector(".sev") && !composer.querySelector(".category") &&
+          !composer.querySelector(".suggest")) return;
+      ev.preventDefault();
+      startPendingComposerActions(composer);
+    }
+  });
+
+  document.addEventListener("keydown", (ev) => {
+    if (pendingMap) return;  // hoisted handler took it
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (isTyping()) return;
+    if (ghModal && !ghModal.hidden) return;
+
+    if (ev.key === PREFIX_KEY) {
+      ev.preventDefault();
+      startPending();
+      return;
+    }
+
+    switch (ev.key) {
+      case "n": ev.preventDefault(); navigateThread("next"); break;
+      case "p": ev.preventDefault(); navigateThread("prev"); break;
+      case "N": ev.preventDefault(); navigateFile("next"); break;
+      case "P": ev.preventDefault(); navigateFile("prev"); break;
+      case "d": ev.preventDefault(); pageScroll("down"); break;
+      case "u": ev.preventDefault(); pageScroll("up"); break;
+      case "z": ev.preventDefault(); centerFocused(); break;
+      case "w": ev.preventDefault(); toggleWrap(); break;
+    }
+  });
+})();
