@@ -161,15 +161,23 @@ def cmd_pull(args: argparse.Namespace) -> int:
 
         candidate_ref = "refs/remotes/peanut-review-upstream/candidate"
         run(["git", "fetch", str(clone), f"filtered:{candidate_ref}"])
-        run(
+        merge = subprocess.run(
             [
                 "git",
                 "merge",
                 "--no-ff",
                 "--no-commit",
                 candidate_ref,
-            ]
+            ],
+            cwd=ROOT,
+            check=False,
         )
+        if merge.returncode != 0:
+            raise ValueError(
+                "upstream merge stopped with conflicts; the provenance file "
+                "was not advanced. Resolve and commit the merge, or run "
+                "`git merge --abort` to return to the pre-pull state"
+            )
 
         manifest["revision"] = target
         manifest["filteredTip"] = filtered_tip
