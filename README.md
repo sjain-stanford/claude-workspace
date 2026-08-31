@@ -124,7 +124,7 @@ Inside the interactive development container, start the web UI with:
 tools/peanut-review/bin/peanut_review_serve.sh
 ```
 
-The Docker launcher publishes it at `http://127.0.0.1:27183/pr` and stores
+The Docker launcher publishes it at `http://127.0.0.1:27183/` and stores
 sessions under `.cache/peanut-review/sessions` by default.
 
 ## Agent Workflow
