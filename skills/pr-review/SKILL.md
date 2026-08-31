@@ -1,11 +1,15 @@
 ---
 name: pr-review
-description: Comprehensive pull request review for projects in this workspace. Use when asked to review a PR, analyze code changes, or provide feedback on pull requests.
+description: Perform a focused single-agent pull request review and save a Markdown report. Use for ordinary PR review requests; use peanut-review instead when the user asks for multi-agent reviewers, personas, curation, a persistent session, the web UI, or GitHub publishing.
 ---
 
 # PR Review Skill
 
 Provides comprehensive pull request reviews following project coding standards.
+
+This is the lightweight, report-oriented review path. Do not launch
+peanut-review implicitly. If a peanut-review session already exists, inspect it
+only when the user asks to incorporate or summarize that session.
 
 ## Usage
 

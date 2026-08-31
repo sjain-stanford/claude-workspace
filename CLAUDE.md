@@ -36,6 +36,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `plans/` - Saved implementation plans from plan mode (gitignored contents, tracked directory)
 - `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
 - `skills/` - Project-specific skills and shared references
+- `tools/` - Workspace-owned tools, including the filtered-history peanut-review port and its upstream synchronization helper
 - `.agents/` - Agent configuration; includes `skills -> ../skills` symlink for Codex skill discovery
 - `.claude/` - Claude Code configuration; includes settings and `skills -> ../skills` symlink
 - `.codex/` - Codex local configuration and rules
@@ -53,6 +54,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/fusilli-project/` - Use when adding new features or debugging issues in Fusilli
 - `skills/gh-address-comments/` - Use when addressing GitHub PR or issue comments on the current branch
 - `skills/gh-fix-ci/` - Use when debugging and fixing failing GitHub Actions checks for a PR
+- `skills/peanut-review/` - Use for explicit multi-agent review sessions, personas, curation, the review web UI, or GitHub review publishing
 - `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions and PR-body agent attribution)
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
@@ -61,6 +63,14 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/llvm-coding-standards.md` - Reference for C++ coding standards from LLVM (shared across skills)
 
 > **Note**: Skills are symlinked from agent-specific config directories (`.claude/skills` -> `../skills`, `.agents/skills` -> `../skills`) so local agents can discover them while keeping the source files at the repo root for easier editing.
+
+Keep the review workflows distinct. `pr-review` and `self-review` are focused
+single-agent reviews that save Markdown reports under `reviews/`.
+`peanut-review` is the explicit multi-agent workflow with persistent sessions,
+personas, curation, a web UI, and optional GitHub publishing. Do not escalate an
+ordinary review into peanut-review unless the user requests those capabilities.
+All three workflows must read `skills/review-criteria.md` and any applicable
+project-specific instructions before assessing changes.
 
 ## Sub-Repo Git Usage
 
