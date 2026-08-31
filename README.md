@@ -118,14 +118,17 @@ Use `skills/peanut-review/` for explicit multi-agent review sessions and
 are ordinary tracked files rather than a submodule. Upstream provenance and
 synchronization instructions live in `tools/README.md`.
 
-Inside the interactive development container, start the web UI with:
+From a host shell at the `claude-workspace` root, start the web UI with:
 
 ```bash
-tools/peanut-review/bin/peanut_review_serve.sh
+PR_ROOT="$PWD/.cache/peanut-review/sessions" \
+  tools/peanut-review/bin/peanut_review_serve.sh
 ```
 
-The Docker launcher publishes it at `http://127.0.0.1:27183/` and stores
-sessions under `.cache/peanut-review/sessions` by default.
+Open `http://127.0.0.1:27183/pr/`. Keep `PR_ROOT` aligned with the
+`reviewRoot` in `.peanut-review.json` so the CLI and web UI use the same
+sessions. The server binds to host loopback by default and does not require a
+Docker port mapping.
 
 ## Agent Workflow
 
