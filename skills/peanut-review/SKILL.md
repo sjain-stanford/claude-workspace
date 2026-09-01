@@ -95,6 +95,9 @@ before running commands and keep it current.
 
 Mode-specific checklist:
 
+- [ ] GitHub PR: create or reuse a clean review-only worktree attached to a
+      dedicated local review branch; never use a detached checkout when the
+      session should support Refresh PR.
 - [ ] GitHub PR: prefer `start --no-launch`, build/test, then `launch`, unless
       the user says the checkout is already built.
 - [ ] GitHub PR: after all reviewers signal `round-done`, let `wait-all`
@@ -151,6 +154,20 @@ the exact `agents` lineup. Point the web UI at the same `reviewRoot`. If no
 config exists, ask before choosing persistent roots, repo layout, reviewers,
 runners, or models.
 
+`peanut-review start` consumes an existing checkout; it does not create the
+review worktree. For a GitHub-backed PR session, create the worktree on a
+dedicated local branch at creation time, distinct from any author/development
+branch that may be checked out elsewhere. Do not use `--detach`: Refresh PR
+requires a clean attached branch that it can fast-forward to the pushed PR
+head.
+
+```bash
+git -C projects/<repo> worktree add \
+  -b peanut-review/pr-<number>-<change> \
+  "$PWD/.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>" \
+  <pr-head-sha>
+```
+
 For GitHub PR sessions, the config must include a dedicated curator agent in
 `agents`, for example `{"name":"Curator","model":"gpt-5.5-high",
 "runner":"cursor","role":"curator"}`. The curator uses a dedicated prompt, so
@@ -196,7 +213,12 @@ context, run reviewers, curate findings, and prepare a push-ready preview.
 Publish comments or an approve/request-changes decision only when the user
 explicitly asks.
 
-1. Start without launching unless the checkout is already built. The command
+1. Create or select the clean, branch-attached review worktree described above
+   and run from inside it. Keep author changes in a separate development
+   worktree; push them before using Refresh PR because refresh reads the remote
+   PR head.
+
+2. Start without launching unless the checkout is already built. The command
    imports existing GitHub context and prints the session path.
 
    ```bash
@@ -204,18 +226,18 @@ explicitly asks.
    SESSION=<printed-session-path>
    ```
 
-2. Build/test the checkout with the project workflow. If reviewers need
+3. Build/test the checkout with the project workflow. If reviewers need
    non-obvious tool paths, make them available through the runner workspace
    or rendered prompt before launch; do not use Agent reports as setup chat.
 
-3. Launch reviewers and wait for the first pass plus automatic curation:
+4. Launch reviewers and wait for the first pass plus automatic curation:
 
    ```bash
    "$PR_BIN" --session "$SESSION" launch
    "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
    ```
 
-4. Inspect the curator's result. Delete duplicate/noisy local comments with
+5. Inspect the curator's result. Delete duplicate/noisy local comments with
    `delete <c_id>` if anything remains. Add replies only when they clarify a
    finding for the PR author. Do not resolve imported GitHub comments unless
    the GitHub discussion was actually resolved or the user asks you to manage
@@ -227,7 +249,7 @@ explicitly asks.
    "$PR_BIN" --session "$SESSION" comments --since "$LAST_COMMENT_ID"
    ```
 
-5. Add one top-level verdict comment when there is an overall conclusion:
+6. Add one top-level verdict comment when there is an overall conclusion:
 
    ```bash
    "$PR_BIN" --session "$SESSION" add-global-comment --category request-changes --body "Blocking issue: ..."
@@ -238,7 +260,7 @@ explicitly asks.
    self-owned PRs, GitHub may reject approve/request-changes events; use a
    normal global comment in that case.
 
-6. Preview the review payload:
+7. Preview the review payload:
 
    ```bash
    "$PR_BIN" --session "$SESSION" gh-push --dry-run
@@ -248,7 +270,7 @@ explicitly asks.
    infer push permission from a request to review a PR, run
    `/peanut-review pr`, complete the lifecycle, or produce a verdict.
 
-7. Only when the user explicitly asks to publish or push the review, rerun the
+8. Only when the user explicitly asks to publish or push the review, rerun the
    dry-run and then push:
 
    ```bash
