@@ -118,17 +118,32 @@ Use `skills/peanut-review/` for explicit multi-agent review sessions and
 are ordinary tracked files rather than a submodule. Upstream provenance and
 synchronization instructions live in `tools/README.md`.
 
-From a host shell at the `claude-workspace` root, start the web UI with:
+Start the web UI from the `claude-workspace` root, setting `PR_ROOT` to the
+configured review root when it differs from the launcher's `$HOME/reviews`
+default:
 
 ```bash
 PR_ROOT="$PWD/.cache/peanut-review/sessions" \
   tools/peanut-review/bin/peanut_review_serve.sh
 ```
 
-Open `http://127.0.0.1:27183/pr/`. Keep `PR_ROOT` aligned with the
-`reviewRoot` in `.peanut-review.json` so the CLI and web UI use the same
-sessions. The server binds to host loopback by default and does not require a
-Docker port mapping.
+Open `http://127.0.0.1:27183/`. Keep `PR_ROOT` aligned with the `reviewRoot` in
+`.peanut-review.json` so the CLI and web UI use the same sessions.
+
+Inside the development container, the launcher binds to `0.0.0.0` so Docker's
+published port can reach it. Launch the container with peanut-review forwarding
+enabled:
+
+```bash
+DOCKER_ENABLE_PEANUT_REVIEW_WEB=1 ./projects/docker/run_docker.sh
+```
+
+The Docker launcher publishes port `27183` only on the SSH host's loopback
+interface, allowing VSCode Remote SSH to forward it without exposing the UI on
+the host's external interfaces. Outside Docker, the peanut-review launcher
+binds directly to `127.0.0.1`. Set `PR_HOST` or `PR_PORT` to override these
+defaults. `PR_BASE_URL` should only be set when a reverse proxy strips the same
+path prefix before forwarding requests.
 
 ## Agent Workflow
 

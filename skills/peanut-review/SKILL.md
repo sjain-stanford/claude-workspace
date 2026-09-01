@@ -345,9 +345,14 @@ running `peanut_review serve --root ...` process and use that for session
 storage instead of starting a new server or guessing a different root.
 
 ```bash
-"$PR_BIN" serve --root "$REVIEW_ROOT" --port 27183 --base-url /pr
+"$PR_BIN" serve --root "$REVIEW_ROOT" --host 0.0.0.0 --port 27183
 "$PR_BIN" stop --root "$REVIEW_ROOT"
 ```
+
+Use `--host 0.0.0.0` when serving from Docker through a published port. For a
+direct connection, leave `--base-url` unset and open the server root. Set a
+base URL only behind a reverse proxy that strips the same prefix before
+forwarding requests.
 
 ## Runners
 

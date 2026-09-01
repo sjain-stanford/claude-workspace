@@ -22,7 +22,9 @@ Start the web UI:
 bin/peanut_review_serve.sh
 ```
 
-Defaults: `root=$HOME/reviews`, `url=http://127.0.0.1:27183/pr`.
+Defaults: `root=$HOME/reviews`, `port=27183`, and a root-mounted UI. The
+launcher binds to `0.0.0.0` in Docker and `127.0.0.1` otherwise. Open
+`http://127.0.0.1:27183/` through the Docker/SSH port forwarding path.
 
 ### Optional browser profiling
 
