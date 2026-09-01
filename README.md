@@ -124,6 +124,11 @@ shared `.cache/peanut-review/.peanut-review.json` uses the current `$PWD` as
 the source checkout and writes persistent session data to
 `.cache/peanut-review/sessions/`.
 
+Create each GitHub-backed review worktree on its own local branch, such as
+`peanut-review/pr-<number>-<change>`, rather than as a detached checkout. Keep
+that branch separate from the development branch and free of local changes so
+the web UI can refresh it to the latest pushed PR head.
+
 Start the web UI from the `claude-workspace` root, setting `PR_ROOT` to the
 configured review root when it differs from the launcher's `$HOME/reviews`
 default:

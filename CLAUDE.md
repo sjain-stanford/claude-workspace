@@ -87,6 +87,20 @@ Create those review-only worktrees under
 `peanut-review start` from inside the review worktree so `$PWD` identifies the
 intended checkout.
 
+Create every GitHub-backed PR review worktree on a dedicated local review
+branch at worktree creation time; do not use a detached checkout. Name the
+branch `peanut-review/pr-<number>-<change>` (or another unambiguous review-only
+name), keep it distinct from the author/development branch, and keep it clean
+so the web UI's Refresh PR action can fast-forward it to the pushed PR head.
+For example:
+
+```bash
+git -C projects/<repo> worktree add \
+  -b peanut-review/pr-<number>-<change> \
+  "$PWD/.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>" \
+  <pr-head-sha>
+```
+
 If `git push` or any other remote-write command is denied by permissions,
 stop and ask the user how to proceed. Do not bypass the denial with alternate
 remote mutation paths such as `gh api`, GitHub REST/GraphQL calls, `gh pr edit`,
