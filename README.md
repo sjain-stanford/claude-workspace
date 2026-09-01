@@ -35,8 +35,7 @@ claude-workspace/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
 ├── tools/           # Workspace tools and upstream synchronization helpers
-│   ├── peanut-review/
-│   └── peanut-review-upstream
+│   └── peanut-review/
 ├── plans/           # Mandatory saved implementation plans for larger work
 ├── reviews/         # Saved PR and self-review outputs
 ├── .agents/         # Agent configuration
