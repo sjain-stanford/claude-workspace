@@ -1,0 +1,2445 @@
+"""Tests for the web subpackage: diff parser, renderer, HTTP server."""
+from __future__ import annotations
+
+import gzip
+import json
+import os
+import subprocess
+import tempfile
+import threading
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from peanut_review import session as sess, store
+from peanut_review.models import AgentConfig, AgentRole, Comment, GitHubPR, Note
+from peanut_review.web import app as web_app
+from peanut_review.web import diff as diffmod
+from peanut_review.web import render
+
+
+# ---------------- fixtures ----------------
+
+def _git(cwd: str | Path, *args: str) -> str:
+    r = subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        capture_output=True, text=True, check=True,
+    )
+    return r.stdout
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """Two-commit repo with a base and a topic commit touching one file."""
+    wd = tmp_path / "repo"
+    wd.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(wd)], check=True)
+    subprocess.run(["git", "-C", str(wd), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(wd), "config", "user.name", "t"], check=True)
+    (wd / "foo.py").write_text("def greet(name):\n    return f'hi {name}'\n")
+    _git(wd, "add", ".")
+    _git(wd, "commit", "-q", "-m", "base")
+    (wd / "foo.py").write_text("def greet(name):\n    return f'hello {name}'\n")
+    _git(wd, "commit", "-q", "-am", "change greeting")
+    return wd
+
+
+@pytest.fixture
+def session_dir(tmp_path: Path, repo: Path) -> Path:
+    sd = tmp_path / "sess"
+    sess.create_session(
+        workspace=str(repo),
+        base_ref="main~1",
+        topic_ref="main",
+        agents=[{"name": "felix", "model": "m", "persona": "felix.md"}],
+        session_dir=str(sd),
+    )
+    return sd
+
+
+def _long_repo(tmp_path: Path, *, line_count: int, changed_line: int) -> Path:
+    wd = tmp_path / "long-repo"
+    wd.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(wd)], check=True)
+    subprocess.run(["git", "-C", str(wd), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(wd), "config", "user.name", "t"], check=True)
+    base_lines = [
+        f"value_{i:03d} = {i}\n"
+        for i in range(1, line_count + 1)
+    ]
+    (wd / "long.py").write_text("".join(base_lines))
+    _git(wd, "add", ".")
+    _git(wd, "commit", "-q", "-m", "base")
+    changed_lines = list(base_lines)
+    changed_lines[changed_line - 1] = f"value_{changed_line:03d} = 'changed'\n"
+    (wd / "long.py").write_text("".join(changed_lines))
+    _git(wd, "commit", "-q", "-am", "change long file")
+    return wd
+
+
+def _new_large_file_repo(tmp_path: Path, *, line_count: int) -> Path:
+    wd = tmp_path / "new-large-file-repo"
+    wd.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(wd)], check=True)
+    subprocess.run(["git", "-C", str(wd), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(wd), "config", "user.name", "t"], check=True)
+    (wd / "seed.txt").write_text("base\n")
+    _git(wd, "add", ".")
+    _git(wd, "commit", "-q", "-m", "base")
+    (wd / "generated.py").write_text("".join(
+        f"value_{i:03d} = {i}\n"
+        for i in range(1, line_count + 1)
+    ))
+    _git(wd, "add", ".")
+    _git(wd, "commit", "-q", "-m", "add generated")
+    return wd
+
+
+def _dense_large_file_repo(
+    tmp_path: Path,
+    *,
+    line_count: int,
+    change_every: int,
+) -> Path:
+    wd = tmp_path / "dense-large-file-repo"
+    wd.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(wd)], check=True)
+    subprocess.run(["git", "-C", str(wd), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(wd), "config", "user.name", "t"], check=True)
+    base_lines = [
+        f"value_{i:04d} = {i}\n"
+        for i in range(1, line_count + 1)
+    ]
+    (wd / "dense.py").write_text("".join(base_lines))
+    _git(wd, "add", ".")
+    _git(wd, "commit", "-q", "-m", "base")
+    changed_lines = list(base_lines)
+    for i in range(change_every, line_count + 1, change_every):
+        changed_lines[i - 1] = f"value_{i:04d} = 'changed'\n"
+    (wd / "dense.py").write_text("".join(changed_lines))
+    _git(wd, "commit", "-q", "-am", "dense change")
+    return wd
+
+
+def _session_for_repo(tmp_path: Path, repo: Path) -> Path:
+    sd = tmp_path / "sess"
+    sess.create_session(
+        workspace=str(repo),
+        base_ref="main~1",
+        topic_ref="main",
+        agents=[{"name": "felix", "model": "m", "persona": "felix.md"}],
+        session_dir=str(sd),
+    )
+    return sd
+
+
+# ---------------- diff parser ----------------
+
+def test_parse_diff_added_modified(repo: Path):
+    files = diffmod.parse_diff(str(repo), "main~1", "main")
+    assert len(files) == 1
+    fd = files[0]
+    assert fd.path == "foo.py"
+    assert fd.status == "M"
+    # One added + one deleted (the `return` line changed) + one context line (def line)
+    assert fd.additions == 1
+    assert fd.deletions == 1
+    # Should contain a context line for the def statement
+    kinds = [l.kind for l in fd.lines]
+    assert "context" in kinds
+    assert "added" in kinds
+    assert "deleted" in kinds
+
+
+def test_parse_diff_empty_range(repo: Path):
+    files = diffmod.parse_diff(str(repo), "main", "main")
+    assert files == []
+
+
+def test_parse_diff_rejects_missing_pinned_ref(repo: Path):
+    with pytest.raises(RuntimeError, match="missing-review-base"):
+        diffmod.parse_diff(str(repo), "missing-review-base", "main")
+
+
+def test_parse_diff_new_file(repo: Path, tmp_path: Path):
+    base = _git(repo, "rev-parse", "HEAD").strip()
+    (repo / "new.py").write_text("x = 1\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "add new")
+    files = diffmod.parse_diff(str(repo), base, "HEAD")
+    new_files = [f for f in files if f.path == "new.py"]
+    assert len(new_files) == 1
+    assert new_files[0].status == "A"
+    assert new_files[0].additions == 1
+
+
+def test_parse_diff_uses_bounded_virtual_context_and_revision_cache(tmp_path: Path):
+    repo = _long_repo(tmp_path, line_count=120, changed_line=60)
+    diffmod.clear_diff_cache()
+
+    [first] = diffmod.parse_diff(str(repo), "main~1", "main")
+    [second] = diffmod.parse_diff(str(repo), "main~1", "main")
+
+    assert first.total_lines == 121
+    assert len(first.lines) == 66
+    assert [(gap.start_index, gap.count) for gap in first.gaps] == [
+        (0, 27),
+        (93, 28),
+    ]
+    assert second is first
+    assert diffmod.diff_cache_info().hits == 1
+
+
+def test_bounded_diff_slice_reads_virtual_context(tmp_path: Path):
+    repo = _long_repo(tmp_path, line_count=120, changed_line=60)
+    [fd] = diffmod.parse_diff(str(repo), "main~1", "main")
+
+    lines = diffmod.slice_diff(fd, 4, 9)
+
+    assert [line.new_lineno for line in lines] == [5, 6, 7, 8, 9]
+    assert lines[0].content == "value_005 = 5"
+    assert all(line.kind == "context" for line in lines)
+
+
+def test_bounded_diff_preserves_rename_delete_and_binary_shapes(tmp_path: Path):
+    repo = tmp_path / "shape-repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    (repo / "old.txt").write_text("one\ntwo\n")
+    (repo / "removed.txt").write_text("remove\nme\n")
+    (repo / "image.bin").write_bytes(b"\x00\x01\x02")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "base")
+    _git(repo, "mv", "old.txt", "renamed.txt")
+    (repo / "removed.txt").unlink()
+    (repo / "image.bin").write_bytes(b"\x00\x03\x04")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "change shapes")
+
+    files = {fd.path: fd for fd in diffmod.parse_diff(str(repo), "main~1", "main")}
+
+    assert files["renamed.txt"].status == "R"
+    assert files["renamed.txt"].total_lines == 2
+    assert files["renamed.txt"].gaps[0].count == 2
+    assert files["removed.txt"].status == "D"
+    assert [line.kind for line in files["removed.txt"].lines] == ["deleted", "deleted"]
+    assert files["image.bin"].status == "M"
+    assert files["image.bin"].binary is True
+
+
+# ---------------- renderer ----------------
+
+def test_render_page_smoke(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c = Comment(author="felix", file="foo.py", line=2, body="nice", severity="suggestion")
+    store.append_comment(session_dir, c)
+    comments = store.read_all_comments(session_dir)
+
+    html = render.render_page(s, s.id, files, comments, head_shifted=False)
+    assert "<!doctype html>" in html
+    assert "foo.py" in html
+    assert "suggestion" in html
+    assert f"/{s.id}" in html
+    assert "nice" in html  # comment body rendered
+    assert "felix" in html  # author
+    assert 'id="theme-toggle"' in html
+    assert 'localStorage.getItem("pr.theme")' in html
+
+
+def test_render_page_folds_long_unchanged_context(tmp_path: Path):
+    repo = _long_repo(tmp_path, line_count=120, changed_line=60)
+    session_dir = _session_for_repo(tmp_path, repo)
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert 'class="line fold-gap"' in html
+    assert 'data-folded-lines="27"' in html
+    assert 'class="fold-toggle"' in html
+    assert 'data-fold-expand=' in html
+    assert 'class="fold-payload"' not in html
+    app_js = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    assert "MAX_FOLD_EXPAND_LINES = 100" in app_js
+    assert "27 unchanged lines hidden" in html
+    assert "28 unchanged lines hidden" in html
+    assert html.count('class="line context"') < 80
+    assert "value_028" in html
+    assert "value_092" in html
+
+
+def test_render_page_folds_large_added_files(tmp_path: Path):
+    repo = _new_large_file_repo(tmp_path, line_count=250)
+    session_dir = _session_for_repo(tmp_path, repo)
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert "generated.py" in html
+    assert "added lines hidden" in html
+    assert html.count('class="line added"') < 150
+    assert 'data-new-line="1"' in html
+
+
+def test_render_page_caps_dense_large_file_initial_rows(tmp_path: Path):
+    repo = _dense_large_file_repo(tmp_path, line_count=3000, change_every=5)
+    session_dir = _session_for_repo(tmp_path, repo)
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert "dense.py" in html
+    assert html.count('class="line ') < 500
+    assert 'data-fold-start-index=' in html
+    assert 'data-fold-end-index=' in html
+    assert 'class="fold-payload"' not in html
+    assert '<span class="hl-' not in html
+
+
+def test_render_page_keeps_comment_anchor_visible_in_large_file(tmp_path: Path):
+    repo = _dense_large_file_repo(tmp_path, line_count=3000, change_every=5)
+    session_dir = _session_for_repo(tmp_path, repo)
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c = Comment(author="vera", file="dense.py", line=2500, body="late comment",
+                severity="warning")
+
+    html = render.render_page(s, s.id, files, [c], head_shifted=False)
+
+    assert "late comment" in html
+    assert "value_2500" in html
+    assert 'data-line="2500"' in html
+
+
+def test_render_page_keeps_comment_anchor_visible_when_context_folded(
+    tmp_path: Path,
+):
+    repo = _long_repo(tmp_path, line_count=160, changed_line=120)
+    session_dir = _session_for_repo(tmp_path, repo)
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c = Comment(author="vera", file="long.py", line=5, body="look here",
+                severity="warning")
+
+    html = render.render_page(s, s.id, files, [c], head_shifted=False)
+
+    assert "look here" in html
+    assert "value_005" in html
+    assert 'data-line="5"' in html
+
+
+def test_render_page_enforces_global_row_and_highlight_budgets(
+    session_dir: Path,
+):
+    s = sess.load_session(session_dir)
+    files = []
+    for file_index in range(80):
+        lines = [
+            diffmod.DiffLine("added", None, line + 1, f"value = {line}", line)
+            for line in range(100)
+        ]
+        files.append(diffmod.FileDiff(
+            path=f"generated/{file_index:03d}.py",
+            status="A",
+            lines=lines,
+            additions=len(lines),
+            total_lines=len(lines),
+        ))
+
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert html.count('class="line added"') == render.MAX_INITIAL_PAGE_LINES
+    assert html.count('<span class="hl-') < render.MAX_INITIAL_PAGE_HIGHLIGHT_LINES * 8
+    assert "--file-intrinsic-size:" in html
+
+
+def test_render_page_tracks_known_comments_outside_rendered_files(
+    session_dir: Path, repo: Path,
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    comment = Comment(
+        author="vera", file="outside.py", line=10, body="not in this diff",
+    )
+
+    html = render.render_page(s, s.id, files, [comment], head_shifted=False)
+
+    assert "not in this diff" not in html
+    assert f'window.PR_KNOWN_COMMENT_IDS = ["{comment.id}"]' in html
+
+
+def test_render_page_keeps_file_header_sticky(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    css = (Path(web_app.__file__).parent / "assets" / "style.css").read_text()
+    assert ".file-header" in css
+    assert "position: sticky;" in css
+    assert "top: var(--sticky-file-top);" in css
+    assert "border-radius: 0;" in css
+    assert "--sticky-target-offset" in css
+    assert "content-visibility: auto" in css
+    assert '<span class="path" title="foo.py">foo.py</span>' in html
+
+
+def test_render_index_includes_theme_toggle():
+    html = render.render_index([], roots=["/tmp/reviews"])
+
+    assert 'id="theme-toggle"' in html
+    assert 'localStorage.getItem("pr.theme")' in html
+
+
+def test_render_index_slash_focuses_session_filter():
+    html = render.render_index([], roots=["/tmp/reviews"])
+    index_js = (
+        Path(web_app.__file__).parent / "assets" / "index.js"
+    ).read_text()
+
+    assert 'id="session-search"' in html
+    assert 'placeholder="Press / to search"' in html
+    assert 'aria-keyshortcuts="/ Escape"' in html
+    assert 'event.key !== "/"' in index_js
+    assert "isEditing" in index_js
+    assert "sessionSearch.focus()" in index_js
+    assert "sessionSearch.select()" in index_js
+    assert 'event.key === "Escape"' in index_js
+    assert "sessionSearch.blur()" in index_js
+
+
+def test_render_index_labels_and_renders_last_update():
+    updated_at = (
+        datetime.now(timezone.utc) - timedelta(minutes=16)
+    ).isoformat(timespec="microseconds")
+    html = render.render_index([{
+        "id": "session-a",
+        "updated_at": updated_at,
+        "progress": {"label": "4 review agents running", "status": "running"},
+        "push_activity": {
+            "label": "2 new comments since push", "status": "new", "count": 2,
+        },
+    }], roots=["/tmp/reviews"])
+
+    assert "<th>Progress</th>" in html
+    assert "4 review agents running" in html
+    assert "2 new comments since push" in html
+    assert "<th>State</th>" not in html
+    assert "<th>Updated</th>" in html
+    assert ">16 minutes ago</time>" in html
+    assert ">updated 16 minutes ago</time>" not in html
+    assert f'datetime="{updated_at}"' in html
+    assert "<th>Created</th>" not in html
+
+    index_js = (
+        Path(web_app.__file__).parent / "assets" / "index.js"
+    ).read_text()
+    assert "s.progress" in index_js
+    assert "s.github_url" in index_js
+    assert "s.push_activity" in index_js
+    assert 'class="github-ref"' in index_js
+    assert 'target="_blank"' in index_js
+    assert "sessionStateLabel" not in index_js
+    assert ">${esc(label)}</time>`" in index_js
+    assert ">updated ${esc(label)}</time>`" not in index_js
+
+
+def test_render_page_shows_agent_derived_progress(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    s.agents[0].status = "running"
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+    header = html[html.index("<header>"):html.index("</header>")]
+
+    assert 'class="badge review-progress progress-running"' in header
+    assert 'data-progress-status="running"' in header
+    assert ">1 review agent running</span>" in header
+    assert "in review" not in header
+
+
+def test_render_page_has_copy_session_name_button(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+    header = html[html.index("<header>"):html.index("</header>")]
+
+    assert 'id="copy-session-id"' in header
+    assert 'class="copy-session-id"' in header
+    assert f'data-session-id="{s.id}"' in header
+    assert 'title="Copy session name"' in header
+    assert ">▣</button>" in header
+    app_js = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    assert "copyTextToClipboard" in app_js
+
+
+def test_render_page_uses_github_title_for_change_label(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    s.base_ref = "base-sha"
+    s.topic_ref = "topic-sha"
+    s.current_head = "topic-sha"
+    s.github = GitHubPR(
+        repo="acme/foo",
+        number=42,
+        url="https://github.com/acme/foo/pull/42",
+        head_sha="topic-sha",
+        base_sha="base-sha",
+        title="Add a feature",
+    )
+    files = diffmod.parse_diff(str(repo), "main~1", "main")
+
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+    header = html[html.index("<header>"):html.index("</header>")]
+    sidebar = html[html.index("<aside"):html.index("</aside>")]
+
+    assert "Add a feature" in header
+    assert "base-sha" not in header
+    assert "topic-sha" not in header
+    assert '<li data-k="change"><span>change</span>' not in sidebar
+    assert "Add a feature" not in sidebar
+    assert '<li data-k="head"><span>head</span><span class="v mono">topic-sha</span></li>' in sidebar
+    assert '<li data-k="base"><span>base</span><span class="v mono">base-sha</span></li>' in sidebar
+    assert '<li data-k="pr"><span>pr</span><span class="v mono">acme/foo#42</span></li>' in sidebar
+
+
+def test_render_comment_escapes_html(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c = Comment(author="felix", file="foo.py", line=1,
+                body="<script>alert(1)</script>", severity="critical")
+    store.append_comment(session_dir, c)
+
+    html = render.render_page(s, s.id, files, [c], head_shifted=False)
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_render_comment_includes_relative_timestamp(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c = Comment(
+        author="felix",
+        timestamp="2020-01-01T00:00:00+00:00",
+        file="foo.py",
+        line=1,
+        body="old note",
+        severity="nit",
+    )
+
+    html = render.render_page(s, s.id, files, [c], head_shifted=False)
+
+    assert (
+        '<time class="comment-time" datetime="2020-01-01T00:00:00+00:00" '
+        'title="2020-01-01T00:00:00+00:00">'
+    ) in html
+    assert "ago</time>" in html
+
+
+def test_relative_time_label_uses_github_style_units():
+    now = datetime(2026, 5, 4, 12, 0, tzinfo=timezone.utc)
+
+    assert render._relative_time_label(
+        "2026-05-04T11:57:00+00:00", now=now,
+    ) == "3 minutes ago"
+    assert render._relative_time_label(
+        "2026-05-04T10:20:00+00:00", now=now,
+    ) == "1 hour ago"
+    assert render._relative_time_label(
+        "2026-05-03T10:00:00+00:00", now=now,
+    ) == "yesterday"
+
+
+def test_render_sidebar_files_list_with_counts(session_dir: Path, repo: Path):
+    """Sidebar lists each changed file with unresolved/total counts and an anchor."""
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    # Two comments on foo.py: one open + one resolved → 1 open / 2 total.
+    c_open = Comment(author="felix", file="foo.py", line=1, body="a", severity="nit")
+    c_done = Comment(author="vera", file="foo.py", line=2, body="b", severity="nit",
+                     resolved=True)
+    store.append_comment(session_dir, c_open)
+    store.append_comment(session_dir, c_done)
+    html = render.render_page(s, s.id, files, store.read_all_comments(session_dir),
+                              head_shifted=False)
+
+    assert "<h3>Files " in html, "sidebar should have a Files heading"
+    assert 'class="sidebar-heading files-heading"' in html
+    assert '<span class="file-total-stats" title="Cumulative lines changed">' in html
+    assert '<span class="add">+1</span> <span class="del">-1</span>' in html
+    assert 'class="files"' in html
+    # Anchor id on file section + matching href in sidebar.
+    assert 'id="f-foo-py"' in html
+    assert 'href="#f-foo-py"' in html
+    # The file's per-file count cell should carry open and muted/total spans.
+    assert '<span class="count open">1</span>' in html
+    assert '<span class="count muted">/2</span>' in html
+
+
+def test_render_sidebar_files_dash_when_no_comments(session_dir: Path, repo: Path):
+    """Files without any live comments show an em-dash placeholder, not a zero."""
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+    assert '<span class="count empty">—</span>' in html
+
+
+def test_render_sidebar_agents_show_model_and_hides_kill_controls_when_idle(
+    session_dir: Path,
+    repo: Path,
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert '<span class="agent-name">felix</span>' in html
+    assert '<span class="agent-model mono" title="m">m</span>' in html
+    assert 'class="agent-main"' in html
+    assert '<span class="agent-state-label">status</span> <span class="agent-state-value">pending</span>' in html
+    agent_list = html[html.index('<ul id="agent-list"'):html.index("</ul>", html.index('<ul id="agent-list"'))]
+    assert " p:" not in agent_list
+    assert " r:" not in agent_list
+    assert 'id="kill-all-agents-btn"' in html
+    assert 'id="kill-all-agents-btn" type="button" class="agent-kill-all" title="Stop all agents" hidden' in html
+    assert 'data-agent-kill="felix"' not in html
+
+
+def test_render_sidebar_agents_show_kill_controls_when_running(
+    session_dir: Path,
+    repo: Path,
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(
+        s,
+        s.id,
+        files,
+        [],
+        head_shifted=False,
+        agent_runtime={"felix": {"process_status": "running", "protocol_status": "pending"}},
+    )
+
+    assert 'id="kill-all-agents-btn" type="button" class="agent-kill-all" title="Stop all agents" hidden' not in html
+    assert 'data-agent-kill="felix"' in html
+    assert 'class="agent-state-row"' in html
+    assert '<span class="agent-state-label">process</span> <span class="agent-state-value">running</span>' in html
+    assert '<span class="agent-state-label">review</span> <span class="agent-state-value">pending</span>' in html
+
+
+def test_render_sidebar_local_sessions_show_curator_button(
+    session_dir: Path,
+    repo: Path,
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert 'id="curator-run-btn"' in html
+    assert 'title="Run comment curator"' in html
+    assert 'id="rerun-all-agents-btn"' in html
+    assert 'title="Rerun all reviewer agents"' in html
+    assert 'class="sidebar-heading agents-heading"' in html
+    assert 'class="agent-heading-actions"' in html
+
+
+def test_render_sidebar_github_sessions_show_manual_curator_button(
+    session_dir: Path,
+    repo: Path,
+):
+    s = sess.load_session(session_dir)
+    s.github = GitHubPR(repo="acme/foo", number=42)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert 'id="curator-run-btn"' in html
+
+
+def test_render_sidebar_action_shortcuts_use_namespaced_bindings(
+    session_dir: Path,
+    repo: Path,
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    html = render.render_page(s, s.id, files, [], head_shifted=False)
+
+    assert '<kbd class="prefix">␣</kbd><kbd>c</kbd><kbd>a</kbd>' in html
+    assert '<kbd class="prefix">␣</kbd><kbd>c</kbd><kbd>c</kbd>' in html
+    assert '<kbd class="prefix">␣</kbd><kbd>a</kbd><kbd>K</kbd>' in html
+    assert '<kbd class="prefix">⌃␣</kbd><kbd>a</kbd><kbd>b</kbd>' in html
+    assert '<kbd class="prefix">␣</kbd><kbd>a</kbd></span><span class="desc">add global comment' not in html
+
+
+def test_render_global_section_appears_above_files(session_dir: Path, repo: Path):
+    """The high-level feedback section is rendered, contains the add button,
+    and includes any file=='' comment in its own block."""
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    g = Comment(author="vera", file="", line=0, body="scope concern",
+                severity="warning")
+    a = Comment(author="felix", file="foo.py", line=1, body="anchored",
+                severity="nit")
+    store.append_comment(session_dir, g)
+    store.append_comment(session_dir, a)
+    html = render.render_page(s, s.id, files,
+                              store.read_all_comments(session_dir),
+                              head_shifted=False)
+    # The section exists with the expected anchor and add button.
+    assert 'id="global"' in html
+    assert 'id="add-global-btn"' in html
+    assert "High-level feedback" in html
+    # Global comment renders inside the global container.
+    g_idx = html.index('id="global-comments"')
+    g_close = html.index("</section>", g_idx)
+    assert "scope concern" in html[g_idx:g_close]
+    assert f'data-reply-to="{g.id}"' not in html[g_idx:g_close]
+    # Anchored comment is still in its file thread, not the global section.
+    assert "anchored" in html
+    assert "anchored" not in html[g_idx:g_close]
+    # Sidebar gets a high-level row that links to #global.
+    assert 'href="#global"' in html
+    assert "High-level feedback" in html
+
+
+def test_render_global_review_category_badge(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c = Comment(author="vera", file="", line=0, body="must fix",
+                category="request-changes")
+    store.append_comment(session_dir, c)
+
+    html = render.render_page(s, s.id, files, store.read_all_comments(session_dir),
+                              head_shifted=False)
+    assert 'class="category request-changes"' in html
+    assert "blocking" in html
+
+
+def test_render_global_section_excludes_globals_from_per_file_counts(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    # 2 globals (1 open + 1 resolved), 0 per-file → file row shows em-dash.
+    g1 = Comment(author="vera", file="", line=0, body="A", severity="warning")
+    g2 = Comment(author="vera", file="", line=0, body="B", severity="suggestion",
+                 resolved=True)
+    store.append_comment(session_dir, g1)
+    store.append_comment(session_dir, g2)
+    html = render.render_page(s, s.id, files,
+                              store.read_all_comments(session_dir),
+                              head_shifted=False)
+    # Per-file count cell for foo.py is empty (em-dash placeholder).
+    assert 'data-file="foo.py"' in html
+    # Global sidebar row reports 1 open / 2 total.
+    assert '<span class="count open">1</span>' in html
+    assert '<span class="count muted">/2</span>' in html
+
+
+def test_server_post_global_comment(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"scope": "global", "body": "missing rollback plan",
+             "severity": "warning", "author": "jakub"},
+        )
+        assert code == 201
+        assert data["file"] == ""
+        assert data["line"] == 0
+        assert data["body"] == "missing rollback plan"
+
+        cs = store.read_all_comments(session_dir)
+        assert len(cs) == 1
+        assert cs[0].file == "" and cs[0].line == 0
+    finally:
+        srv.shutdown()
+
+
+def test_server_post_global_review_category(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"scope": "global", "body": "lgtm", "category": "approve"},
+        )
+        assert code == 201
+        assert data["category"] == "approve"
+
+        [comment] = store.read_all_comments(session_dir)
+        assert comment.category == "approve"
+    finally:
+        srv.shutdown()
+
+
+def test_server_rejects_anchored_review_category(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "body": "lgtm", "category": "approve"},
+        )
+        assert code == 400
+        assert "only valid on global comments" in data["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_server_post_global_via_omitted_file_and_line(session_dir: Path):
+    """Posting with neither `file` nor `line` is treated as a global comment."""
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"body": "high-level concern", "severity": "suggestion"},
+        )
+        assert code == 201
+        assert data["file"] == ""
+    finally:
+        srv.shutdown()
+
+
+def test_render_thread_includes_reply_button_and_replies_inset(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    parent = Comment(author="vera", file="foo.py", line=1, body="parent",
+                     severity="warning")
+    store.append_comment(session_dir, parent)
+    reply = Comment(author="felix", file="foo.py", line=1, body="agreed",
+                    severity="suggestion", reply_to=parent.id)
+    store.append_comment(session_dir, reply)
+    html_out = render.render_page(s, s.id, files,
+                                  store.read_all_comments(session_dir),
+                                  head_shifted=False)
+    assert f'data-thread-id="{parent.id}"' in html_out
+    assert 'class="reply-btn"' in html_out
+    assert f'data-reply-to="{parent.id}"' in html_out
+    assert f'data-resolve="{parent.id}"' in html_out
+    # Reply renders with .reply class and no severity badge of its own.
+    cid_idx = html_out.index(f'data-cid="{reply.id}"')
+    div_open = html_out.rfind("<div ", 0, cid_idx)
+    assert "comment reply" in html_out[div_open:cid_idx]
+    # The reply-block body contains its meta but no severity span.
+    body_end = html_out.index("</div>", cid_idx)
+    assert "sev suggestion" not in html_out[cid_idx:body_end]
+
+
+def test_render_thread_swaps_to_unresolve_when_resolved(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    parent = Comment(author="vera", file="foo.py", line=1, body="x",
+                     severity="warning", resolved=True)
+    store.append_comment(session_dir, parent)
+    html_out = render.render_page(s, s.id, files,
+                                  store.read_all_comments(session_dir),
+                                  head_shifted=False)
+    assert f'data-unresolve="{parent.id}"' in html_out
+    assert f'data-resolve="{parent.id}"' not in html_out
+
+
+def test_render_resolved_thread_collapsed_by_default(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    parent = Comment(author="vera", file="foo.py", line=1, body="x",
+                     severity="warning", resolved=True)
+    store.append_comment(session_dir, parent)
+    store.append_comment(session_dir, Comment(
+        author="felix", file="foo.py", line=1, body="reply",
+        severity="suggestion", reply_to=parent.id,
+    ))
+    html_out = render.render_page(s, s.id, files,
+                                  store.read_all_comments(session_dir),
+                                  head_shifted=False)
+
+    assert 'class="thread resolved collapsed"' in html_out
+    assert 'data-default-collapsed="1"' in html_out
+    assert f'data-thread-collapse="{parent.id}"' in html_out
+    assert 'aria-expanded="false"' in html_out
+    assert "comment hidden, 1 reply hidden" in html_out
+
+
+def test_render_unresolved_thread_has_expanded_collapse_button(
+    session_dir: Path, repo: Path
+):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    parent = Comment(author="vera", file="foo.py", line=1, body="x",
+                     severity="warning")
+    store.append_comment(session_dir, parent)
+    html_out = render.render_page(s, s.id, files,
+                                  store.read_all_comments(session_dir),
+                                  head_shifted=False)
+
+    assert f'data-thread-collapse="{parent.id}"' in html_out
+    assert 'aria-expanded="true"' in html_out
+    assert 'data-default-collapsed="0"' in html_out
+    assert 'class="thread collapsed"' not in html_out
+
+
+def test_sidebar_counts_exclude_replies(session_dir: Path, repo: Path):
+    """A chatty thread of replies must not inflate the open count."""
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    parent = Comment(author="vera", file="foo.py", line=1, body="P",
+                     severity="warning")
+    store.append_comment(session_dir, parent)
+    for i in range(5):
+        store.append_comment(session_dir, Comment(
+            author="felix", file="foo.py", line=1, body=f"r{i}",
+            severity="suggestion", reply_to=parent.id,
+        ))
+    html_out = render.render_page(s, s.id, files,
+                                  store.read_all_comments(session_dir),
+                                  head_shifted=False)
+    # foo.py file row in sidebar should report 1 open / 1 total — replies don't count.
+    assert '<span class="count open">1</span>' in html_out
+    assert '<span class="count muted">/1</span>' in html_out
+
+
+def test_server_post_reply_and_unresolve(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        # Post parent
+        _, parent = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "body": "p", "author": "vera"},
+        )
+        assert parent["reply_to"] is None
+        # Post reply
+        code, child = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"reply_to": parent["id"], "body": "r", "author": "felix"},
+        )
+        assert code == 201
+        assert child["reply_to"] == parent["id"]
+        assert child["file"] == "foo.py"
+        assert child["line"] == 1
+
+        # Resolve then unresolve via API
+        _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/resolve",
+            {"comment_id": parent["id"], "by": "jakub"},
+        )
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/unresolve",
+            {"comment_id": parent["id"]},
+        )
+        assert code == 200
+        assert data["unresolved"] == parent["id"]
+
+        cs = store.read_all_comments(session_dir)
+        parent_stored = next(c for c in cs if c.id == parent["id"])
+        assert parent_stored.resolved is False
+    finally:
+        srv.shutdown()
+
+
+def test_server_rejects_reply_to_global_comment(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        _, parent = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"scope": "global", "body": "scope concern", "author": "vera"},
+        )
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"reply_to": parent["id"], "body": "agreed", "author": "felix"},
+        )
+        assert code == 400
+        assert data["error"] == "replies to global comments are not supported"
+    finally:
+        srv.shutdown()
+
+
+def test_server_post_reply_unknown_parent_returns_404(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"reply_to": "c_nonexistent", "body": "r"},
+        )
+        assert code == 404
+        assert "not found" in data["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_server_notes_endpoint_and_render(session_dir: Path):
+    store.append_note(session_dir, Note(
+        author="petra",
+        timestamp="2020-01-01T00:00:00+00:00",
+        body="## Test Execution\n`llvm-lit` passed",
+    ))
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _get(f"http://127.0.0.1:{port}/{session_id}/api/notes")
+        assert code == 200
+        notes = json.loads(data)
+        assert len(notes) == 1
+        assert notes[0]["author"] == "petra"
+        assert notes[0]["body"].startswith("## Test Execution")
+
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            _get(f"http://127.0.0.1:{port}/{session_id}/api/inbox")
+        assert exc.value.code == 404
+
+        code, body = _get(f"http://127.0.0.1:{port}/{session_id}")
+        assert code == 200
+        text = body.decode("utf-8")
+        assert 'id="reports"' in text
+        assert "Agent reports" in text
+        assert "comment curation" in text
+        assert 'id="inbox"' not in text
+        assert 'data-key="note/' in text
+        assert (
+            '<time class="comment-time ix-time" datetime="2020-01-01T00:00:00+00:00" '
+            'title="2020-01-01T00:00:00+00:00">'
+        ) in text
+        assert "ago</time>" in text
+        assert '<span class="ts mono">2020-01-01T00:00:00+00:00</span>' not in text
+        assert "Test Execution" in text
+        assert "llvm-lit" in text
+    finally:
+        srv.shutdown()
+
+
+def test_server_curator_launch_endpoint_returns_updated_agents(session_dir: Path):
+    def fake_launch_curator(session_path):
+        s = sess.load_session(session_path)
+        s.agents.append(AgentConfig(
+            name="Curator",
+            model="m",
+            persona="curator.md",
+            role=AgentRole.CURATOR.value,
+            runner="cursor",
+        ))
+        sess.save_session(session_path, s)
+        return [{"name": "Curator", "supervisor_pid": 2468}]
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        with patch("peanut_review.web.app.launch.launch_curator",
+                   side_effect=fake_launch_curator):
+            code, data = _post(
+                f"http://127.0.0.1:{port}/{session_id}/api/curator/launch",
+                {},
+            )
+        assert code == 202
+        assert data["results"][0]["name"] == "Curator"
+        curator = next(agent for agent in data["agents"] if agent["name"] == "Curator")
+        assert curator["role"] == "curator"
+    finally:
+        srv.shutdown()
+
+
+def test_server_agents_rerun_endpoint_targets_reviewer_agents_only(session_dir: Path):
+    s = sess.load_session(session_dir)
+    s.agents.append(AgentConfig(
+        name="Curator",
+        model="m",
+        persona="curator.md",
+        role=AgentRole.CURATOR.value,
+        runner="cursor",
+    ))
+    sess.save_session(session_dir, s)
+
+    def fake_rerun_agents(session_path, **kwargs):
+        assert session_path == session_dir
+        assert kwargs["agent_names"] == ["felix"]
+        stored = sess.load_session(session_path)
+        stored.agents[0].status = "running"
+        sess.save_session(session_path, stored)
+        return [{"name": "felix", "supervisor_pid": 1357}]
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        with patch("peanut_review.web.app.launch.rerun_agents",
+                   side_effect=fake_rerun_agents):
+            code, data = _post(
+                f"http://127.0.0.1:{port}/{session_id}/api/agents/rerun",
+                {},
+            )
+        assert code == 202
+        assert data["results"][0]["name"] == "felix"
+        assert {agent["name"]: agent["role"] for agent in data["agents"]} == {
+            "felix": "reviewer",
+            "Curator": "curator",
+        }
+    finally:
+        srv.shutdown()
+
+
+def test_server_diff_fold_endpoint_returns_bounded_slice(tmp_path: Path):
+    repo = _dense_large_file_repo(tmp_path, line_count=3000, change_every=5)
+    session_dir = _session_for_repo(tmp_path, repo)
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        path = urllib.parse.quote("dense.py")
+        code, raw = _get(
+            f"http://127.0.0.1:{port}/{session_id}/api/diff/fold"
+            f"?file={path}&start=320&end=325"
+        )
+        assert code == 200
+        data = json.loads(raw)
+        assert data["file"] == "dense.py"
+        assert data["start"] == 320
+        assert data["end"] == 325
+        assert len(data["lines"]) == 5
+        assert {"kind", "old_lineno", "new_lineno", "content"} <= set(data["lines"][0])
+    finally:
+        srv.shutdown()
+
+
+def test_render_stale_and_resolved_classes(session_dir: Path, repo: Path):
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c1 = Comment(author="felix", file="foo.py", line=1, body="stale one",
+                 severity="nit", stale=True)
+    c2 = Comment(author="vera", file="foo.py", line=2, body="resolved one",
+                 severity="nit", resolved=True)
+    html = render.render_page(s, s.id, files, [c1, c2], head_shifted=False)
+    assert "comment stale" in html
+    assert "comment resolved" in html or "resolved" in html
+
+
+# ---------------- HTTP server ----------------
+
+def _start_server(session_dir: Path):
+    registry = web_app.SessionRegistry()
+    session_id = registry.bind(session_dir)
+    srv = web_app.make_server("127.0.0.1", 0, registry)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    return srv, session_id, port
+
+
+def _get(url: str) -> tuple[int, bytes]:
+    with urllib.request.urlopen(url) as r:
+        return r.status, r.read()
+
+
+def _post(url: str, body: dict) -> tuple[int, dict]:
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, json.loads(r.read())
+    except urllib.request.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def _mark_github_backed(session_dir: Path) -> None:
+    s = sess.load_session(session_dir)
+    s.github = GitHubPR(
+        repo="acme/foo",
+        number=42,
+        url="https://github.com/acme/foo/pull/42",
+        head_sha=s.current_head,
+        base_sha=s.original_head,
+        title="t",
+    )
+    sess.save_session(session_dir, s)
+
+
+def test_server_root_renders_index(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, body = _get(f"http://127.0.0.1:{port}/")
+        assert code == 200
+        text = body.decode("utf-8")
+        assert "<!doctype html>" in text
+        # Index page must link to the known session.
+        assert f'href="/{session_id}"' in text
+        assert "peanut-review" in text
+    finally:
+        srv.shutdown()
+
+
+def test_server_session_page(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, body = _get(f"http://127.0.0.1:{port}/{session_id}/")
+        assert code == 200
+        assert b"<!doctype html>" in body
+        assert b"foo.py" in body
+    finally:
+        srv.shutdown()
+
+
+def test_server_serves_versioned_compressed_assets(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        _, body = _get(f"http://127.0.0.1:{port}/{session_id}/")
+        text = body.decode()
+        marker = 'href="/assets/style.css?v='
+        start = text.index(marker) + len('href="')
+        end = text.index('"', start)
+        asset_url = text[start:end]
+        assert '<style>' not in text
+        assert 'src="/assets/app.js?v=' in text
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}{asset_url}",
+            headers={"Accept-Encoding": "gzip"},
+        )
+        with urllib.request.urlopen(request) as response:
+            compressed = response.read()
+            assert response.headers["Content-Encoding"] == "gzip"
+            assert "immutable" in response.headers["Cache-Control"]
+            assert response.headers["ETag"]
+        assert b"content-visibility: auto" in gzip.decompress(compressed)
+    finally:
+        srv.shutdown()
+
+
+def test_comment_and_note_routes_do_not_refresh_agents_or_git(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        with (
+            patch("peanut_review.web.app.refresh_agent_statuses") as refresh,
+            patch("peanut_review.web.app.workspace_head_mismatch") as mismatch,
+        ):
+            assert _get(f"http://127.0.0.1:{port}/{session_id}/api/comments")[0] == 200
+            assert _get(f"http://127.0.0.1:{port}/{session_id}/api/notes")[0] == 200
+        refresh.assert_not_called()
+        mismatch.assert_not_called()
+    finally:
+        srv.shutdown()
+
+
+def test_unchanged_comment_poll_returns_not_modified(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    url = f"http://127.0.0.1:{port}/{session_id}/api/comments"
+    try:
+        with urllib.request.urlopen(url) as response:
+            assert response.status == 200
+            etag = response.headers["ETag"]
+            assert json.loads(response.read()) == []
+        request = urllib.request.Request(url, headers={"If-None-Match": etag})
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(request)
+        assert exc.value.code == 304
+        assert exc.value.headers["ETag"] == etag
+    finally:
+        srv.shutdown()
+
+
+def test_server_session_api(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/session")
+        assert code == 200
+        data = json.loads(raw)
+        assert data["id"] == session_id
+        assert "state" not in data
+        assert data["progress"] == {
+            "label": "1 review agent pending",
+            "status": "pending",
+        }
+        assert data["comment_count"] == 0
+        assert "agents" in data
+        assert data["agents"][0]["model"] == "m"
+        assert data["agents"][0]["process_status"] == "pending"
+        assert data["agents"][0]["protocol_status"] == "pending"
+        assert "unanswered" not in data["agents"][0]
+    finally:
+        srv.shutdown()
+
+
+def test_server_kill_agents_endpoint(session_dir: Path, monkeypatch):
+    calls = []
+
+    def fake_kill_agents(session_dir_arg, **kwargs):
+        calls.append((Path(session_dir_arg), kwargs))
+        return [{
+            "name": "felix",
+            "status": "skipped",
+            "reason": "not running",
+            "signals": [],
+        }]
+
+    monkeypatch.setattr(web_app.agent_control, "kill_agents", fake_kill_agents)
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/agents/kill",
+            {"agent": "felix"},
+        )
+        assert code == 200
+        assert calls[-1] == (session_dir, {"agent_names": ["felix"]})
+        assert data["results"][0]["status"] == "skipped"
+        assert data["agents"][0]["name"] == "felix"
+        assert data["agents"][0]["model"] == "m"
+
+        code, _ = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/agents/kill",
+            {},
+        )
+        assert code == 200
+        assert calls[-1] == (session_dir, {"agent_names": None})
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_preview_defaults_humans_on_agents_off(session_dir: Path):
+    _mark_github_backed(session_dir)
+    agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
+    human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
+    store.append_comment(session_dir, agent_comment)
+    store.append_comment(session_dir, human_comment)
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/gh/preview")
+        assert code == 200
+        data = json.loads(raw)
+        items = {item["id"]: item for item in data["new_top"]}
+
+        assert items[agent_comment.id]["is_agent"] is True
+        assert items[agent_comment.id]["default_included"] is False
+        assert items[human_comment.id]["is_agent"] is False
+        assert items[human_comment.id]["default_included"] is True
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_preview_marks_unreviewable_anchor_for_global_promotion(
+    tmp_path: Path,
+):
+    repo = _long_repo(tmp_path, line_count=160, changed_line=120)
+    sd = tmp_path / "sess"
+    sess.create_session(
+        workspace=str(repo),
+        base_ref="main~1",
+        topic_ref="main",
+        agents=[{"name": "felix", "model": "m", "persona": "felix.md"}],
+        session_dir=str(sd),
+    )
+    _mark_github_backed(sd)
+    parent = Comment(
+        author="jakub", file="long.py", line=5, body="far from hunk",
+        severity="warning",
+    )
+    reply = Comment(
+        author="jakub", file="long.py", line=5, body="reply",
+        reply_to=parent.id,
+    )
+    store.append_comment(sd, parent)
+    store.append_comment(sd, reply)
+
+    srv, session_id, port = _start_server(sd)
+    try:
+        code, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/gh/preview")
+        assert code == 200
+        data = json.loads(raw)
+        item = data["new_top"][0]
+        reply_item = data["new_replies"][0]
+
+        assert data["promoted"] == 1
+        assert item["id"] == parent.id
+        assert item["promoted_to_global"] is True
+        assert item["original_ref"] == "long.py:5"
+        assert item["ref"] == "global"
+        assert item["body"].startswith("Original anchor: `long.py:5`")
+        assert reply_item["parent_promoted_to_global"] is True
+        assert reply_item["orphaned"] is True
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_push_filters_to_selected_comment_ids(
+    session_dir: Path,
+    monkeypatch,
+):
+    _mark_github_backed(session_dir)
+    agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
+    human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
+    store.append_comment(session_dir, agent_comment)
+    store.append_comment(session_dir, human_comment)
+    captured_ids = []
+
+    def fake_execute_push(session_dir_arg, session_arg, ghpr_arg, plan):
+        del session_dir_arg, session_arg, ghpr_arg
+        selected = [*plan.new_top, *plan.new_replies, *plan.edits]
+        captured_ids.append([c.id for c in selected])
+        return web_app.gh_push.PushResult(pushed=plan.total)
+
+    monkeypatch.setattr(web_app.gh_push, "execute_push", fake_execute_push)
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
+            {"comment_ids": [agent_comment.id]},
+        )
+        assert code == 200
+        assert data["summary"] == "Pushed 1."
+        assert captured_ids[-1] == [agent_comment.id]
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_push_default_excludes_agent_comments(
+    session_dir: Path,
+    monkeypatch,
+):
+    _mark_github_backed(session_dir)
+    agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
+    human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
+    store.append_comment(session_dir, agent_comment)
+    store.append_comment(session_dir, human_comment)
+    captured_ids = []
+
+    def fake_execute_push(session_dir_arg, session_arg, ghpr_arg, plan):
+        del session_dir_arg, session_arg, ghpr_arg
+        selected = [*plan.new_top, *plan.new_replies, *plan.edits]
+        captured_ids.append([c.id for c in selected])
+        return web_app.gh_push.PushResult(pushed=plan.total)
+
+    monkeypatch.setattr(web_app.gh_push, "execute_push", fake_execute_push)
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
+            {},
+        )
+        assert code == 200
+        assert data["summary"] == "Pushed 1."
+        assert captured_ids[-1] == [human_comment.id]
+    finally:
+        srv.shutdown()
+
+
+def test_server_post_comment(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "body": "looks good",
+             "severity": "suggestion", "author": "jakub"},
+        )
+        assert code == 201
+        assert data["body"] == "looks good"
+        assert data["author"] == "jakub"
+
+        # Read-back via store
+        comments = store.read_all_comments(session_dir)
+        assert len(comments) == 1
+        assert comments[0].body == "looks good"
+    finally:
+        srv.shutdown()
+
+
+def test_server_post_comment_validates_line(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 999, "body": "x"},
+        )
+        assert code == 400
+        assert "out of range" in data["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_server_post_comment_invalid_severity(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "body": "x", "severity": "bogus"},
+        )
+        assert code == 400
+        assert "severity" in data["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_server_resolve(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        _, c = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "body": "bug", "author": "jakub"},
+        )
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/resolve",
+            {"comment_id": c["id"], "by": "jakub"},
+        )
+        assert code == 200
+        assert data["resolved"] == c["id"]
+
+        comments = store.read_all_comments(session_dir)
+        assert comments[0].resolved is True
+    finally:
+        srv.shutdown()
+
+
+def test_header_home_link_has_no_trailing_slash_with_base_url(tmp_path: Path, repo: Path):
+    """The h1 link back to the index is just `/<base>`, not `/<base>/`."""
+    root = tmp_path / "review-root"
+    root.mkdir()
+    sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "sess-a"),
+    )
+    registry = web_app.SessionRegistry([root])
+    srv = web_app.make_server("127.0.0.1", 0, registry, base_url="/pr")
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        code, body = _get(f"http://127.0.0.1:{port}/")
+        assert code == 200
+        text = body.decode("utf-8")
+        # Canonical home link
+        assert '<h1><a href="/pr">' in text
+        # …and not the trailing-slash variant
+        assert '<h1><a href="/pr/">' not in text
+    finally:
+        srv.shutdown()
+
+
+def test_header_home_link_is_root_when_no_base_url(session_dir: Path):
+    """Without a base_url, the h1 link falls back to `/`."""
+    srv, _, port = _start_server(session_dir)
+    try:
+        _, body = _get(f"http://127.0.0.1:{port}/")
+        assert '<h1><a href="/">' in body.decode("utf-8")
+    finally:
+        srv.shutdown()
+
+
+def test_server_post_delete_and_undelete(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, c = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "body": "bad", "severity": "nit",
+             "author": "felix"},
+        )
+        assert code == 201
+        cid = c["id"]
+
+        # Delete
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/delete",
+            {"comment_id": cid, "by": "jakub"},
+        )
+        assert code == 200
+        assert data["deleted"] == cid
+
+        # Default comment list hides it
+        _, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/comments")
+        assert json.loads(raw) == []
+
+        # ?include_deleted=1 brings it back with metadata
+        _, raw = _get(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments?include_deleted=1"
+        )
+        listed = json.loads(raw)
+        assert len(listed) == 1
+        assert listed[0]["deleted"] is True
+        assert listed[0]["deleted_by"] == "jakub"
+
+        # Rendered page must not include the deleted comment — look for the
+        # specific data-cid marker, not just the body text (which can appear
+        # in CSS/JS as a substring, e.g. "badge").
+        _, body = _get(f"http://127.0.0.1:{port}/{session_id}/")
+        assert f'data-cid="{cid}"'.encode() not in body
+
+        # Undelete
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/undelete",
+            {"comment_id": cid},
+        )
+        assert code == 200
+        _, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/comments")
+        assert len(json.loads(raw)) == 1
+    finally:
+        srv.shutdown()
+
+
+def test_server_delete_missing_comment_returns_404(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/delete",
+            {"comment_id": "c_missing"},
+        )
+        assert code == 404
+        assert "not found" in data["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_server_delete_button_rendered_on_each_comment(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "body": "x", "severity": "nit",
+             "author": "felix"},
+        )
+        _, body = _get(f"http://127.0.0.1:{port}/{session_id}/")
+        text = body.decode("utf-8")
+        assert 'data-delete=' in text
+        assert 'class="danger"' in text
+    finally:
+        srv.shutdown()
+
+
+def test_server_session_page_accepts_both_slash_and_no_slash(session_dir: Path):
+    """Canonical session URL has no trailing slash, but /<id>/ still works."""
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        c1, _ = _get(f"http://127.0.0.1:{port}/{session_id}")
+        c2, _ = _get(f"http://127.0.0.1:{port}/{session_id}/")
+        assert c1 == 200
+        assert c2 == 200
+    finally:
+        srv.shutdown()
+
+
+def test_server_reserved_top_level_api_not_a_session(session_dir: Path):
+    """`/api/...` must never be interpreted as a session id."""
+    srv, _, port = _start_server(session_dir)
+    try:
+        # /api/sessions is a real route (list) — works.
+        code, _ = _get(f"http://127.0.0.1:{port}/api/sessions")
+        assert code == 200
+        # /api/bogus is not a route; must 404 (not "unknown session: api").
+        _get(f"http://127.0.0.1:{port}/api/bogus")
+    except urllib.request.HTTPError as e:
+        assert e.code == 404
+        body = e.read().decode("utf-8")
+        # Must not claim "api" is an unknown session.
+        assert "unknown session" not in body
+    finally:
+        srv.shutdown()
+
+
+def test_server_unknown_session(session_dir: Path):
+    srv, _, port = _start_server(session_dir)
+    try:
+        code, data = _get(f"http://127.0.0.1:{port}/nope/api/session")
+        # urllib raises on 4xx, so we need HTTPError handling
+    except urllib.request.HTTPError as e:
+        assert e.code == 404
+    else:
+        assert False, "expected 404"
+    finally:
+        srv.shutdown()
+
+
+def test_amend_reports_workspace_mismatch_without_mutating_session(
+    session_dir: Path, repo: Path
+):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        # Seed a comment
+        _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "body": "x", "author": "jakub"},
+        )
+        # Amend to create a new HEAD (with a tree change so the SHA actually shifts)
+        (repo / "foo.py").write_text("def greet(name):\n    return f'hello, {name}!'\n")
+        _git(repo, "commit", "-q", "--amend", "--no-edit", "-a")
+
+        original = sess.load_session(session_dir)
+
+        # Browsing reports persistent drift but does not rewrite the snapshot.
+        _, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/session")
+        data = json.loads(raw)
+        assert data["head_shifted"] is True
+        assert data["workspace_mismatch"] is True
+        new_head = _git(repo, "rev-parse", "HEAD").strip()
+        assert data["workspace_head"] == new_head
+        unchanged = sess.load_session(session_dir)
+        assert unchanged.current_head == original.current_head
+        assert unchanged.topic_ref == original.topic_ref
+        assert unchanged.diff_commands == original.diff_commands
+
+        # Browsing does not stale comments either.
+        comments = store.read_all_comments(session_dir)
+        assert comments[0].stale is False
+
+        # Subsequent requests continue to report the mismatch until an
+        # explicit migrate/sync operation changes the pinned snapshot.
+        _, raw2 = _get(f"http://127.0.0.1:{port}/{session_id}/api/session")
+        data2 = json.loads(raw2)
+        assert data2["workspace_mismatch"] is True
+
+        _, body = _get(f"http://127.0.0.1:{port}/{session_id}/")
+        assert "workspace differs" in body.decode("utf-8")
+    finally:
+        srv.shutdown()
+
+
+def test_serve_writes_pidfile_and_stop_removes_it(session_dir: Path, tmp_path: Path):
+    """End-to-end: spawn serve() in a subprocess, verify pidfile, then stop."""
+    import sys
+    import time as _t
+
+    # Root = session's parent (which holds this single session).
+    root = session_dir.parent
+
+    pidfile = web_app.pidfile_path(root)
+    assert not pidfile.exists()
+
+    # Port 0 means OS-assigned. Don't pre-pick a port via bind/close — under
+    # parallel xdist runs another worker can grab it in the gap, and serve()
+    # then exits before writing the pidfile, leaving the test to time out
+    # without ever surfacing the bind error.
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "peanut_review", "serve",
+         "--root", str(root),
+         "--host", "127.0.0.1", "--port", "0"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    try:
+        deadline = _t.monotonic() + 10.0
+        while _t.monotonic() < deadline and not pidfile.exists():
+            # Fail fast (with stderr) if the subprocess died before writing
+            # the pidfile, instead of waiting for the full deadline.
+            if proc.poll() is not None:
+                stdout, stderr = proc.communicate(timeout=1.0)
+                raise AssertionError(
+                    f"serve subprocess exited with rc={proc.returncode} "
+                    f"before writing pidfile.\n"
+                    f"stdout: {stdout.decode(errors='replace')}\n"
+                    f"stderr: {stderr.decode(errors='replace')}"
+                )
+            _t.sleep(0.05)
+        assert pidfile.exists(), "serve didn't write pidfile within 10s"
+        payload = json.loads(pidfile.read_text())
+        assert payload["pid"] == proc.pid
+        assert payload["port"] > 0
+        assert payload["roots"] == [str(root)]
+
+        returned = web_app.stop(root, timeout=5.0)
+        assert returned["pid"] == proc.pid
+
+        assert not pidfile.exists()
+        assert proc.wait(timeout=2.0) is not None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_stop_without_running_server_errors(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="no running server"):
+        web_app.stop(tmp_path)
+
+
+def test_stop_cleans_stale_pidfile(tmp_path: Path):
+    pidfile = web_app.pidfile_path(tmp_path)
+    pidfile.write_text(json.dumps({"pid": 999999999, "port": 1}) + "\n")
+    with pytest.raises(RuntimeError, match="stale pidfile removed"):
+        web_app.stop(tmp_path)
+    assert not pidfile.exists()
+
+
+def test_serve_refuses_second_instance(tmp_path: Path):
+    pidfile = web_app.pidfile_path(tmp_path)
+    pidfile.write_text(json.dumps({"pid": os.getpid(), "port": 1}) + "\n")
+    try:
+        with pytest.raises(RuntimeError, match="already running"):
+            web_app.serve([tmp_path], port=0)
+    finally:
+        pidfile.unlink()
+
+
+def test_serve_requires_a_root():
+    with pytest.raises(ValueError, match="at least one root"):
+        web_app.serve([], port=0)
+
+
+def test_registry_discovers_sessions_under_root(tmp_path: Path, repo: Path):
+    root = tmp_path / "review-root"
+    root.mkdir()
+    # Two sessions under the same root.
+    s1, _ = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "sess-a"),
+    )
+    s2, _ = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "sess-b"),
+    )
+    # Plus a non-session directory that must be ignored.
+    (root / "not-a-session").mkdir()
+
+    reg = web_app.SessionRegistry([root])
+    assert reg.get(s1.id) == root / "sess-a"
+    assert reg.get(s2.id) == root / "sess-b"
+    ids = {s["id"] for s in reg.list_sessions()}
+    assert ids == {s1.id, s2.id}
+
+
+def test_registry_picks_up_sessions_added_later(tmp_path: Path, repo: Path):
+    root = tmp_path / "review-root"
+    root.mkdir()
+    reg = web_app.SessionRegistry([root])
+    assert reg.list_sessions() == []
+
+    # Add a session after the registry was created — get() triggers rescan.
+    s, _ = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "late"),
+    )
+    assert reg.get(s.id) == root / "late"
+
+
+def test_registry_pages_and_caches_only_requested_summaries(
+    tmp_path: Path, repo: Path,
+):
+    root = tmp_path / "review-root"
+    root.mkdir()
+    first, first_dir = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "first-session"),
+    )
+    second, _ = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "second-session"),
+    )
+    first.github = GitHubPR(
+        repo="acme/widgets", number=4242,
+        url="https://github.com/acme/widgets/pull/4242",
+    )
+    sess.save_session(first_dir, first)
+    registry = web_app.SessionRegistry([root])
+
+    with patch(
+        "peanut_review.web.app.store.read_all_comments",
+        wraps=store.read_all_comments,
+    ) as read_comments:
+        page = registry.page_sessions(limit=1)
+        repeated = registry.page_sessions(limit=1)
+
+    assert page["total"] == 2
+    assert page["has_more"] is True
+    assert len(page["sessions"]) == 1
+    assert repeated["sessions"] == page["sessions"]
+    assert read_comments.call_count == 1
+    assert registry.page_sessions(query=first.id)["total"] == 1
+    assert registry.page_sessions(query=second.id)["total"] == 1
+    pr_page = registry.page_sessions(query="4242")
+    assert pr_page["total"] == 1
+    assert pr_page["sessions"][0]["id"] == first.id
+
+
+def test_registry_push_activity_is_scoped_to_each_session(
+    tmp_path: Path, repo: Path,
+):
+    root = tmp_path / "review-root"
+    root.mkdir()
+    first, first_dir = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "first-session"),
+        github=GitHubPR(repo="acme/foo", number=41),
+    )
+    second, second_dir = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "second-session"),
+        github=GitHubPR(repo="acme/foo", number=42),
+    )
+    first.last_github_push_at = "2026-08-11T12:00:00+00:00"
+    sess.save_session(first_dir, first)
+    store.append_comment(first_dir, Comment(
+        author="vera", timestamp="2026-08-11T12:01:00+00:00",
+    ))
+    store.append_comment(second_dir, Comment(
+        author="felix", timestamp="2026-08-10T12:00:00+00:00",
+    ))
+
+    summaries = web_app.SessionRegistry([root]).list_sessions()
+    activity = {item["id"]: item["push_activity"] for item in summaries}
+
+    assert activity[first.id] == {
+        "status": "new",
+        "label": "1 new comment since push",
+        "count": 1,
+    }
+    assert activity[second.id] == {
+        "status": "new",
+        "label": "1 comment not pushed yet",
+        "count": 1,
+    }
+
+
+def test_registry_sorts_sessions_by_last_update(tmp_path: Path, repo: Path):
+    root = tmp_path / "review-root"
+    root.mkdir()
+    older, older_dir = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "older"),
+    )
+    newer, newer_dir = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "newer"),
+    )
+    older.created_at = "2026-08-01T00:00:00.000000+00:00"
+    newer.created_at = "2026-08-02T00:00:00.000000+00:00"
+    sess.save_session(older_dir, older)
+    sess.save_session(newer_dir, newer)
+
+    billion = 1_000_000_000
+    os.utime(Path(older_dir) / "session.json", ns=(billion, billion))
+    os.utime(Path(newer_dir) / "session.json", ns=(2 * billion, 2 * billion))
+    store.append_comment(older_dir, Comment(
+        author="reviewer", file="", line=0, body="new activity",
+    ))
+    comment_file = Path(older_dir) / "comments" / "reviewer.jsonl"
+    os.utime(comment_file, ns=(3 * billion, 3 * billion))
+
+    summaries = web_app.SessionRegistry([root]).list_sessions()
+
+    assert [summary["id"] for summary in summaries] == [older.id, newer.id]
+    assert summaries[0]["updated_at"] == "1970-01-01T00:00:03.000000+00:00"
+    assert summaries[1]["updated_at"] == "1970-01-01T00:00:02.000000+00:00"
+
+
+def test_index_and_api_sessions_list_all(tmp_path: Path, repo: Path):
+    root = tmp_path / "review-root"
+    root.mkdir()
+    s1, _ = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "sess-a"),
+    )
+    s2, _ = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "sess-b"),
+    )
+
+    registry = web_app.SessionRegistry([root])
+    srv = web_app.make_server("127.0.0.1", 0, registry)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        code, body = _get(f"http://127.0.0.1:{port}/")
+        assert code == 200
+        text = body.decode("utf-8")
+        assert f'href="/{s1.id}"' in text
+        assert f'href="/{s2.id}"' in text
+
+        code, raw = _get(f"http://127.0.0.1:{port}/api/sessions")
+        assert code == 200
+        data = json.loads(raw)
+        ids = {d["id"] for d in data["sessions"]}
+        assert ids == {s1.id, s2.id}
+        assert data["total"] == 2
+        assert data["has_more"] is False
+        assert all(
+            item["progress"]["status"] == "pending"
+            for item in data["sessions"]
+        )
+        # Most recently updated first.
+        assert (
+            data["sessions"][0]["updated_at"]
+            >= data["sessions"][1]["updated_at"]
+        )
+        # Each session still reachable at its own URL
+        c1, _ = _get(f"http://127.0.0.1:{port}/{s1.id}/")
+        c2, _ = _get(f"http://127.0.0.1:{port}/{s2.id}/")
+        assert c1 == 200 and c2 == 200
+    finally:
+        srv.shutdown()
+
+
+def test_index_and_api_sessions_use_github_title(tmp_path: Path, repo: Path):
+    root = tmp_path / "review-root"
+    root.mkdir()
+    s, sd = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "sess-a"),
+    )
+    s.base_ref = "base-sha"
+    s.topic_ref = "topic-sha"
+    s.github = GitHubPR(
+        repo="acme/foo",
+        number=42,
+        url="https://github.com/acme/foo/pull/42",
+        head_sha="topic-sha",
+        base_sha="base-sha",
+        title="Add a feature",
+    )
+    sess.save_session(sd, s)
+
+    registry = web_app.SessionRegistry([root])
+    srv = web_app.make_server("127.0.0.1", 0, registry)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        code, body = _get(f"http://127.0.0.1:{port}/")
+        assert code == 200
+        text = body.decode("utf-8")
+        assert "Add a feature" in text
+        assert "acme/foo#42" in text
+        assert "not pushed yet" in text
+        assert (
+            '<a class="github-ref" '
+            'href="https://github.com/acme/foo/pull/42" target="_blank" '
+            'rel="noopener noreferrer" title="Open GitHub PR">'
+            'acme/foo#42</a>'
+        ) in text
+        assert "base-sha … topic-sha" not in text
+
+        code, raw = _get(f"http://127.0.0.1:{port}/api/sessions")
+        assert code == 200
+        [item] = json.loads(raw)["sessions"]
+        assert item["change_label"] == "Add a feature"
+        assert item["github_title"] == "Add a feature"
+        assert item["session_subtitle"] == "acme/foo#42"
+        assert item["github_url"] == "https://github.com/acme/foo/pull/42"
+        assert item["push_activity"] == {
+            "status": "never",
+            "label": "not pushed yet",
+            "count": 0,
+        }
+    finally:
+        srv.shutdown()
+
+
+def test_index_empty_state(tmp_path: Path):
+    root = tmp_path / "empty-root"
+    root.mkdir()
+    registry = web_app.SessionRegistry([root])
+    srv = web_app.make_server("127.0.0.1", 0, registry)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        code, body = _get(f"http://127.0.0.1:{port}/")
+        assert code == 200
+        assert b"No review sessions found" in body
+    finally:
+        srv.shutdown()
+
+
+def test_server_post_range_comment_persists_end_line(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments",
+            {"file": "foo.py", "line": 1, "end_line": 2,
+             "body": "range comment", "severity": "nit"},
+        )
+        assert code == 201
+        assert data["line"] == 1
+        assert data["end_line"] == 2
+
+        comments = store.read_all_comments(session_dir)
+        assert len(comments) == 1
+        assert comments[0].line == 1
+        assert comments[0].end_line == 2
+    finally:
+        srv.shutdown()
+
+
+def test_render_range_comment_anchored_at_end_line(session_dir: Path, repo: Path):
+    """A comment with end_line must appear in the thread anchored at end_line."""
+    store.append_comment(session_dir, Comment(
+        author="vera", file="foo.py", line=1, end_line=2,
+        body="spans two lines", severity="warning",
+    ))
+    store.append_comment(session_dir, Comment(
+        author="vera", file="foo.py", line=1,
+        body="single line", severity="nit",
+    ))
+    s = sess.load_session(session_dir)
+    from peanut_review.web import diff as diffmod
+    files = diffmod.parse_diff(s.workspace, s.base_ref, s.topic_ref)
+    html_out = render.render_page(s, "sid", files, store.read_all_comments(session_dir))
+
+    # Range comment must carry the L1–L2 badge.
+    assert "L1–L2" in html_out
+    # The range comment's thread is keyed at end_line (2); the single-line
+    # comment's thread is keyed at line (1). Both must be present as separate
+    # threads.
+    assert 'data-line="2"' in html_out  # range thread anchor
+    assert 'data-line="1"' in html_out  # single-line thread anchor
+
+
+def test_group_threads_by_anchor_uses_end_line_for_ranges():
+    from peanut_review.web.render import _group_threads_by_anchor
+    comments = [
+        Comment(author="a", file="foo.py", line=5, body="single"),
+        Comment(author="b", file="foo.py", line=5, end_line=10, body="range"),
+        Comment(author="c", file="foo.py", line=10, end_line=10, body="degenerate"),
+    ]
+    g = _group_threads_by_anchor(comments)
+    # Range-ending-at-10 and the line=10 single-line both anchor at 10 →
+    # two distinct top-level threads at that key.
+    assert len(g[("foo.py", 10)]) == 2
+    # Single at line 5 has its own anchor with one thread.
+    assert len(g[("foo.py", 5)]) == 1
+
+
+def test_normalize_base_url():
+    n = web_app._normalize_base_url
+    assert n("") == ""
+    assert n(None) == ""
+    assert n("/") == ""
+    assert n("/pr") == "/pr"
+    assert n("/pr/") == "/pr"
+    assert n("pr") == "/pr"
+    assert n("pr/") == "/pr"
+    assert n("/pr/review/") == "/pr/review"
+
+
+def test_index_emits_prefixed_hrefs_and_base_url_global(tmp_path: Path, repo: Path):
+    """Index page links honour base_url and window.PR_BASE_URL is injected."""
+    root = tmp_path / "review-root"
+    root.mkdir()
+    s, _ = sess.create_session(
+        workspace=str(repo), base_ref="main~1", topic_ref="main",
+        session_dir=str(root / "sess-a"),
+    )
+    registry = web_app.SessionRegistry([root])
+    srv = web_app.make_server("127.0.0.1", 0, registry, base_url="/pr")
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        code, body = _get(f"http://127.0.0.1:{port}/")
+        assert code == 200
+        text = body.decode("utf-8")
+        # Server-rendered link carries the prefix.
+        assert f'href="/pr/{s.id}"' in text
+        # Client-side JS can read the same prefix.
+        assert 'window.PR_BASE_URL = "/pr"' in text
+        assert 'href="/pr/assets/style.css?v=' in text
+        assert 'src="/pr/assets/index.js?v=' in text
+        # No bare-root session hrefs.
+        assert f'href="/{s.id}"' not in text
+
+        # Router still accepts the stripped path (caddy strips /pr before us).
+        c, _ = _get(f"http://127.0.0.1:{port}/{s.id}/")
+        assert c == 200
+    finally:
+        srv.shutdown()
+
+
+def test_session_page_emits_prefixed_session_url(session_dir: Path):
+    registry = web_app.SessionRegistry()
+    session_id = registry.bind(session_dir)
+    srv = web_app.make_server("127.0.0.1", 0, registry, base_url="/pr")
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        code, body = _get(f"http://127.0.0.1:{port}/{session_id}/")
+        assert code == 200
+        text = body.decode("utf-8")
+        # app.js API calls are rooted at window.PR_SESSION_URL.
+        assert f'window.PR_SESSION_URL = "/pr/{session_id}"' in text
+        assert 'window.PR_BASE_URL = "/pr"' in text
+        assert 'href="/pr/assets/style.css?v=' in text
+        assert 'src="/pr/assets/app.js?v=' in text
+    finally:
+        srv.shutdown()
+
+
+def test_client_global_composer_includes_category_selector():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function openGlobalForm()")
+    end = text.index("function setThreadResolved", start)
+    block = text[start:end]
+
+    assert 'select class="category"' in block
+    assert 'form.querySelector(".category")?.value || "comment"' in block
+
+
+def test_client_composer_chord_sets_global_review_category():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function startPendingComposerActions")
+    end = text.index("function handlePending", start)
+    block = text[start:end]
+
+    assert 'const category = composer.querySelector(".category")' in block
+    assert 'map.a = { label: "approve"' in block
+    assert 'setCategory("approve", "approve")' in block
+    assert 'map.b = { label: "blocking"' in block
+    assert 'setCategory("request-changes", "blocking")' in block
+
+
+def test_client_comment_renderer_includes_relative_time():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function relativeTimeLabel")
+    end = text.index("function renderThreadActions", start)
+    block = text[start:end]
+
+    assert "function timeTag" in block
+    assert "function commentTime" in block
+    assert '"comment-time"' in block
+    assert "${commentTime(c)}" in block
+
+
+def test_client_comment_renderer_hides_global_reply_action():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function renderThreadActions")
+    end = text.index("const THREAD_COLLAPSE_KEY", start)
+    block = text[start:end]
+
+    assert "allowReply" in block
+    assert 'parent.file !== ""' in block
+
+
+def test_client_comment_renderer_supports_thread_collapse():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function collapseSummary")
+    end = text.index("function ensureThread", start)
+    block = text[start:end]
+
+    assert "function collapseButton" in block
+    assert 'class="thread-collapse"' in block
+    assert "THREAD_COLLAPSE_KEY" in block
+    assert "localStorage" in block
+    assert "applyThreadCollapsePreferences()" in block
+    assert 'data-default-collapsed="${defaultCollapsed}"' in block
+
+
+def test_client_agent_renderer_uses_labeled_two_line_state_fields():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function agentStateField")
+    end = text.index("function updateAgentList", start)
+    block = text[start:end]
+
+    assert "function agentStateField" in block
+    assert '"status"' in block
+    assert '"process"' in block
+    assert '"review"' in block
+    assert "agent-main" in block
+    assert "agent-state-row" in block
+    assert "agent-state-label" in block
+    assert "p:${process}" not in block
+    assert "r:${protocol}" not in block
+
+
+def test_client_edit_forms_size_textarea_to_existing_body_height():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function fitEditTextarea")
+    end = text.index("function toggleHistory", start)
+    block = text[start:end]
+
+    assert "function fitEditTextarea" in block
+    assert "ta.style.minHeight" in block
+    assert "ta.scrollHeight" in block
+    assert "const bodyHeight = body.getBoundingClientRect().height" in block
+    assert "fitEditTextarea(ta, bodyHeight)" in block
+    assert 'ta.addEventListener("input", () => fitEditTextarea(ta, bodyHeight))' in block
+
+
+def test_client_click_handler_toggles_thread_collapse():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("// Resolve / Unresolve / Delete / Reply")
+    end = text.index("  // --- Live comment merge ---", start)
+    block = text[start:end]
+
+    assert 'ev.target.closest("[data-thread-collapse]")' in block
+    assert "setThreadCollapsed(threadEl, !threadEl.classList.contains(\"collapsed\"))" in block
+    assert "resetCollapsePreference: true" in block
+
+
+def test_client_keymap_has_comment_collapse_chord():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("const KEYMAP =")
+    end = text.index("  let pendingMap", start)
+    block = text[start:end]
+
+    assert 'c: { label: "comment…", submap:' in block
+    assert 'c: { label: "toggle collapse"' in block
+    assert 'clickInFocused("[data-thread-collapse]")' in block
+
+
+def test_client_theme_toggle_cycles_between_system_dark_plus_and_light():
+    asset_dir = Path(web_app.__file__).parent / "assets"
+    for name in ("app.js", "index.js"):
+        text = (asset_dir / name).read_text()
+        assert 'const THEME_KEY = "pr.theme"' in text
+        assert '{ value: "system", label: "system" }' in text
+        assert '{ value: "dark-plus", label: "Dark+" }' in text
+        assert '{ value: "light", label: "light" }' in text
+        assert 'document.documentElement.dataset.theme = theme.value' in text
+        assert 'setStoredTheme(THEMES[(idx + 1) % THEMES.length].value)' in text
+
+
+def test_client_agent_report_renderer_uses_relative_time():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("function renderReportEntry")
+    end = text.index("function reportKey", start)
+    block = text[start:end]
+
+    assert "activityTime(note.timestamp" in block
+    assert "ix-time" in text
+    assert 'class="ts mono"' not in block
+
+
+def test_client_gh_push_modal_includes_selection_controls():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("// --- GitHub push modal ---")
+    end = text.index("  // --- Keyboard navigation ---", start)
+    block = text[start:end]
+
+    assert 'id="gh-include-agents"' in block
+    assert 'class="push-select"' in block
+    assert "{ comment_ids: commentIds }" in block
+    assert 'class="push-delete"' in block
+    assert 'data-push-delete="' in block
+    assert 'data-push-edit="' in block
+    assert '>Edit</button>' in block
+    assert '>Delete</button>' in block
+    assert "const targetHeight = target.getBoundingClientRect().height" in block
+    assert "fitEditTextarea(ta, targetHeight)" in block
+    assert 'api("POST", "/api/edit", { comment_id: cid, body: newBody })' in block
+    assert 'api("POST", "/api/delete", { comment_id: cid })' in block
+    assert "function captureGhSelectionState()" in block
+    assert "function restoreGhSelectionState(state)" in block
+    assert "state.set(box.value, box.checked)" in block
+    assert "if (state.has(box.value)) box.checked = state.get(box.value)" in block
+    assert block.count("await fetchGhPreview(selectionState)") == 2
+
+
+def test_client_polling_is_single_flight_and_visibility_aware():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+
+    assert "function startPoll(task, delayForState)" in text
+    assert "async function pollJson(path)" in text
+    assert 'headers["If-None-Match"] = etag' in text
+    assert "response.status === 304" in text
+    assert "if (document.hidden)" in text
+    assert 'document.addEventListener("visibilitychange"' in text
+    assert "if (!inFlight)" in text
+    assert "startPoll(refreshComments" in text
+    assert "startPoll(refreshReports" in text
+    assert "startPoll(refreshSidebar" in text
+    assert "setInterval(refreshComments" not in text
+    assert "setInterval(refreshReports" not in text
+    assert "setInterval(refreshSidebar" not in text
+    assert "knownCommentIds.has(c.id)" in text
+
+
+def test_client_comment_insertion_deduplicates_post_poll_races():
+    text = (Path(web_app.__file__).parent / "assets" / "app.js").read_text()
+    start = text.index("  function insertFetchedComment(c)")
+    end = text.index("  function pickScrollAnchor()", start)
+    block = text[start:end]
+
+    assert 'document.querySelector(' in block
+    assert '.comment[data-cid="${cssEsc(c.id)}"]' in block
+    # Anchored, reply, and global POST handlers all share the guarded insert
+    # and advance the client-side known-ID set.
+    assert text.count("knownCommentIds.add(c.id)") == 3
+    assert text.count("insertFetchedComment(c);") == 4
+
+
+def test_server_edit_endpoint_updates_body_and_history(session_dir: Path):
+    c = Comment(author="vera", file="foo.py", line=1, body="v1", severity="nit")
+    store.append_comment(session_dir, c)
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/edit",
+            {"comment_id": c.id, "body": "v2", "severity": "warning",
+             "author": "jakub"},
+        )
+        assert code == 200
+        assert data["body"] == "v2"
+        assert data["severity"] == "warning"
+        assert data["edited_by"] == "jakub"
+        assert len(data["versions"]) == 1
+        assert data["versions"][0]["body"] == "v1"
+    finally:
+        srv.shutdown()
+
+
+def test_server_edit_endpoint_unknown_comment_returns_404(session_dir: Path):
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/edit",
+            {"comment_id": "c_missing", "body": "x"},
+        )
+        assert code == 404
+        assert "not found" in data["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_server_edit_endpoint_requires_body_or_severity(session_dir: Path):
+    c = Comment(author="vera", file="foo.py", line=1, body="x")
+    store.append_comment(session_dir, c)
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/edit",
+            {"comment_id": c.id},
+        )
+        assert code == 400
+        assert "body or severity" in data["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_render_edited_indicator_appears_after_edit(
+    session_dir: Path, repo: Path
+):
+    """The page render shows the 'edited' badge with a data-history hook so
+    the JS can pop the version history without an extra round-trip."""
+    s = sess.load_session(session_dir)
+    files = diffmod.parse_diff(str(repo), s.base_ref, s.topic_ref)
+    c = Comment(author="vera", file="foo.py", line=1, body="v1",
+                severity="nit")
+    store.append_comment(session_dir, c)
+    store.edit_comment(session_dir, c.id, body="v2", edited_by="jakub")
+    html_out = render.render_page(s, s.id, files,
+                                   store.read_all_comments(session_dir),
+                                   head_shifted=False)
+    assert "edited-badge" in html_out
+    assert f'data-history="{c.id}"' in html_out
+    assert f'data-edit="{c.id}"' in html_out
+
+
+def test_server_filter_comments_since_id(session_dir: Path):
+    """The `--since <id>` cursor (replaces the old `--round N` filter) lets
+    the orchestrator poll for new activity since they last looked."""
+    c1 = Comment(author="felix", file="foo.py", line=1, body="r1", severity="nit")
+    c2 = Comment(author="felix", file="foo.py", line=2, body="r2", severity="nit")
+    store.append_comment(session_dir, c1)
+    store.append_comment(session_dir, c2)
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, raw = _get(
+            f"http://127.0.0.1:{port}/{session_id}/api/comments?since={c1.id}",
+        )
+        assert code == 200
+        data = json.loads(raw)
+        assert len(data) == 1
+        assert data[0]["body"] == "r2"
+    finally:
+        srv.shutdown()
