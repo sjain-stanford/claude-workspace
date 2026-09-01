@@ -78,6 +78,15 @@ Run git commands from the relevant repository directory. For sub-repos under `pr
 
 The canonical checkouts under `projects/<repo>/` are for reading, planning, debugging, and gathering context. Before making implementation edits, create or switch to a task-specific worktree under `projects/worktrees/<repo>/...` and do the edits, build, test, lint, commit, and PR work there. Only edit a canonical checkout directly when the user explicitly asks for that exact checkout to be modified.
 
+Peanut-review PR checkouts are the exception to that location convention.
+Create those review-only worktrees under
+`.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`; name sessions
+`<repo>-pr-<number>-<change>`. The shared config at
+`.cache/peanut-review/.peanut-review.json` resolves the current worktree from
+`$PWD` and stores session data under `.cache/peanut-review/sessions/`. Run
+`peanut-review start` from inside the review worktree so `$PWD` identifies the
+intended checkout.
+
 If `git push` or any other remote-write command is denied by permissions,
 stop and ask the user how to proceed. Do not bypass the denial with alternate
 remote mutation paths such as `gh api`, GitHub REST/GraphQL calls, `gh pr edit`,
