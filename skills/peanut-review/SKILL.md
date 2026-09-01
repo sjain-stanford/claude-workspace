@@ -9,6 +9,19 @@ You are the orchestrator for a structured multi-agent review. Drive the review
 lifecycle with `tools/peanut-review/bin/peanut-review`; it sets `PYTHONPATH`
 for the local checkout, so no install step is needed.
 
+## Remote Publishing Requires Explicit Authorization
+
+Never push comments, approvals, request-changes verdicts, replies, edits, or
+any other review state to GitHub unless the user explicitly asks to publish or
+push it. A request to run, start, perform, or complete a review—including
+`/peanut-review pr ...`—authorizes local review work and a push dry-run only;
+it does not authorize `gh-push` or `gh-push-verdict`.
+
+For GitHub PR reviews, prepare and curate a push-ready comment set, run
+`gh-push --dry-run`, report exactly what would be published, and stop. If the
+user later explicitly asks to push, rerun the dry-run against current session
+state immediately before publishing.
+
 ## Subcommands
 
 Codex skills do not have a separate subcommand registry. Treat the first word
@@ -74,9 +87,11 @@ before running commands and keep it current.
       `wait-all`.
 - [ ] Inspect failed runs and non-review agent reports promptly.
 - [ ] Track the last reviewed comment id for later `--since` queries.
-- [ ] Triage every finding: keep, delete, resolve, reply, or push to GitHub.
-- [ ] Finish with the right artifact: GitHub review comments/verdict for PRs,
-      or a local verdict/archive for author-owned reviews.
+- [ ] Triage every finding: keep, delete, resolve, or reply locally; publish
+      only with explicit user authorization.
+- [ ] Finish with the right artifact: a push-ready GitHub dry-run for PRs, or
+      a local verdict/archive for author-owned reviews. Push only when the user
+      explicitly asks.
 
 Mode-specific checklist:
 
@@ -87,6 +102,8 @@ Mode-specific checklist:
       only when you intentionally want to skip this.
 - [ ] GitHub PR: inspect the curated feedback; do not fix code, resolve
       imported GitHub threads, or force rebuttal loops unless the user asks.
+- [ ] GitHub PR: always finish with `gh-push --dry-run` and stop unless the
+      user explicitly asked to publish the review.
 - [ ] Local review: own the patch; apply fixes, `migrate`, run rebuttal passes,
       and record a final verdict. Use the web UI's curator button or
       `curate` only when comment cleanup is explicitly useful; use the web
@@ -116,16 +133,23 @@ LAST_COMMENT_ID=<last-reviewed-comment-id>
 ```
 
 Examples assume `PR_BIN` and the intended `SESSION` path are set.
-Name new sessions `<repo>-<change-title>`, using the PR head branch or local
-branch/topic slug for `change-title`; avoid bare PR-number session names.
+Name new GitHub PR sessions `<repo>-pr-<number>-<change-title>`, using the PR
+head branch or title for `change-title`. Name their worktree leaves
+`pr-<number>-<change-title>`. Keep the descriptive suffix; avoid bare
+PR-number names.
 
 ## Config And Permissions
 
-When `.peanut-review.json` exists, use it as-is. It belongs in the worktree
-parent and defines `reviewRoot`, `workspaceRoot`, `repoRelative`,
-`reviewAgentTimeoutSeconds`, and the exact `agents` lineup. Point the web UI at
-the same `reviewRoot`. If no config exists, ask before choosing persistent
-roots, repo layout, reviewers, runners, or models.
+When `.peanut-review.json` exists, use it as-is. In this workspace, use the
+shared config at `.cache/peanut-review/.peanut-review.json`, create PR review
+worktrees under
+`.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`, and store
+`<repo>-pr-<number>-<change>` sessions under
+`.cache/peanut-review/sessions/`. The config defines
+`reviewRoot`, `workspaceRoot`, `repoRelative`, `reviewAgentTimeoutSeconds`, and
+the exact `agents` lineup. Point the web UI at the same `reviewRoot`. If no
+config exists, ask before choosing persistent roots, repo layout, reviewers,
+runners, or models.
 
 For GitHub PR sessions, the config must include a dedicated curator agent in
 `agents`, for example `{"name":"Curator","model":"gpt-5.5-high",
@@ -168,8 +192,9 @@ also allow the paths or commands reviewers are expected to use.
 ## GitHub PR Review
 
 Use this for PR numbers, PR URLs, or external author changes. Import GitHub
-context, run reviewers, curate findings, then push review comments or an
-approve/request-changes decision back to GitHub.
+context, run reviewers, curate findings, and prepare a push-ready preview.
+Publish comments or an approve/request-changes decision only when the user
+explicitly asks.
 
 1. Start without launching unless the checkout is already built. The command
    imports existing GitHub context and prints the session path.
@@ -213,12 +238,26 @@ approve/request-changes decision back to GitHub.
    self-owned PRs, GitHub may reject approve/request-changes events; use a
    normal global comment in that case.
 
-6. Preview, then push:
+6. Preview the review payload:
+
+   ```bash
+   "$PR_BIN" --session "$SESSION" gh-push --dry-run
+   ```
+
+   Stop after the dry-run and show the user what would be published. Do not
+   infer push permission from a request to review a PR, run
+   `/peanut-review pr`, complete the lifecycle, or produce a verdict.
+
+7. Only when the user explicitly asks to publish or push the review, rerun the
+   dry-run and then push:
 
    ```bash
    "$PR_BIN" --session "$SESSION" gh-push --dry-run
    "$PR_BIN" --session "$SESSION" gh-push
    ```
+
+   Treat `gh-push-verdict` the same way: never run it without explicit user
+   authorization to publish the verdict.
 
 After author updates, refresh the checkout with the project PR-update flow,
 then run `sync-pr` and `gh-pull`. Rerun reviewers only for substantial updates

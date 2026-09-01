@@ -117,6 +117,13 @@ Use `skills/peanut-review/` for explicit multi-agent review sessions and
 are ordinary tracked files rather than a submodule. Upstream provenance and
 synchronization instructions live in `tools/README.md`.
 
+Create peanut-review PR worktrees under
+`.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`, name sessions
+`<repo>-pr-<number>-<change>`, and run the CLI from inside the worktree. The
+shared `.cache/peanut-review/.peanut-review.json` uses the current `$PWD` as
+the source checkout and writes persistent session data to
+`.cache/peanut-review/sessions/`.
+
 Start the web UI from the `claude-workspace` root, setting `PR_ROOT` to the
 configured review root when it differs from the launcher's `$HOME/reviews`
 default:
