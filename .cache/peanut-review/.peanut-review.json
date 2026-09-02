@@ -1,0 +1,50 @@
+{
+  "reviewRoot": "$HOME/claude-workspace/.cache/peanut-review/sessions",
+  "workspaceRoot": "$PWD",
+  "repoRelative": ".",
+  "reviewAgentTimeoutSeconds": 1200,
+  "agents": [
+    {
+      "name": "Felix",
+      "model": "gpt-5.6-sol",
+      "persona": "felix.md",
+      "runner": "codex"
+    },
+    {
+      "name": "Irene",
+      "model": "gpt-5.6-sol",
+      "persona": "irene.md",
+      "runner": "codex"
+    },
+    {
+      "name": "Merlin",
+      "model": "gpt-5.6-sol",
+      "persona": "merlin.md",
+      "runner": "codex"
+    },
+    {
+      "name": "Petra",
+      "model": "gpt-5.6-sol",
+      "persona": "petra.md",
+      "runner": "codex"
+    },
+    {
+      "name": "Soren",
+      "model": "gpt-5.6-sol",
+      "persona": "soren.md",
+      "runner": "codex"
+    },
+    {
+      "name": "Vera",
+      "model": "gpt-5.6-sol",
+      "persona": "vera.md",
+      "runner": "codex"
+    },
+    {
+      "name": "Curator",
+      "model": "gpt-5.6-sol",
+      "runner": "codex",
+      "role": "curator"
+    }
+  ]
+}
