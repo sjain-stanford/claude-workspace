@@ -394,13 +394,12 @@ enough.
 5. At the clean stopping point, inspect and analyze the complete change set
    from the session base through the final `HEAD`, not only the last iteration.
    Run any final project verification warranted by that aggregate diff and
-   record the final verdict; archive if useful. A verdict writes `result.json`
-   but does not close the session or prevent later reruns.
+   record the final verdict. A verdict writes `result.json` but does not close
+   the session or prevent later reruns.
 
    ```bash
    "$PR_BIN" --session "$SESSION" verdict --approve --body "All critical issues addressed"
    "$PR_BIN" --session "$SESSION" verdict --request-changes --body "Outstanding critical issue in X"
-   "$PR_BIN" --session "$SESSION" archive
    ```
 
    Summarize the complete result and local commits, then stop so the user has a
