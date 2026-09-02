@@ -29,6 +29,12 @@
       "runner": "codex"
     },
     {
+      "name": "Simone",
+      "model": "gpt-5.6-sol",
+      "persona": "simone.md",
+      "runner": "codex"
+    },
+    {
       "name": "Soren",
       "model": "gpt-5.6-sol",
       "persona": "soren.md",
