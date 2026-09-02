@@ -17,7 +17,8 @@ only when the user asks to incorporate or summarize that session.
 /self-review [--base <ref>]
 ```
 
-- **Default**: Reviews changes between `main` and `HEAD`
+- **Default**: Reviews changes between the repository's actual target branch and
+  `HEAD` (`develop` for rocjitsu); infer it from branch/PR/upstream context
 - **Custom base**: Use `--base <ref>` to specify a different base reference (e.g., `--base origin/feature`)
 
 ## Review Process
@@ -25,17 +26,17 @@ only when the user asks to incorporate or summarize that session.
 ### 1. Detect Current Branch and Get Diff
 
 ```shell
-# Get current branch name
+# Get current branch name and determine the intended target branch
 git branch --show-current
 
-# Get diff against main (default) or specified base
-git diff main...HEAD
+# Get diff against the resolved base
+git diff <base>...HEAD
 
 # Or with custom base
 git diff <base>...HEAD
 
 # List changed files
-git diff --name-only main...HEAD
+git diff --name-only <base>...HEAD
 ```
 
 ### 2. Review the Changes against Review Criteria

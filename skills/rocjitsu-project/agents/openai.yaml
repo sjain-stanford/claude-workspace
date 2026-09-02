@@ -1,0 +1,3 @@
+interface:
+  display_name: "rocjitsu Project"
+  short_description: "Develop and debug ROCm rocjitsu"

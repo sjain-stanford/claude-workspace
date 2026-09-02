@@ -1,9 +1,12 @@
 ---
 name: fusilli-project
-description: Comprehensive knowledge base for the Fusilli project - a C++ Graph API and JIT frontend for IREE. Use when exploring the codebase, adding new features, debugging issues, or understanding the architecture.
+description: Work with the archived Fusilli C++ Graph API and JIT frontend for IREE. Use only when the user explicitly asks about Fusilli; rocjitsu is the workspace's active project.
 ---
 
 # Fusilli Project Knowledge Base
+
+Fusilli is retained for archival and occasional maintenance work. Do not use
+this skill for rocjitsu or infer Fusilli dependencies in active workspace tasks.
 
 Fusilli is a C++ Graph API and JIT Frontend for IREE that leverages just-in-time compiled and code-generated kernels to accelerate training and inference workloads. Inspired by cuDNN's graph API, it exposes cuDNN-like primitives backed by the IREE compiler and runtime stack.
 

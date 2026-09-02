@@ -4,25 +4,25 @@ A meta workspace for Claude Code and Codex-assisted development across my curren
 
 ## Overview
 
-This workspace is the shared root for local agent configuration, reusable skills, saved plans/reviews, local Beads task state, git worktrees, and the independent git repositories cloned under `projects/`. The main active project is Fusilli, with IREE, Torch-MLIR, cuDNN frontend, hipDNN, TheRock, and related tooling checked out as dependencies or API references.
+This workspace is the shared root for local agent configuration, reusable
+skills, saved plans/reviews, local Beads task state, git worktrees, and the
+independent repositories cloned under `projects/`. The primary active project
+is `projects/rocm-systems/emulation/rocjitsu`, an AMD GPU simulation, dynamic
+binary translation, and dynamic binary instrumentation toolkit. Older Fusilli
+material is retained only as archival context.
 
 ## Structure
 
 ```
 claude-workspace/
 ├── projects/        # Independent git repositories cloned locally
-│   ├── fusilli/
-│   ├── fusilli-benchmarks/
-│   ├── cudnn-frontend/
+│   ├── rocm-systems/ # Active ROCm monorepo sparse checkout; rocjitsu lives here
 │   ├── docker/
-│   ├── dot-files/
-│   ├── hipdnn/
-│   ├── iree/
-│   ├── TheRock/
-│   ├── torch-mlir/
 │   └── worktrees/   # Local per-task git worktrees for parallel agents
 ├── skills/          # Project specific skills and shared references
-│   ├── build-test-lint/
+│   ├── rocjitsu-project/
+│   ├── rocjitsu-build-test/
+│   ├── fusilli-build-test-lint/
 │   ├── bump-fusilli-deps/
 │   ├── fusilli-project/
 │   ├── gh-address-comments/
@@ -75,32 +75,28 @@ claude-workspace/
    cd claude-workspace
    ```
 
-2. **Clone sub-repositories:**
+2. **Clone the required development repositories:**
+
    ```bash
-   cd projects/
+   # Development image and container launchers
+   git clone https://github.com/sjain-stanford/docker.git projects/docker
 
-   # Main project
-   git clone https://github.com/iree-org/fusilli.git
-
-   # Benchmarks (private repo)
-   git clone https://github.com/nod-ai/fusilli-benchmarks.git
-
-   # Dependencies and references
-   git clone https://github.com/iree-org/iree.git
-   git clone https://github.com/llvm/torch-mlir.git
-   git clone https://github.com/NVIDIA/cudnn-frontend.git
-   git clone git@github.com:ROCm/TheRock.git
-
-   # Workspace support repos
-   git clone https://github.com/sjain-stanford/docker.git
-   git clone https://github.com/sjain-stanford/dot-files.git
-
-   # Sparse checkout of hipdnn from rocm-libraries (hipdnn is on develop branch)
-   git clone --filter=blob:none --sparse https://github.com/ROCm/rocm-libraries.git hipdnn
-   cd hipdnn
-   git sparse-checkout set projects/hipdnn
-   cd ..
+   # rocjitsu source and required monorepo context
+   git clone --filter=blob:none --sparse \
+     https://github.com/ROCm/rocm-systems.git projects/rocm-systems
+   cd projects/rocm-systems
+   git switch develop
+   git sparse-checkout set \
+     emulation/rocjitsu \
+     shared/machine-readable-isa/isa \
+     .github
+   cd ../..
    ```
+
+   The Docker checkout is required to create the workspace's development
+   environment. The machine-readable ISA tree is needed for regeneration, and
+   `.github/` provides the current rocjitsu CI and corpus qualification
+   workflows. Clone archival repositories separately only when needed.
 
 3. **Launch development container:**
    - Open Cursor or VS Code rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)
@@ -108,53 +104,12 @@ claude-workspace/
    - From the new window again open `claude-workspace` and launch the agent (Claude Code or Codex)
 
 4. **Start developing:**
-   - Use Claude Code or Codex for AI-assisted development
 
-### peanut-review
-
-Use `skills/peanut-review/` for explicit multi-agent review sessions and
-`tools/peanut-review/bin/peanut-review` for the CLI. The imported tool and skill
-are ordinary tracked files rather than a submodule.
-
-Run peanut-review from the same branch-backed development worktree under
-`projects/worktrees/<repo>/` that owns the change. Reuse an existing task
-worktree, or create one there if needed; do not create a separate detached
-review checkout under `.cache/peanut-review/`. Name sessions
-`<repo>-pr-<number>-<change>`. The shared
-`.cache/peanut-review/.peanut-review.json` uses the current `$PWD` as the source
-checkout and writes persistent session data to
-`.cache/peanut-review/sessions/`.
-
-Before launching reviewers, make sure the worktree's committed `HEAD` is the
-snapshot to review. Keep the worktree for subsequent fixes and review rounds,
-and preserve any uncommitted local changes rather than resetting them.
-
-Start the web UI from the `claude-workspace` root, setting `PR_ROOT` to the
-configured review root when it differs from the launcher's `$HOME/reviews`
-default:
-
-```bash
-PR_ROOT="$PWD/.cache/peanut-review/sessions" \
-  tools/peanut-review/bin/peanut_review_serve.sh
-```
-
-Open `http://127.0.0.1:27183/`. Keep `PR_ROOT` aligned with the `reviewRoot` in
-`.peanut-review.json` so the CLI and web UI use the same sessions.
-
-Inside the development container, the launcher binds to `0.0.0.0` so Docker's
-published port can reach it. Launch the container with peanut-review forwarding
-enabled:
-
-```bash
-DOCKER_ENABLE_PEANUT_REVIEW_WEB=1 ./projects/docker/run_docker.sh
-```
-
-The Docker launcher publishes port `27183` only on the SSH host's loopback
-interface, allowing VSCode Remote SSH to forward it without exposing the UI on
-the host's external interfaces. Outside Docker, the peanut-review launcher
-binds directly to `127.0.0.1`. Set `PR_HOST` or `PR_PORT` to override these
-defaults. `PR_BASE_URL` should only be set when a reverse proxy strips the same
-path prefix before forwarding requests.
+   - Read `projects/rocm-systems/emulation/rocjitsu/CONTRIBUTING.md`.
+   - Use `skills/rocjitsu-project/` for project work and
+     `skills/rocjitsu-build-test/` for verification.
+   - Create branch-backed task worktrees under
+     `projects/worktrees/rocm-systems/`; rocjitsu's base branch is `develop`.
 
 ## Agent Workflow
 

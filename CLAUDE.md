@@ -4,32 +4,22 @@ Meta workspace for Claude Code and Codex-assisted development across multiple re
 
 ## Workspace Structure
 
-Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally for development and/or to serve as context for local agents.
+Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally for development and/or context.
 
-- `projects/fusilli/` - C++ graph API and JIT engine powered by IREE
-  - This is the main project that depends on IREE compiler and runtime
-  - Refer `projects/fusilli/README.md` for technical documentation
-- `projects/fusilli-benchmarks/` - Central location for Fusilli benchmarks
-  - **CRITICAL**: Contains sensitive information (never make public)
-  - Refer `projects/fusilli-benchmarks/README.md` for benchmarking instructions
-- `projects/iree/` - MLIR enabled compiler and runtime stack
-  - This serves as a reference for the compiler and runtime C API interfaces used in Fusilli
-- `projects/torch-mlir/` - Torch MLIR dialect and lowering passes
-  - This serves as reference for the Torch ASM emitter in Fusilli
-- `projects/cudnn-frontend/` - cudNN frontend library for NVIDIA GPU acceleration
-  - Fusilli tries to match the frontend API for portability reasons so treat this as the C++ graph API reference
-- `projects/hipdnn/` - ROCm hipDNN library for AMD GPU acceleration
-  - This is a sparse checkout of the `ROCm/rocm-libraries` monorepo
-  - This also serves as reference for the C++ graph API
-  - Fusilli gets integrated as a plugin into the hipDNN kernel provider ecosystem
-- `projects/TheRock/` - ROCm TheRock source checkout
-  - This is the upstream `ROCm/TheRock` repository for ROCm build, packaging, and nightly artifact workflows
-  - Use as reference for TheRock releases, ROCm source builds, and Fusilli dependency bump context
+- `projects/rocm-systems/` - **Primary active checkout**, tracking `ROCm/rocm-systems` `develop`
+  - Active project: `emulation/rocjitsu/`
+  - rocjitsu is a C++20 AMD GPU emulation toolkit with full-system simulation,
+    dynamic binary translation (DBT), and dynamic binary instrumentation (DBI)
+  - Read `emulation/rocjitsu/CONTRIBUTING.md` and the relevant project docs
+    before editing; use `skills/rocjitsu-project/` for architecture and practice
+  - The useful sparse-checkout context is `emulation/rocjitsu/`,
+    `shared/machine-readable-isa/isa/`, and `.github/`
 - `projects/docker/` - Docker for ML compiler development environment
   - This is the unified development docker for all builds and tests
   - Use as reference but expect Claude/Codex is launched from a dev-container already
-- `projects/dot-files/` - Personal configuration files (shell, editor, git, etc.)
-  - Setup scripts and dotfile management
+- Historical Fusilli, IREE, Torch-MLIR, hipDNN, cuDNN frontend, and TheRock
+  checkouts may be retained under `projects/` for archival/reference use. Do
+  not treat them as active dependencies or fetch them for rocjitsu work.
 - `projects/worktrees/` - Local git worktrees for parallel agent work
   - This directory is intentionally gitignored by `projects/*`
   - Create per-task worktrees here instead of editing the main checkout for feature work
@@ -49,9 +39,8 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 ## Skills
 
-- `skills/build-test-lint/` - Build, test, and lint for Fusilli; use after code changes to verify integrity
-- `skills/bump-fusilli-deps/` - Automate bumping IREE and TheRock to latest nightly versions
-- `skills/fusilli-project/` - Use when adding new features or debugging issues in Fusilli
+- `skills/rocjitsu-project/` - rocjitsu architecture, subsystem ownership, and engineering practices
+- `skills/rocjitsu-build-test/` - Risk-based rocjitsu build, test, formatting, sanitizer, and corpus verification
 - `skills/gh-address-comments/` - Use when addressing GitHub PR or issue comments on the current branch
 - `skills/gh-fix-ci/` - Use when debugging and fixing failing GitHub Actions checks for a PR
 - `skills/peanut-review/` - Use for explicit multi-agent review sessions, personas, curation, the review web UI, or GitHub review publishing
@@ -60,7 +49,11 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
 - `skills/stage-and-commit/` - Use when asked to commit local changes (enforces signed commits)
 - `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
-- `skills/llvm-coding-standards.md` - Reference for C++ coding standards from LLVM (shared across skills)
+- `skills/llvm-coding-standards.md` - LLVM C++ reference used only when the target project adopts it
+
+Archived Fusilli-only skills remain available as
+`skills/fusilli-project/`, `skills/fusilli-build-test-lint/`, and
+`skills/bump-fusilli-deps/`. Use them only for explicit Fusilli work.
 
 > **Note**: Skills are symlinked from agent-specific config directories (`.claude/skills` -> `../skills`, `.agents/skills` -> `../skills`) so local agents can discover them while keeping the source files at the repo root for easier editing.
 
@@ -133,11 +126,12 @@ cd projects/<repo>
 git fetch origin
 git worktree add \
   ../worktrees/<repo>/<bead-id>-<short-slug> \
-  -b users/sambhav/<feature> origin/main
+  -b users/sambhav/<feature> origin/develop
 ```
 
 Use concise, descriptive branch features, for example
-`users/sambhav/matmul-semantics`. Run build, test, lint, commit, and PR
+`users/sambhav/rocjitsu-waitcnt-semantics`. Confirm the target repository's
+actual base branch instead of assuming `main`; rocjitsu uses `develop`. Run build, test, lint, commit, and PR
 commands from the worktree directory. At handoff, leave the Bead with the
 worktree path, branch name, commit/PR state, verification performed, and any
 remaining follow-up. Remove completed worktrees only after the branch/PR no
@@ -160,7 +154,7 @@ Save PR reviews and self-review outputs to `reviews/` at claude-workspace root. 
 
 ## Beads Workflow Integration
 
-This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking. A single central `.beads/` in claude-workspace tracks work across all sub-repos — there are no per-repo `.beads/` directories. Prefix bead titles with `[repo-name]` (e.g. `[fusilli]`, `[docker]`) to indicate which sub-repo the work relates to.
+This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking. A single central `.beads/` in claude-workspace tracks work across all sub-repos — there are no per-repo `.beads/` directories. Prefix bead titles with `[repo-name]` (e.g. `[rocm-systems]`, `[docker]`) to indicate which sub-repo the work relates to.
 CRITICAL: NEVER MENTION BEADS IN CODE. The beads are for your local work tracking only and do not persist. Always write proper TODOs or use github issues for long term/persistent tracking. 95% of all work you do should be tracked in beads. Think of it like a memory.
 
 `.beads/` is intentionally local-only and gitignored because all agents run on this one machine. Do not change `.gitignore` to track Beads state unless the workflow explicitly moves to multiple machines.

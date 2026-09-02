@@ -1,0 +1,3 @@
+interface:
+  display_name: "rocjitsu Build and Test"
+  short_description: "Select and run rocjitsu verification"

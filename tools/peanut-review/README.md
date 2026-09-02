@@ -16,7 +16,12 @@ PR_BIN=$PEANUT_REVIEW_DIR/bin/peanut-review
 Use `peanut-review` instead of `$PR_BIN` if it is installed on `PATH`.
 Most flows run from the repo being reviewed, so keep `PR_BIN` absolute.
 
-Start the web UI:
+In `claude-workspace`, use `skills/peanut-review/` to orchestrate multi-agent
+review sessions and `tools/peanut-review/bin/peanut-review` as the CLI.
+
+## Web UI
+
+Start the server from this tool checkout:
 
 ```bash
 bin/peanut_review_serve.sh
@@ -25,6 +30,29 @@ bin/peanut_review_serve.sh
 Defaults: `root=$HOME/reviews`, `port=27183`, and a root-mounted UI. The
 launcher binds to `0.0.0.0` in Docker and `127.0.0.1` otherwise. Open
 `http://127.0.0.1:27183/` through the Docker/SSH port forwarding path.
+
+The shared `claude-workspace` configuration stores sessions under
+`.cache/peanut-review/sessions/`. Start its UI from the workspace root with the
+same root explicitly selected:
+
+```bash
+PR_ROOT="$PWD/.cache/peanut-review/sessions" \
+  tools/peanut-review/bin/peanut_review_serve.sh
+```
+
+Keep `PR_ROOT` aligned with the config's `reviewRoot`; otherwise the CLI and UI
+will show different session sets. To reach the UI through the development
+container, enable its forwarding when launching the container:
+
+```bash
+DOCKER_ENABLE_PEANUT_REVIEW_WEB=1 ./projects/docker/run_docker.sh
+```
+
+The Docker launcher publishes port `27183` only on the SSH host's loopback, so
+VSCode Remote SSH can forward it without exposing the UI externally. Set
+`PR_HOST` or `PR_PORT` only to override the normal bind or port. Set
+`PR_BASE_URL` only when a reverse proxy removes that same path prefix before
+forwarding requests.
 
 ### Optional browser profiling
 
@@ -98,8 +126,8 @@ reviewers, and model choices are intentional.
 
 ## Project Config
 
-GitHub PR flow usually starts from `.peanut-review.json` in the worktree parent
-or repo:
+Outside a preconfigured workspace, GitHub PR flow usually starts from a
+`.peanut-review.json` in the worktree parent or repo:
 
 ```json
 {
@@ -114,6 +142,13 @@ or repo:
   ]
 }
 ```
+
+In `claude-workspace`, do not create another repository-local config. Use the
+shared `.cache/peanut-review/.peanut-review.json`; it resolves the reviewed
+repository from the current working directory and stores sessions under
+`.cache/peanut-review/sessions/`. Name GitHub sessions
+`<repo>-pr-<number>-<change>`. Because the shared config is outside development
+worktrees, pass its absolute path with `--config`.
 
 Supported runners: `cursor`, `opencode`, `codex`.
 Codex agents accept an optional per-agent `fastMode` boolean. It defaults to
@@ -140,21 +175,23 @@ the configuration, security boundary, lifecycle, and real localhost validation.
 
 Use this for changes that came from GitHub.
 
+In `claude-workspace`, run from the branch-backed development worktree under
+`projects/worktrees/<repo>/` that owns the PR. Reuse that worktree for review
+and subsequent fixes; do not create a detached review checkout under
+`.cache/peanut-review/`. Before launching reviewers, confirm committed `HEAD`
+is the intended snapshot and preserve any uncommitted work.
+
 ```bash
 PR=https://github.com/owner/repo/pull/123
+CONFIG=<path-to-.peanut-review.json>
 
 # Run inside the target checkout. Config discovery walks upward from cwd.
-# Pass --config if .peanut-review.json is somewhere else.
+# Keep --config when the selected config is outside the checkout.
 
-# Prefer GitHub CLI checkout/update over manual fetch/refspec plumbing. Re-running
-# this fast-forwards an existing local PR branch in place.
+# Update an existing PR worktree without discarding local changes.
 gh pr co "$PR"
 
-# If the local PR branch diverged and you intentionally want to discard local
-# commits, reset it to the latest PR head:
-# gh pr co "$PR" --force
-
-"$PR_BIN" start "$PR" --no-launch
+"$PR_BIN" start "$PR" --config "$CONFIG" --no-launch
 SESSION=<printed-session-path>
 
 # Build/test the checkout with the repo's normal commands.
@@ -231,8 +268,8 @@ COMMENT_ID=c_1234abcd
 Use this after the author pushes a new revision.
 
 ```bash
-# First update the checkout. Re-running this fast-forwards the existing local
-# PR branch in place. Use --force only to intentionally discard local divergence.
+# First update the branch-backed checkout. Preserve local changes and resolve
+# divergence through the normal development workflow rather than force-resetting.
 gh pr co "$PR"
 
 "$PR_BIN" --session "$SESSION" sync-pr

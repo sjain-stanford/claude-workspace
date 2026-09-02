@@ -1,16 +1,19 @@
 ---
-name: build-test-lint
-description: Build the Fusilli project, run tests, and execute lint checks. Use after making code changes to verify build integrity, test results, and code quality.
+name: fusilli-build-test-lint
+description: Build, test, and lint the archived Fusilli project. Use only for explicit Fusilli work; use rocjitsu-build-test for rocjitsu.
 ---
 
-# Build, Test, and Lint Skill
+# Fusilli Build, Test, and Lint
+
+Fusilli is retained as an archival project in this workspace. Do not invoke this
+skill for rocjitsu or general C++ work.
 
 Executes the full build, test, and lint pipeline for the Fusilli project using the scripts in the active Fusilli checkout and reports results. The active checkout may be the canonical `projects/fusilli` directory or a per-task worktree under `projects/worktrees/fusilli/`.
 
 ## Usage
 
 ```
-/build-test-lint [options]
+/fusilli-build-test-lint [options]
 ```
 
 Options:

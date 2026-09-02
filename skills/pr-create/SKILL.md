@@ -14,7 +14,8 @@ Creates GitHub pull requests following workspace conventions: compact prose desc
 ```
 
 - `repo` (optional): Sub-repo name under `projects/`. Inferred from current context if omitted.
-- `base` (optional): Base branch for the PR. Defaults to `main`.
+- `base` (optional): Base branch for the PR. Infer the repository's target
+  branch when omitted (`develop` for rocjitsu); do not assume `main`.
 
 ## Process
 
@@ -27,12 +28,12 @@ Run these commands in parallel:
 ```bash
 git status -sb
 git log --oneline -5 --decorate
-git diff origin/main...HEAD
-git diff origin/main...HEAD --name-only
+git diff origin/<base>...HEAD
+git diff origin/<base>...HEAD --name-only
 ```
 
 Verify:
-- Branch is **not** `main` (must be on a feature branch)
+- Branch is not the resolved base branch (must be on a feature branch)
 - Branch has been **pushed** to remote (check for `origin/<branch>` in `--decorate` output, or push first)
 
 ### 2. Push if Needed

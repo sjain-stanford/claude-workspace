@@ -1,9 +1,12 @@
 ---
 name: bump-fusilli-deps
-description: Bump IREE and TheRock to latest nightly versions in the fusilli repository. Updates version.json and optionally the docker entrypoint defaults and image digest.
+description: Bump IREE and TheRock nightly versions for the archived Fusilli project. Use only when the user explicitly requests Fusilli dependency maintenance.
 ---
 
 # Bump Fusilli Dependencies Skill
+
+Fusilli is archival in this workspace. Do not run this workflow as part of
+rocjitsu or general ROCm dependency work.
 
 Bumps IREE and TheRock to the latest nightly versions in the fusilli repository.
 Each dependency gets its own branch and PR to isolate failures and simplify bisection.
@@ -206,7 +209,7 @@ Run Fusilli repo commands from `projects/fusilli`.
      ```
 
 4. **Build and Test** (optional)
-   - Use the build-test-lint skill to verify changes
+   - Use the `fusilli-build-test-lint` skill to verify changes
    - Only if running inside docker dev-container
    - If not in container, skip this step and let CI handle it
 
