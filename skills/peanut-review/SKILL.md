@@ -158,8 +158,9 @@ worktree. For a GitHub-backed PR session, reuse the branch-backed development
 worktree that owns the change. If one does not exist, create a normal task
 worktree under `projects/worktrees/<repo>/` and use it for both review and
 subsequent development. Do not create a detached or review-only worktree under
-`.cache/peanut-review/`. Run these commands from the `claude-workspace` root.
-When the local PR branch already exists and is not checked out elsewhere, use:
+`.cache/peanut-review/`. Run only the following `git worktree add` commands from
+the `claude-workspace` root. When the local PR branch already exists and is not
+checked out elsewhere, use:
 
 ```bash
 git -C projects/<repo> worktree add \
@@ -177,13 +178,26 @@ git -C projects/<repo> worktree add \
   <remote>/<remote-pr-branch>
 ```
 
-Run `start` from inside the selected worktree because the shared config uses
-`$PWD` as its workspace. Verify that the committed `HEAD` is the intended
-review snapshot before launch. Preserve local modifications and never reset or
-clean the development worktree as part of review setup or synchronization.
-Peanut-review pins commit ranges, so commit intended review changes first or
-use the local author-owned lifecycle for work that is not yet represented by
-the PR snapshot.
+After selecting or creating the worktree, run every `peanut-review start`
+command from inside that worktree because the shared config uses `$PWD` as its
+workspace. Capture absolute paths before changing directories so the workspace
+tool and shared config remain reachable:
+
+```bash
+META_WORKSPACE="$PWD"
+PR_BIN="$META_WORKSPACE/tools/peanut-review/bin/peanut-review"
+CONFIG="$META_WORKSPACE/.cache/peanut-review/.peanut-review.json"
+WORKTREE="$META_WORKSPACE/projects/worktrees/<repo>/<task>-<change>"
+
+cd "$WORKTREE"
+"$PR_BIN" start <pr> --config "$CONFIG" --dry-run --no-launch
+```
+
+Verify that the committed `HEAD` is the intended review snapshot before
+launch. Preserve local modifications and never reset or clean the development
+worktree as part of review setup or synchronization. Peanut-review pins commit
+ranges, so commit intended review changes first or use the local author-owned
+lifecycle for work that is not yet represented by the PR snapshot.
 
 For GitHub PR sessions, the config must include a dedicated curator agent in
 `agents`, for example `{"name":"Curator","model":"gpt-5.5-high",
