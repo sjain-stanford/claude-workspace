@@ -36,6 +36,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `plans/` - Saved implementation plans from plan mode (gitignored contents, tracked directory)
 - `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
 - `skills/` - Project-specific skills and shared references
+- `tools/` - Workspace-owned tools, including the local peanut-review port
 - `.agents/` - Agent configuration; includes `skills -> ../skills` symlink for Codex skill discovery
 - `.claude/` - Claude Code configuration; includes settings and `skills -> ../skills` symlink
 - `.codex/` - Codex local configuration and rules
@@ -53,6 +54,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/fusilli-project/` - Use when adding new features or debugging issues in Fusilli
 - `skills/gh-address-comments/` - Use when addressing GitHub PR or issue comments on the current branch
 - `skills/gh-fix-ci/` - Use when debugging and fixing failing GitHub Actions checks for a PR
+- `skills/peanut-review/` - Use for explicit multi-agent review sessions, personas, curation, the review web UI, or GitHub review publishing
 - `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions and PR-body agent attribution)
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
@@ -62,11 +64,40 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 > **Note**: Skills are symlinked from agent-specific config directories (`.claude/skills` -> `../skills`, `.agents/skills` -> `../skills`) so local agents can discover them while keeping the source files at the repo root for easier editing.
 
+Keep the review workflows distinct. `pr-review` and `self-review` are focused
+single-agent reviews that save Markdown reports under `reviews/`.
+`peanut-review` is the explicit multi-agent workflow with persistent sessions,
+personas, curation, a web UI, and optional GitHub publishing. Do not escalate an
+ordinary review into peanut-review unless the user requests those capabilities.
+All three workflows must read `skills/review-criteria.md` and any applicable
+project-specific instructions before assessing changes.
+
 ## Sub-Repo Git Usage
 
 Run git commands from the relevant repository directory. For sub-repos under `projects/`, set the command working directory to `projects/<repo>` or its task worktree and use plain `git` commands.
 
 The canonical checkouts under `projects/<repo>/` are for reading, planning, debugging, and gathering context. Before making implementation edits, create or switch to a task-specific worktree under `projects/worktrees/<repo>/...` and do the edits, build, test, lint, commit, and PR work there. Only edit a canonical checkout directly when the user explicitly asks for that exact checkout to be modified.
+
+Peanut-review PR checkouts are the exception to that location convention.
+Create those review-only worktrees under
+`.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`; name sessions
+`<repo>-pr-<number>-<change>`. The shared config at
+`.cache/peanut-review/.peanut-review.json` resolves the current worktree from
+`$PWD` and stores session data under `.cache/peanut-review/sessions/`. Run
+`peanut-review start` from inside the review worktree so `$PWD` identifies the
+intended checkout.
+
+Keep each GitHub-backed PR review checkout separate from the
+author/development checkout and free of local changes. A detached worktree at
+the PR head SHA is appropriate because review worktrees are read-only; use a
+dedicated local branch only when the review itself needs commits. For example:
+
+```bash
+git -C projects/<repo> worktree add \
+  --detach \
+  "$PWD/.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>" \
+  <pr-head-sha>
+```
 
 If `git push` or any other remote-write command is denied by permissions,
 stop and ask the user how to proceed. Do not bypass the denial with alternate

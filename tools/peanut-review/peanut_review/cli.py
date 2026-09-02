@@ -107,9 +107,8 @@ def _session_id_for_pr(repo: str, number: int, change_title: str | None = None) 
     _owner, repo_name = repo.split("/", 1)
     repo_slug = _slugify_session_part(repo_name, max_length=40) or "repo"
     change_slug = _slugify_session_part(change_title or "", max_length=80)
-    if not change_slug:
-        change_slug = f"pr-{number}"
-    return f"{repo_slug}-{change_slug}"
+    prefix = f"{repo_slug}-pr-{number}"
+    return f"{prefix}-{change_slug}" if change_slug else prefix
 
 
 def _agent_configs(raw_agents: list[dict]) -> list[models.AgentConfig]:
@@ -192,8 +191,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # --gh-pr resolves PR metadata up front: defaults base/topic to PR's
     # base/head SHAs, populates session.github, and (unless overridden) gives
-    # the session a readable id like `<repo>-<change-title>` so URLs are nicer
-    # than the timestamp+hex auto-generated form.
+    # the session a readable id like `<repo>-pr-<number>-<change-title>` so
+    # URLs are nicer than the timestamp+hex auto-generated form.
     # base_ref/topic_ref default to None so we can distinguish "user passed
     # the same string as the default" from "user didn't pass anything". This
     # matters for --gh-pr: if the user explicitly passes refs, honor them;

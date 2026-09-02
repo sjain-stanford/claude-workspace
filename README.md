@@ -27,12 +27,15 @@ claude-workspace/
 │   ├── fusilli-project/
 │   ├── gh-address-comments/
 │   ├── gh-fix-ci/
+│   ├── peanut-review/
 │   ├── pr-create/
 │   ├── pr-review/
 │   ├── self-review/
 │   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
+├── tools/           # Workspace tools
+│   └── peanut-review/
 ├── plans/           # Mandatory saved implementation plans for larger work
 ├── reviews/         # Saved PR and self-review outputs
 ├── .agents/         # Agent configuration
@@ -106,6 +109,50 @@ claude-workspace/
 
 4. **Start developing:**
    - Use Claude Code or Codex for AI-assisted development
+
+### peanut-review
+
+Use `skills/peanut-review/` for explicit multi-agent review sessions and
+`tools/peanut-review/bin/peanut-review` for the CLI. The imported tool and skill
+are ordinary tracked files rather than a submodule.
+
+Create peanut-review PR worktrees under
+`.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`, name sessions
+`<repo>-pr-<number>-<change>`, and run the CLI from inside the worktree. The
+shared `.cache/peanut-review/.peanut-review.json` uses the current `$PWD` as
+the source checkout and writes persistent session data to
+`.cache/peanut-review/sessions/`.
+
+Keep each GitHub-backed review worktree separate from the development checkout
+and free of local changes. It may be detached at the PR head SHA; a dedicated
+local branch is only needed when the review itself needs commits.
+
+Start the web UI from the `claude-workspace` root, setting `PR_ROOT` to the
+configured review root when it differs from the launcher's `$HOME/reviews`
+default:
+
+```bash
+PR_ROOT="$PWD/.cache/peanut-review/sessions" \
+  tools/peanut-review/bin/peanut_review_serve.sh
+```
+
+Open `http://127.0.0.1:27183/`. Keep `PR_ROOT` aligned with the `reviewRoot` in
+`.peanut-review.json` so the CLI and web UI use the same sessions.
+
+Inside the development container, the launcher binds to `0.0.0.0` so Docker's
+published port can reach it. Launch the container with peanut-review forwarding
+enabled:
+
+```bash
+DOCKER_ENABLE_PEANUT_REVIEW_WEB=1 ./projects/docker/run_docker.sh
+```
+
+The Docker launcher publishes port `27183` only on the SSH host's loopback
+interface, allowing VSCode Remote SSH to forward it without exposing the UI on
+the host's external interfaces. Outside Docker, the peanut-review launcher
+binds directly to `127.0.0.1`. Set `PR_HOST` or `PR_PORT` to override these
+defaults. `PR_BASE_URL` should only be set when a reverse proxy strips the same
+path prefix before forwarding requests.
 
 ## Agent Workflow
 

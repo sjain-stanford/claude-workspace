@@ -220,10 +220,10 @@ def test_fetch_pr_info_propagates_gh_errors(gh_shim):
     assert "could not find" in ei.value.stderr
 
 
-def test_session_id_for_pr_uses_repo_change_title_convention():
+def test_session_id_for_pr_uses_repo_pr_number_change_title_convention():
     assert (
         _session_id_for_pr("acme/foo", 42, "user/feature/Add a thing")
-        == "foo-user-feature-add-a-thing"
+        == "foo-pr-42-user-feature-add-a-thing"
     )
     assert _session_id_for_pr("acme/foo", 42, "!!!") == "foo-pr-42"
 
@@ -454,7 +454,7 @@ def test_init_with_gh_pr_stamps_metadata_and_uses_pr_shas(gh_shim, tmp_path):
     assert rc == 0
 
     s = sess.load_session(sd)
-    assert s.id == "foo-feature-add-it"  # auto-defaulted from PR branch
+    assert s.id == "foo-pr-42-feature-add-it"  # PR number + branch
     assert s.github is not None
     assert s.github.repo == "acme/foo"
     assert s.github.number == 42
@@ -579,7 +579,7 @@ def test_start_reuse_syncs_snapshot_before_pulling_comments(
         ["git", "-C", ws, "rev-parse", "HEAD"], text=True,
     ).strip()
     review_root = tmp_path / "reviews"
-    sd = review_root / "foo-feature-add-it"
+    sd = review_root / "foo-pr-42-feature-add-it"
     agents = [
         {"name": "vera", "model": "opus", "persona": "vera.md"},
         {"name": "Curator", "model": "gpt", "role": "curator"},
@@ -591,7 +591,7 @@ def test_start_reuse_syncs_snapshot_before_pulling_comments(
         topic_ref=old_head,
         agents=agents,
         session_dir=str(sd),
-        session_id="foo-feature-add-it",
+        session_id="foo-pr-42-feature-add-it",
         github=models.GitHubPR(
             repo="acme/foo", number=42,
             head_sha=old_head, base_sha=base,
@@ -712,7 +712,7 @@ def test_start_new_session_preserves_explicit_snapshot(tmp_path):
         ])
 
     assert rc == 0
-    created = sess.load_session(review_root / "foo-feature-add-it")
+    created = sess.load_session(review_root / "foo-pr-42-feature-add-it")
     assert created.base_ref == base
     assert created.current_head == pinned_head
     assert created.github is not None
@@ -804,7 +804,7 @@ def test_start_from_project_config_with_bare_pr_number(gh_shim, tmp_path):
     rc = main(["start", "42", "--config", str(config_path), "--no-launch"])
     assert rc == 0
 
-    sd = review_root / "foo-feature-add-it"
+    sd = review_root / "foo-pr-42-feature-add-it"
     s = sess.load_session(sd)
     assert s.workspace == str(tmp_path)
     assert s.repo_relative == "ws"

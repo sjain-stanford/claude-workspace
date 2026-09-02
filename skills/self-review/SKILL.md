@@ -1,11 +1,15 @@
 ---
 name: self-review
-description: Review local branch changes before creating a PR. Use when you want feedback on uncommitted or committed changes on the current branch compared to main or another base branch.
+description: Perform a focused single-agent review of local branch changes before creating a PR. Use for ordinary local review requests; use peanut-review instead when the user asks for multi-agent reviewers, personas, curation, a persistent session, or the web UI.
 ---
 
 # Self Review Skill
 
 Provides comprehensive review of local branch changes following project coding standards.
+
+This is the lightweight, report-oriented local review path. Do not launch
+peanut-review implicitly. If a peanut-review session already exists, inspect it
+only when the user asks to incorporate or summarize that session.
 
 ## Usage
 

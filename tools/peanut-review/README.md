@@ -22,7 +22,9 @@ Start the web UI:
 bin/peanut_review_serve.sh
 ```
 
-Defaults: `root=$HOME/reviews`, `url=http://127.0.0.1:27183/pr`.
+Defaults: `root=$HOME/reviews`, `port=27183`, and a root-mounted UI. The
+launcher binds to `0.0.0.0` in Docker and `127.0.0.1` otherwise. Open
+`http://127.0.0.1:27183/` through the Docker/SSH port forwarding path.
 
 ### Optional browser profiling
 
@@ -63,9 +65,10 @@ GitHub PR orchestration:
 ```text
 Set up peanut-review for <PR URL> under <review-root>. Use the existing
 .peanut-review.json, confirm the exact reviewer lineup and runner/model choices
-before launching, and start with --no-launch so I can build/test the checkout.
-After reviewers signal round-done, wait-all should run the curator; help me
-inspect the curated feedback for the web UI push flow.
+before launching. Create a clean review-only worktree, detached at the PR head
+SHA unless the review itself needs commits, then start with --no-launch so I
+can build/test the checkout. After reviewers signal round-done, wait-all should
+run the curator; help me inspect the curated feedback for the web UI push flow.
 ```
 
 Local author-owned review:
@@ -77,13 +80,13 @@ triage every finding, apply fixes, migrate comment anchors, and run one rebuttal
 round if useful.
 ```
 
-Refresh an existing GitHub-backed session:
+Update an existing GitHub-backed session:
 
 ```text
-Refresh peanut-review session <SESSION> after the PR changed. Prefer re-running
-gh pr co <PR> over manual git operations when updating the local checkout; use
---force only if we intentionally want to discard local divergence. Then run
-sync-pr and gh-pull, and show new/unresolved comments. Do not launch agents
+Update peanut-review session <SESSION> after the PR changed. Update or recreate
+the clean review-only worktree at the new PR head, then run sync-pr and gh-pull
+and show new/unresolved comments. A detached checkout is valid. Stop if the
+checkout has local changes rather than discarding them. Do not launch agents
 unless the update is substantial or I explicitly ask.
 ```
 
