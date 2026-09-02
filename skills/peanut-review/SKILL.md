@@ -95,9 +95,8 @@ before running commands and keep it current.
 
 Mode-specific checklist:
 
-- [ ] GitHub PR: create or reuse a clean review-only worktree attached to a
-      dedicated local review branch; never use a detached checkout when the
-      session should support Refresh PR.
+- [ ] GitHub PR: create or reuse a clean review-only worktree, separate from
+      the author/development checkout; a detached PR-head checkout is valid.
 - [ ] GitHub PR: prefer `start --no-launch`, build/test, then `launch`, unless
       the user says the checkout is already built.
 - [ ] GitHub PR: after all reviewers signal `round-done`, let `wait-all`
@@ -155,15 +154,14 @@ config exists, ask before choosing persistent roots, repo layout, reviewers,
 runners, or models.
 
 `peanut-review start` consumes an existing checkout; it does not create the
-review worktree. For a GitHub-backed PR session, create the worktree on a
-dedicated local branch at creation time, distinct from any author/development
-branch that may be checked out elsewhere. Do not use `--detach`: Refresh PR
-requires a clean attached branch that it can fast-forward to the pushed PR
-head.
+review worktree. For a GitHub-backed PR session, create a clean worktree
+distinct from any author/development checkout. Prefer a detached worktree at
+the PR head SHA for read-only review; create a dedicated local review branch
+only when the review itself needs commits.
 
 ```bash
 git -C projects/<repo> worktree add \
-  -b peanut-review/pr-<number>-<change> \
+  --detach \
   "$PWD/.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>" \
   <pr-head-sha>
 ```
@@ -213,10 +211,8 @@ context, run reviewers, curate findings, and prepare a push-ready preview.
 Publish comments or an approve/request-changes decision only when the user
 explicitly asks.
 
-1. Create or select the clean, branch-attached review worktree described above
-   and run from inside it. Keep author changes in a separate development
-   worktree; push them before using Refresh PR because refresh reads the remote
-   PR head.
+1. Create or select the clean review-only worktree described above and run
+   from inside it. Keep author changes in a separate development worktree.
 
 2. Start without launching unless the checkout is already built. The command
    imports existing GitHub context and prints the session path.

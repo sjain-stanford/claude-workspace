@@ -34,7 +34,7 @@ claude-workspace/
 │   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
-├── tools/           # Workspace tools and upstream synchronization helpers
+├── tools/           # Workspace tools
 │   └── peanut-review/
 ├── plans/           # Mandatory saved implementation plans for larger work
 ├── reviews/         # Saved PR and self-review outputs
@@ -114,8 +114,7 @@ claude-workspace/
 
 Use `skills/peanut-review/` for explicit multi-agent review sessions and
 `tools/peanut-review/bin/peanut-review` for the CLI. The imported tool and skill
-are ordinary tracked files rather than a submodule. Upstream provenance and
-synchronization instructions live in `tools/README.md`.
+are ordinary tracked files rather than a submodule.
 
 Create peanut-review PR worktrees under
 `.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`, name sessions
@@ -124,10 +123,9 @@ shared `.cache/peanut-review/.peanut-review.json` uses the current `$PWD` as
 the source checkout and writes persistent session data to
 `.cache/peanut-review/sessions/`.
 
-Create each GitHub-backed review worktree on its own local branch, such as
-`peanut-review/pr-<number>-<change>`, rather than as a detached checkout. Keep
-that branch separate from the development branch and free of local changes so
-the web UI can refresh it to the latest pushed PR head.
+Keep each GitHub-backed review worktree separate from the development checkout
+and free of local changes. It may be detached at the PR head SHA; a dedicated
+local branch is only needed when the review itself needs commits.
 
 Start the web UI from the `claude-workspace` root, setting `PR_ROOT` to the
 configured review root when it differs from the launcher's `$HOME/reviews`

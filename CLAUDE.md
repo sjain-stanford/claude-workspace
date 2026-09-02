@@ -36,7 +36,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `plans/` - Saved implementation plans from plan mode (gitignored contents, tracked directory)
 - `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
 - `skills/` - Project-specific skills and shared references
-- `tools/` - Workspace-owned tools, including the filtered-history peanut-review port and its upstream synchronization helper
+- `tools/` - Workspace-owned tools, including the local peanut-review port
 - `.agents/` - Agent configuration; includes `skills -> ../skills` symlink for Codex skill discovery
 - `.claude/` - Claude Code configuration; includes settings and `skills -> ../skills` symlink
 - `.codex/` - Codex local configuration and rules
@@ -87,16 +87,14 @@ Create those review-only worktrees under
 `peanut-review start` from inside the review worktree so `$PWD` identifies the
 intended checkout.
 
-Create every GitHub-backed PR review worktree on a dedicated local review
-branch at worktree creation time; do not use a detached checkout. Name the
-branch `peanut-review/pr-<number>-<change>` (or another unambiguous review-only
-name), keep it distinct from the author/development branch, and keep it clean
-so the web UI's Refresh PR action can fast-forward it to the pushed PR head.
-For example:
+Keep each GitHub-backed PR review checkout separate from the
+author/development checkout and free of local changes. A detached worktree at
+the PR head SHA is appropriate because review worktrees are read-only; use a
+dedicated local branch only when the review itself needs commits. For example:
 
 ```bash
 git -C projects/<repo> worktree add \
-  -b peanut-review/pr-<number>-<change> \
+  --detach \
   "$PWD/.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>" \
   <pr-head-sha>
 ```

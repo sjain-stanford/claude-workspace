@@ -65,10 +65,10 @@ GitHub PR orchestration:
 ```text
 Set up peanut-review for <PR URL> under <review-root>. Use the existing
 .peanut-review.json, confirm the exact reviewer lineup and runner/model choices
-before launching. Create the review worktree on a dedicated clean local review
-branch, not a detached checkout, then start with --no-launch so I can
-build/test the checkout. After reviewers signal round-done, wait-all should run
-the curator; help me inspect the curated feedback for the web UI push flow.
+before launching. Create a clean review-only worktree, detached at the PR head
+SHA unless the review itself needs commits, then start with --no-launch so I
+can build/test the checkout. After reviewers signal round-done, wait-all should
+run the curator; help me inspect the curated feedback for the web UI push flow.
 ```
 
 Local author-owned review:
@@ -80,14 +80,14 @@ triage every finding, apply fixes, migrate comment anchors, and run one rebuttal
 round if useful.
 ```
 
-Refresh an existing GitHub-backed session:
+Update an existing GitHub-backed session:
 
 ```text
-Refresh peanut-review session <SESSION> after the PR changed. Prefer re-running
-gh pr co <PR> over manual git operations when updating the clean, attached
-review branch. Stop if the checkout is dirty, detached, or diverged rather
-than forcing it. Then run sync-pr and gh-pull, and show new/unresolved comments.
-Do not launch agents unless the update is substantial or I explicitly ask.
+Update peanut-review session <SESSION> after the PR changed. Update or recreate
+the clean review-only worktree at the new PR head, then run sync-pr and gh-pull
+and show new/unresolved comments. A detached checkout is valid. Stop if the
+checkout has local changes rather than discarding them. Do not launch agents
+unless the update is substantial or I explicitly ask.
 ```
 
 After `.peanut-review.json` exists, future PR/session setup is a good task to
