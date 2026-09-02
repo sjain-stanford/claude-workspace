@@ -116,16 +116,18 @@ Use `skills/peanut-review/` for explicit multi-agent review sessions and
 `tools/peanut-review/bin/peanut-review` for the CLI. The imported tool and skill
 are ordinary tracked files rather than a submodule.
 
-Create peanut-review PR worktrees under
-`.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`, name sessions
-`<repo>-pr-<number>-<change>`, and run the CLI from inside the worktree. The
-shared `.cache/peanut-review/.peanut-review.json` uses the current `$PWD` as
-the source checkout and writes persistent session data to
+Run peanut-review from the same branch-backed development worktree under
+`projects/worktrees/<repo>/` that owns the change. Reuse an existing task
+worktree, or create one there if needed; do not create a separate detached
+review checkout under `.cache/peanut-review/`. Name sessions
+`<repo>-pr-<number>-<change>`. The shared
+`.cache/peanut-review/.peanut-review.json` uses the current `$PWD` as the source
+checkout and writes persistent session data to
 `.cache/peanut-review/sessions/`.
 
-Keep each GitHub-backed review worktree separate from the development checkout
-and free of local changes. It may be detached at the PR head SHA; a dedicated
-local branch is only needed when the review itself needs commits.
+Before launching reviewers, make sure the worktree's committed `HEAD` is the
+snapshot to review. Keep the worktree for subsequent fixes and review rounds,
+and preserve any uncommitted local changes rather than resetting them.
 
 Start the web UI from the `claude-workspace` root, setting `PR_ROOT` to the
 configured review root when it differs from the launcher's `$HOME/reviews`

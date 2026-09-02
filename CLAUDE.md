@@ -78,26 +78,41 @@ Run git commands from the relevant repository directory. For sub-repos under `pr
 
 The canonical checkouts under `projects/<repo>/` are for reading, planning, debugging, and gathering context. Before making implementation edits, create or switch to a task-specific worktree under `projects/worktrees/<repo>/...` and do the edits, build, test, lint, commit, and PR work there. Only edit a canonical checkout directly when the user explicitly asks for that exact checkout to be modified.
 
-Peanut-review PR checkouts are the exception to that location convention.
-Create those review-only worktrees under
-`.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`; name sessions
-`<repo>-pr-<number>-<change>`. The shared config at
+Run peanut-review from the same branch-backed task worktree under
+`projects/worktrees/<repo>/` that is used to develop the change. Do not create
+a separate detached or review-only worktree under `.cache/peanut-review/`.
+Name sessions `<repo>-pr-<number>-<change>`. The shared config at
 `.cache/peanut-review/.peanut-review.json` resolves the current worktree from
-`$PWD` and stores session data under `.cache/peanut-review/sessions/`. Run
-`peanut-review start` from inside the review worktree so `$PWD` identifies the
-intended checkout.
+`$PWD` and stores only session data under `.cache/peanut-review/sessions/`.
 
-Keep each GitHub-backed PR review checkout separate from the
-author/development checkout and free of local changes. A detached worktree at
-the PR head SHA is appropriate because review worktrees are read-only; use a
-dedicated local branch only when the review itself needs commits. For example:
+Reuse an existing development worktree when one owns the PR branch. If none
+exists, create a normal branch-backed task worktree under
+`projects/worktrees/<repo>/`, then use that checkout for both review and any
+subsequent fixes. Run these commands from the `claude-workspace` root. When the
+local PR branch already exists and is not checked out elsewhere, use:
 
 ```bash
 git -C projects/<repo> worktree add \
-  --detach \
-  "$PWD/.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>" \
-  <pr-head-sha>
+  ../worktrees/<repo>/<task>-<change> \
+  <local-pr-branch>
 ```
+
+When the PR branch exists only as a remote-tracking branch, explicitly create
+and track a local branch:
+
+```bash
+git -C projects/<repo> worktree add \
+  --track -b <local-pr-branch> \
+  ../worktrees/<repo>/<task>-<change> \
+  <remote>/<remote-pr-branch>
+```
+
+Run `peanut-review start` from inside that worktree so `$PWD` identifies the
+intended checkout. Before launching reviewers, verify that its committed
+`HEAD` is the snapshot to review. Preserve any local changes; never discard or
+overwrite them to synchronize a review session. Because peanut-review pins a
+commit range, commit intended review changes first or use the local-review
+workflow when reviewing work that is not yet represented by the GitHub PR.
 
 If `git push` or any other remote-write command is denied by permissions,
 stop and ask the user how to proceed. Do not bypass the denial with alternate

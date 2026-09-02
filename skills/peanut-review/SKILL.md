@@ -95,8 +95,8 @@ before running commands and keep it current.
 
 Mode-specific checklist:
 
-- [ ] GitHub PR: create or reuse a clean review-only worktree, separate from
-      the author/development checkout; a detached PR-head checkout is valid.
+- [ ] GitHub PR: select or create the branch-backed development worktree under
+      `projects/worktrees/<repo>/` and use it for both review and iteration.
 - [ ] GitHub PR: prefer `start --no-launch`, build/test, then `launch`, unless
       the user says the checkout is already built.
 - [ ] GitHub PR: after all reviewers signal `round-done`, let `wait-all`
@@ -136,35 +136,54 @@ LAST_COMMENT_ID=<last-reviewed-comment-id>
 
 Examples assume `PR_BIN` and the intended `SESSION` path are set.
 Name new GitHub PR sessions `<repo>-pr-<number>-<change-title>`, using the PR
-head branch or title for `change-title`. Name their worktree leaves
-`pr-<number>-<change-title>`. Keep the descriptive suffix; avoid bare
+head branch or title for `change-title`. Development worktrees keep their
+task-oriented names under `projects/worktrees/<repo>/`; a session name does
+not require a matching worktree leaf. Keep descriptive suffixes and avoid bare
 PR-number names.
 
 ## Config And Permissions
 
 When `.peanut-review.json` exists, use it as-is. In this workspace, use the
-shared config at `.cache/peanut-review/.peanut-review.json`, create PR review
-worktrees under
-`.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>/`, and store
-`<repo>-pr-<number>-<change>` sessions under
+shared config at `.cache/peanut-review/.peanut-review.json`, run from the
+branch-backed development worktree under `projects/worktrees/<repo>/`, and
+store `<repo>-pr-<number>-<change>` sessions under
 `.cache/peanut-review/sessions/`. The config defines
 `reviewRoot`, `workspaceRoot`, `repoRelative`, `reviewAgentTimeoutSeconds`, and
 the exact `agents` lineup. Point the web UI at the same `reviewRoot`. If no
 config exists, ask before choosing persistent roots, repo layout, reviewers,
 runners, or models.
 
-`peanut-review start` consumes an existing checkout; it does not create the
-review worktree. For a GitHub-backed PR session, create a clean worktree
-distinct from any author/development checkout. Prefer a detached worktree at
-the PR head SHA for read-only review; create a dedicated local review branch
-only when the review itself needs commits.
+`peanut-review start` consumes an existing checkout; it does not create a
+worktree. For a GitHub-backed PR session, reuse the branch-backed development
+worktree that owns the change. If one does not exist, create a normal task
+worktree under `projects/worktrees/<repo>/` and use it for both review and
+subsequent development. Do not create a detached or review-only worktree under
+`.cache/peanut-review/`. Run these commands from the `claude-workspace` root.
+When the local PR branch already exists and is not checked out elsewhere, use:
 
 ```bash
 git -C projects/<repo> worktree add \
-  --detach \
-  "$PWD/.cache/peanut-review/worktrees/<repo>/pr-<number>-<change>" \
-  <pr-head-sha>
+  ../worktrees/<repo>/<task>-<change> \
+  <local-pr-branch>
 ```
+
+When the PR branch exists only as a remote-tracking branch, explicitly create
+and track a local branch:
+
+```bash
+git -C projects/<repo> worktree add \
+  --track -b <local-pr-branch> \
+  ../worktrees/<repo>/<task>-<change> \
+  <remote>/<remote-pr-branch>
+```
+
+Run `start` from inside the selected worktree because the shared config uses
+`$PWD` as its workspace. Verify that the committed `HEAD` is the intended
+review snapshot before launch. Preserve local modifications and never reset or
+clean the development worktree as part of review setup or synchronization.
+Peanut-review pins commit ranges, so commit intended review changes first or
+use the local author-owned lifecycle for work that is not yet represented by
+the PR snapshot.
 
 For GitHub PR sessions, the config must include a dedicated curator agent in
 `agents`, for example `{"name":"Curator","model":"gpt-5.5-high",
@@ -211,8 +230,9 @@ context, run reviewers, curate findings, and prepare a push-ready preview.
 Publish comments or an approve/request-changes decision only when the user
 explicitly asks.
 
-1. Create or select the clean review-only worktree described above and run
-   from inside it. Keep author changes in a separate development worktree.
+1. Select the PR's branch-backed development worktree described above and run
+   from inside it. Verify that its committed `HEAD` is the intended snapshot;
+   preserve any uncommitted work.
 
 2. Start without launching unless the checkout is already built. The command
    imports existing GitHub context and prints the session path.
@@ -277,9 +297,10 @@ explicitly asks.
    Treat `gh-push-verdict` the same way: never run it without explicit user
    authorization to publish the verdict.
 
-After author updates, refresh the checkout with the project PR-update flow,
-then run `sync-pr` and `gh-pull`. Rerun reviewers only for substantial updates
-or a human request.
+After author updates have been committed and pushed through the authorized
+normal development workflow in the same worktree, run `sync-pr` and `gh-pull`.
+Never reset or clean the worktree to refresh a session. Rerun reviewers only
+for substantial updates or a human request.
 
 ```bash
 "$PR_BIN" --session "$SESSION" sync-pr
