@@ -106,10 +106,10 @@ Mode-specific checklist:
       imported GitHub threads, or force rebuttal loops unless the user asks.
 - [ ] GitHub PR: always finish with `gh-push --dry-run` and stop unless the
       user explicitly asked to publish the review.
-- [ ] Local review: own the patch; apply fixes, `migrate`, run rebuttal passes,
-      and record a final verdict. Use the web UI's curator button or
-      `curate` only when comment cleanup is explicitly useful; use the web
-      UI's rerun-all button only when a fresh full reviewer pass is useful.
+- [ ] Local review: own the patch and run the iterative development loop below.
+      Review and curate, triage every surviving finding, commit relevant fixes,
+      migrate anchors, reply or resolve addressed comments, and refresh the
+      same session until the curator leaves no actionable comments.
 
 ## Ask Before Guessing
 
@@ -323,10 +323,16 @@ for substantial updates or a human request.
 
 ## Local Author-Owned Review
 
-Use this when the orchestrator can modify the patch under review.
+Use this when the orchestrator can modify and commit the patch under review.
+The stopping condition is a completed curator pass with no remaining actionable
+curated findings. A clean reviewer pass without a completed curator pass is not
+enough.
 
-1. Create and launch the session. If project config exists, reuse its `agents`
-   lineup.
+### Iterative Local Development Loop
+
+1. Create the session. If project config exists, reuse its complete `agents`
+   lineup, including its dedicated curator. If no curator is configured, ask
+   before changing the lineup.
 
    ```bash
    "$PR_BIN" --session "$SESSION" init \
@@ -334,49 +340,76 @@ Use this when the orchestrator can modify the patch under review.
      --base <base-ref> \
      --topic HEAD \
      --agents '<agents-json-or-file>'
+   ```
+
+2. Run the configured reviewers, wait for them to finish, then run the
+   configured curator and wait for its `round-done` signal. Local sessions do
+   not launch the curator automatically. Inspect the curated unresolved
+   comments, including the curator report and deleted comments when needed to
+   understand the result.
+
+   ```bash
    "$PR_BIN" --session "$SESSION" launch
-   ```
-
-2. Run the shared monitoring commands.
-
-3. Triage every finding. Apply real fixes in code and resolve fixed comments;
-   reply with a concrete rebuttal for findings that are intentionally not fixed.
-   If the local comment set is too noisy, run the web UI's curator button or:
-
-   ```bash
+   "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
    "$PR_BIN" --session "$SESSION" curate
+   "$PR_BIN" --session "$SESSION" status
+   "$PR_BIN" --session "$SESSION" comments --unresolved --format json
    ```
 
-   ```bash
-   "$PR_BIN" --session "$SESSION" resolve <c_id>
-   "$PR_BIN" --session "$SESSION" add-comment --reply-to <c_id> --body "..."
-   ```
+   Use `status`, signals, logs, and reports to confirm the curator completed;
+   `wait-all` waits for reviewers only in a local session. If the curator leaves
+   no actionable comments, continue to step 5.
 
-4. Commit fixes, then update comment anchors:
+3. Triage every curated finding; do not silently skip any. Apply real fixes and
+   run proportionate verification. For findings that should not be fixed, add a
+   concrete local rebuttal explaining the disposition. Review the resulting
+   diff. When code changed, stage only relevant paths and commit the iteration
+   locally using the project's commit workflow. Do not create empty commits and
+   do not push.
+
+4. After the commit, migrate the session to the new `HEAD` so comment anchors
+   follow the updated snapshot. Then reply to and resolve comments addressed by
+   the commit; keep genuinely outstanding comments unresolved. Refresh the
+   review by rerunning every configured reviewer in the same session, wait for
+   the reviewer round, and run the curator again. Repeat from step 2 until the
+   curator leaves no actionable findings. Here, "refresh" means `migrate` plus
+   a full configured-reviewer rerun and curator pass; there is no `refresh` CLI
+   subcommand.
 
    ```bash
    "$PR_BIN" --session "$SESSION" migrate
-   ```
-
-5. Run a rebuttal pass by rerunning selected reviewers:
-
-   ```bash
-   "$PR_BIN" --session "$SESSION" rerun --agent Vera --agent Irene
-   "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 600
+   "$PR_BIN" --session "$SESSION" add-comment --reply-to <c_id> --body "Addressed in <commit>: ..."
+   "$PR_BIN" --session "$SESSION" resolve <c_id>
+   "$PR_BIN" --session "$SESSION" rerun \
+     --agent <reviewer-1> --agent <reviewer-2>
+   "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
+   "$PR_BIN" --session "$SESSION" curate
    "$PR_BIN" --session "$SESSION" comments --since "$LAST_COMMENT_ID"
    ```
 
-   Repeat only while useful. There is no round counter; track new work with
-   `--since <comment-id>`.
+   List every configured reviewer with a repeated `--agent`; do not rerun the
+   curator through `rerun`. Track each round's starting comment id and use
+   `--since <comment-id>` to isolate new feedback. There is no round counter.
 
-6. Record the final verdict; archive if useful. A verdict writes `result.json`
-   but does not close the session or prevent later reruns:
+5. At the clean stopping point, inspect and analyze the complete change set
+   from the session base through the final `HEAD`, not only the last iteration.
+   Run any final project verification warranted by that aggregate diff and
+   record the final verdict; archive if useful. A verdict writes `result.json`
+   but does not close the session or prevent later reruns.
 
    ```bash
    "$PR_BIN" --session "$SESSION" verdict --approve --body "All critical issues addressed"
    "$PR_BIN" --session "$SESSION" verdict --request-changes --body "Outstanding critical issue in X"
    "$PR_BIN" --session "$SESSION" archive
    ```
+
+   Summarize the complete result and local commits, then stop so the user has a
+   chance to push them through the normal development workflow. Do not push on
+   the user's behalf unless separately authorized. If the branch has a PR,
+   offer to update its title and description after the user confirms the remote
+   contains the final commits. Re-read the pushed PR and complete diff before
+   proposing metadata, and update remote PR metadata only with explicit user
+   authorization.
 
 ## Shared Review Mechanics
 
