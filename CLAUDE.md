@@ -13,7 +13,11 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
   - Read `emulation/rocjitsu/CONTRIBUTING.md` and the relevant project docs
     before editing; use `skills/rocjitsu-project/` for architecture and practice
   - The useful sparse-checkout context is `emulation/rocjitsu/`,
-    `shared/machine-readable-isa/isa/`, and `.github/`
+    `projects/rocr-runtime/`, `shared/machine-readable-isa/isa/`, and `.github/`.
+  - Runtime source context: `projects/rocr-runtime/` (ROCR and libhsakmt)
+    Use the ROCR runtime source to verify HSA runtime, libhsakmt, topology,
+    queue, event, and KFD-facing behavior; it is source context for rocjitsu,
+    not an instruction to modify ROCR as part of ordinary rocjitsu work.
 - `projects/docker/` - Docker for ML compiler development environment
   - This is the unified development docker for all builds and tests
   - Use as reference but expect Claude/Codex is launched from a dev-container already

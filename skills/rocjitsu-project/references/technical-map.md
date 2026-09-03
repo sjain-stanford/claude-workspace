@@ -44,6 +44,21 @@ Unmodified HIP / ROCR process
 | FlatBuffers schemas and config loading | `schemas/`, `lib/rocjitsu/src/rocjitsu/config/` |
 | Device/topology configurations | `configs/` |
 
+## ROCR runtime source context
+
+The same sparse checkout includes `projects/rocr-runtime/`. Consult it when
+rocjitsu behavior crosses the userspace-runtime boundary instead of inferring
+ROCR or libhsakmt behavior from rocjitsu alone. Useful starting points include:
+
+| Concern | ROCR location |
+|---|---|
+| HSA runtime agents, queues, signals, tools, and loading | `projects/rocr-runtime/runtime/hsa-runtime/` |
+| KFD thunk calls, topology parsing, events, and memory mapping | `projects/rocr-runtime/libhsakmt/` |
+
+This tree is reference context for normal rocjitsu tasks. Do not broaden a
+rocjitsu change into ROCR implementation work unless the task explicitly calls
+for it.
+
 ## Cross-layer review prompts
 
 ### ISA and execution semantics
@@ -79,6 +94,8 @@ Unmodified HIP / ROCR process
 
 - Are errno, ioctl ABI layouts, file descriptors, mappings, fork/dup lifecycle,
   runtime directory isolation, and cleanup preserved?
+- Does the behavior match the corresponding ROCR or libhsakmt implementation in
+  `projects/rocr-runtime/`, including topology parsing and queue/event lifetime?
 - Could a hook execute during loader/runtime initialization, or from a signal
   handler, where allocation, locking, iostreams, or non-async-signal-safe calls
   are unsafe?

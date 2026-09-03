@@ -16,7 +16,7 @@ dynamic binary translation, and dynamic binary instrumentation toolkit.
 ```
 claude-workspace/
 ├── projects/         # Public GH repositories (local clone; contents are gitignored)
-│   ├── rocm-systems/ # Active ROCm monorepo sparse checkout; rocjitsu lives here
+│   ├── rocm-systems/ # Active sparse checkout; rocjitsu + ROCR runtime context
 │   ├── docker/
 │   ├── triton/       # Upstream Triton compiler checkout
 │   └── worktrees/    # Local per-task git worktrees for parallel agents
@@ -105,6 +105,7 @@ logs, patches, and supporting text contain no material derived from
    git switch develop
    git sparse-checkout set \
      emulation/rocjitsu \
+     projects/rocr-runtime \
      shared/machine-readable-isa/isa \
      .github
    cd ../..
@@ -114,11 +115,13 @@ logs, patches, and supporting text contain no material derived from
    ```
 
    The Docker checkout is required to create the workspace's development
-   environment. The machine-readable ISA tree is needed for regeneration, and
-   `.github/` provides the current rocjitsu CI and corpus qualification
-   workflows. The Triton checkout provides upstream compiler source and
-   development context. Clone archival repositories separately only when
-   needed.
+   environment. `projects/rocr-runtime/` provides ROCR and libhsakmt source
+   context for rocjitsu's HSA, topology, queue, event, and KFD-facing behavior;
+   it is not an ordinary rocjitsu edit target. The machine-readable ISA tree is
+   needed for regeneration, and `.github/` provides the current rocjitsu CI and
+   corpus qualification workflows. The Triton checkout provides upstream
+   compiler source and development context. Clone archival repositories
+   separately only when needed.
 
 3. **Launch development container:**
    - Open Cursor or VS Code rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)
@@ -130,6 +133,8 @@ logs, patches, and supporting text contain no material derived from
    - Read `projects/rocm-systems/emulation/rocjitsu/CONTRIBUTING.md`.
    - Use `skills/rocjitsu-project/` for project work and
      `skills/rocjitsu-build-test/` for verification.
+   - Consult `projects/rocm-systems/projects/rocr-runtime/` when behavior depends
+     on ROCR or libhsakmt implementation details.
    - Create branch-backed task worktrees under
      `projects/worktrees/rocm-systems/`; rocjitsu's base branch is `develop`.
 

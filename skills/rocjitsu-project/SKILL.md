@@ -23,6 +23,10 @@ Paths below are relative to `emulation/rocjitsu/` unless stated otherwise.
    behavior or test from one path covers another.
 4. Read [references/technical-map.md](references/technical-map.md) when locating
    a subsystem, tracing cross-layer behavior, or assessing architectural impact.
+5. When work depends on HSA runtime, libhsakmt, topology discovery, queue/event,
+   or KFD-facing behavior, verify the contract against the checked-out ROCR
+   source at `<rocm-systems>/projects/rocr-runtime/`. Treat it as source context,
+   not a rocjitsu build dependency or an ordinary edit target.
 
 ## Engineering invariants
 
