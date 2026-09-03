@@ -1,11 +1,11 @@
 ---
 name: pr-create
-description: Create a GitHub pull request for a sub-repo branch with PR-body agent attribution. Use when asked to create a PR, open a pull request, or submit changes for review.
+description: Create a GitHub pull request for a sub-repo branch with evidence-backed provenance, reproduction, root-cause, fix, validation details, and PR-body agent attribution. Use when asked to create a PR, open a pull request, or submit changes for review.
 ---
 
 # PR Create Skill
 
-Creates GitHub pull requests following workspace conventions: compact prose descriptions with PR-body agent attribution.
+Creates GitHub pull requests following workspace conventions: evidence-backed descriptions with enough context for a reviewer to understand the change and PR-body agent attribution.
 
 ## Usage
 
@@ -48,12 +48,36 @@ cd projects/<repo> && git push -u origin HEAD
 
 **Title**: Use the same style as commit messages — concise, imperative mood, under 72 characters. For single-commit PRs, reuse the commit subject line.
 
-**Description**: Use short prose paragraphs, no section headings by default.
+**Description**: Give reviewers the investigation narrative, not just a summary of the diff. Cover these points when applicable:
+
+- **Provenance**: Link the originating issue, report, or request. State the base revision or environment used for investigation and distinguish pre-existing work from this PR when that history affects the diagnosis.
+- **Reproducer**: Record the smallest meaningful reproducer, relevant hardware/software configuration, and the observed versus expected behavior. If the original reproducer was unavailable, say so and explain why the substitute exercises the same path.
+- **Root cause**: Explain the failed mechanism and the evidence that isolated it. Do not merely restate the symptom.
+- **Fix**: Describe the design and important invariants or tradeoffs, including why the approach is robust. Avoid a file-by-file changelog.
+- **Validation**: List the commands, test groups, or end-to-end workloads actually run and their outcomes. Include test counts or exit behavior when useful, and disclose meaningful gaps.
+
+Use short Markdown sections for a non-trivial fix so reviewers can scan each part. A small, self-explanatory change may combine categories into prose, but must not omit relevant provenance, reproduction, root-cause, fix, or validation details merely to keep the body short.
 
 ```markdown
-<One concise paragraph describing the primary change and why it matters.>
+## Context
 
-<Optional second concise paragraph for supporting changes, cleanup, or test adjustments.>
+<Originating issue/request, investigation baseline, and relevant prior work.>
+
+## Reproduction
+
+<Minimal reproducer or equivalent, environment, observed behavior, and expected behavior.>
+
+## Root cause
+
+<The failed mechanism and the evidence used to isolate it.>
+
+## Fix
+
+<The design, why it resolves the cause, and any important invariants.>
+
+## Validation
+
+<Tests and end-to-end checks actually run, with outcomes and any gaps.>
 
 Co-authored-by: GPT-5.6 Sol <codex@openai.com>
 
@@ -61,10 +85,11 @@ Co-authored-by: GPT-5.6 Sol <codex@openai.com>
 ```
 
 **Rules**:
-- Focus on *why*, not *what* — the diff shows what changed
-- Prefer one paragraph; use two paragraphs when there is a meaningful secondary change
-- Do not use bullets or headings for normal PRs
-- Keep each paragraph short and specific; avoid restating every changed file
+- Focus on the causal chain: provenance and reproduction → root cause → fix → validation
+- Be precise enough that a reviewer can assess scope and reproduce the observed failure without rediscovering the investigation
+- Prefer concrete evidence over generic claims such as "fixes the issue" or "tests pass"
+- Keep sections focused and avoid restating every changed file
+- Never claim the exact reported reproducer was run when only an equivalent path was tested
 - Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
 - Include this final PR-body attribution footer:
   ```markdown
@@ -88,9 +113,25 @@ Use HEREDOC format for the body to preserve formatting:
 cd projects/<repo> && gh pr create \
   --title "<title>" \
   --body "$(cat <<'EOF'
-<One concise paragraph describing the primary change and why it matters.>
+## Context
 
-<Optional second concise paragraph for supporting changes, cleanup, or test adjustments.>
+<Originating issue/request, investigation baseline, and relevant prior work.>
+
+## Reproduction
+
+<Minimal reproducer or equivalent, environment, observed behavior, and expected behavior.>
+
+## Root cause
+
+<The failed mechanism and the evidence used to isolate it.>
+
+## Fix
+
+<The design and important invariants.>
+
+## Validation
+
+<Checks actually run and their outcomes.>
 
 Co-authored-by: GPT-5.6 Sol <codex@openai.com>
 
@@ -118,10 +159,29 @@ Return the PR URL to the user.
 ## Example
 
 ```bash
-cd projects/docker && gh pr create \
-  --title "Mount ~/.cursor into dev container for Cursor config access" \
+cd projects/rocm-systems && gh pr create \
+  --base develop \
+  --title "[rocjitsu] Route trap-handler queue exceptions" \
   --body "$(cat <<'EOF'
-Mounts `~/.cursor` into the dev container so Cursor IDE settings and MCP configs are available inside the workspace.
+## Context
+
+Fixes #1234. The failure was reproduced from the current `origin/develop` baseline; a related earlier change already modeled the architectural registers but did not connect the runtime notification path.
+
+## Reproduction
+
+Running the minimal device-assert workload on gfx1250 printed the assertion and then timed out instead of notifying the runtime and terminating.
+
+## Root cause
+
+The trap handler encoded the queue exception in M0, but the simulated KFD acknowledged the interrupt without forwarding those bits to the queue error event.
+
+## Fix
+
+Decode the runtime exception payload and defer delivery until the compute-unit wave lock is released, preserving the command processor's lock ordering.
+
+## Validation
+
+Added a focused gfx1250 regression and ran the affected KFD/debug suites plus the end-to-end device-assert workload. The runtime now reports the queue exception and terminates without timing out.
 
 Co-authored-by: GPT-5.6 Sol <codex@openai.com>
 
