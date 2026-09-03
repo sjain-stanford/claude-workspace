@@ -1,22 +1,22 @@
-# Ignore all sub-repositories in projects/
+# Ignore all sub-repositories in projects.
 projects/*
-!projects/.gitkeep
 
-# Ignore PR review contents but track the directory
+# Ignore all internal EMU repositories.
+projects-emu/*
+
+# Ignore PR review contents.
 reviews/*
-!reviews/.gitkeep
 
-# Ignore plan contents but track the directory
+# Ignore plan contents.
 plans/*
-!plans/.gitkeep
 
-# Ignore docker cache directory
+# Ignore docker cache directory.
 .cache/
 
-# Ignore machine-specific Claude settings
+# Ignore machine-specific Claude settings.
 .claude/settings.local.json
 
-# Ignore beads local issue tracker
+# Ignore beads local issue tracker.
 .beads/
 
 __pycache__/

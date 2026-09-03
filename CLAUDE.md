@@ -23,6 +23,16 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `projects/worktrees/` - Local git worktrees for parallel agent work
   - This directory is intentionally gitignored by `projects/*`
   - Create per-task worktrees here instead of editing the main checkout for feature work
+- `projects-emu/` - **Internal EMU repositories; local-only and gitignored**
+  - Organize canonical checkouts as `projects-emu/<organization>/<repository>/`
+  - Create EMU development worktrees only under
+    `projects-emu/worktrees/<organization>/<repository>/<task>/`
+  - Never copy, commit, quote, attach, upload, or otherwise transfer EMU source,
+    diffs, logs, repository names, or derived implementation details into public
+    repositories, public issues or pull requests, public gists, or other public
+    artifacts
+  - Before any public publish operation, verify that the proposed content and
+    commit history contain no material derived from `projects-emu/`
 - `plans/` - Saved implementation plans from plan mode (gitignored contents, tracked directory)
 - `reviews/` - Saved PR and self-review outputs (gitignored contents, tracked directory)
 - `skills/` - Project-specific skills and shared references

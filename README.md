@@ -6,19 +6,23 @@ A meta workspace for Claude Code and Codex-assisted development across my curren
 
 This workspace is the shared root for local agent configuration, reusable
 skills, saved plans/reviews, local Beads task state, git worktrees, and the
-independent repositories cloned under `projects/`. The primary active project
-is `projects/rocm-systems/emulation/rocjitsu`, an AMD GPU simulation, dynamic
-binary translation, and dynamic binary instrumentation toolkit. Older Fusilli
-material is retained only as archival context.
+independent repositories cloned under `projects/`. Internal EMU repositories are
+isolated under the local-only `projects-emu/` tree. The primary active public
+project is `projects/rocm-systems/emulation/rocjitsu`, an AMD GPU simulation,
+dynamic binary translation, and dynamic binary instrumentation toolkit.
 
 ## Structure
 
 ```
 claude-workspace/
-├── projects/        # Independent git repositories cloned locally
+├── projects/        # Public GH repositories (local clone; contents are gitignored)
 │   ├── rocm-systems/ # Active ROCm monorepo sparse checkout; rocjitsu lives here
 │   ├── docker/
 │   └── worktrees/   # Local per-task git worktrees for parallel agents
+├── projects-emu/    # Internal GHE/EMU repositories (local clone; contents are gitignored)
+│   ├── ...
+│   └── worktrees/
+│       └── <organization>/<repository>/<task>/
 ├── skills/          # Project specific skills and shared references
 │   ├── rocjitsu-project/
 │   ├── rocjitsu-build-test/
@@ -57,11 +61,23 @@ claude-workspace/
 └── README.md
 ```
 
+### Internal EMU boundary
+
+`projects-emu/` is reserved for internal EMU repositories and their
+development worktrees. Its contents must never be copied, committed, quoted,
+attached, uploaded, or otherwise transferred into public repositories, public
+issues or pull requests, public gists, or other public artifacts. Only the
+generic `.gitkeep` placeholders are tracked by this workspace repository.
+
+Before publishing work from `projects/`, verify that the change, commit history,
+logs, patches, and supporting text contain no material derived from
+`projects-emu/`.
+
 ## Getting Started
 
 ### Prerequisites
 
-- Cursor IDE (recommended) or VS Code IDE
+- VS Code or Cursor IDE
 - Docker
 - Extensions:
    - Claude Code for VSCode
