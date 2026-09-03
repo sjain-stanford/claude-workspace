@@ -15,15 +15,16 @@ dynamic binary translation, and dynamic binary instrumentation toolkit.
 
 ```
 claude-workspace/
-├── projects/        # Public GH repositories (local clone; contents are gitignored)
+├── projects/         # Public GH repositories (local clone; contents are gitignored)
 │   ├── rocm-systems/ # Active ROCm monorepo sparse checkout; rocjitsu lives here
 │   ├── docker/
-│   └── worktrees/   # Local per-task git worktrees for parallel agents
-├── projects-emu/    # Internal GHE/EMU repositories (local clone; contents are gitignored)
+│   ├── triton/       # Upstream Triton compiler checkout
+│   └── worktrees/    # Local per-task git worktrees for parallel agents
+├── projects-emu/     # Internal GHE/EMU repositories (local clone; contents are gitignored)
 │   ├── ...
 │   └── worktrees/
 │       └── <organization>/<repository>/<task>/
-├── skills/          # Project specific skills and shared references
+├── skills/           # Project specific skills and shared references
 │   ├── rocjitsu-project/
 │   ├── rocjitsu-build-test/
 │   ├── fusilli-build-test-lint/
@@ -38,25 +39,25 @@ claude-workspace/
 │   ├── stage-and-commit/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
-├── tools/           # Workspace tools
+├── tools/            # Workspace tools
 │   └── peanut-review/
-├── plans/           # Mandatory saved implementation plans for larger work
-├── reviews/         # Saved PR and self-review outputs
-├── .agents/         # Agent configuration
+├── plans/            # Mandatory saved implementation plans for larger work
+├── reviews/          # Saved PR and self-review outputs
+├── .agents/          # Agent configuration
 │   └── skills -> ../skills
-├── .beads/          # Local-only issue tracker state
-├── .claude/         # Claude Code configuration
+├── .beads/           # Local-only issue tracker state
+├── .claude/          # Claude Code configuration
 │   ├── settings.json
 │   ├── settings.local.json
 │   └── skills -> ../skills
-├── .codex/          # Codex local configuration and rules
+├── .codex/           # Codex local configuration and rules
 │   ├── config.toml
 │   └── rules/
-├── .cursor/         # Cursor local configuration
+├── .cursor/          # Cursor local configuration
 │   └── cli.json
-├── .cache/          # Local caches for workspace tooling and docker/dependency artifacts
-├── AGENTS.md        # Top-level instructions for agents
-├── CLAUDE.md        # Top-level context for Claude Code
+├── .cache/           # Local caches for workspace tooling and docker/dependency artifacts
+├── AGENTS.md         # Top-level instructions for agents
+├── CLAUDE.md         # Top-level context for Claude Code
 ├── LICENSE
 └── README.md
 ```
@@ -87,7 +88,7 @@ logs, patches, and supporting text contain no material derived from
 
 1. **Clone the workspace:**
    ```bash
-   git clone https://github.com/sjain-stanford/claude-workspace.git
+   git clone git@github.com:sjain-stanford/claude-workspace.git
    cd claude-workspace
    ```
 
@@ -95,11 +96,11 @@ logs, patches, and supporting text contain no material derived from
 
    ```bash
    # Development image and container launchers
-   git clone https://github.com/sjain-stanford/docker.git projects/docker
+   git clone git@github.com:sjain-stanford/docker.git projects/docker
 
    # rocjitsu source and required monorepo context
    git clone --filter=blob:none --sparse \
-     https://github.com/ROCm/rocm-systems.git projects/rocm-systems
+     git@github.com:ROCm/rocm-systems.git projects/rocm-systems
    cd projects/rocm-systems
    git switch develop
    git sparse-checkout set \
@@ -107,12 +108,17 @@ logs, patches, and supporting text contain no material derived from
      shared/machine-readable-isa/isa \
      .github
    cd ../..
+
+   # Upstream Triton compiler
+   git clone git@github.com:triton-lang/triton.git projects/triton
    ```
 
    The Docker checkout is required to create the workspace's development
    environment. The machine-readable ISA tree is needed for regeneration, and
    `.github/` provides the current rocjitsu CI and corpus qualification
-   workflows. Clone archival repositories separately only when needed.
+   workflows. The Triton checkout provides upstream compiler source and
+   development context. Clone archival repositories separately only when
+   needed.
 
 3. **Launch development container:**
    - Open Cursor or VS Code rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)

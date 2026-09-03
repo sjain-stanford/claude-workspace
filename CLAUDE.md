@@ -17,6 +17,9 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `projects/docker/` - Docker for ML compiler development environment
   - This is the unified development docker for all builds and tests
   - Use as reference but expect Claude/Codex is launched from a dev-container already
+- `projects/triton/` - Upstream `triton-lang/triton` compiler checkout
+  - Use for Triton development and upstream compiler context
+  - Create implementation worktrees under `projects/worktrees/triton/`
 - Historical Fusilli, IREE, Torch-MLIR, hipDNN, cuDNN frontend, and TheRock
   checkouts may be retained under `projects/` for archival/reference use. Do
   not treat them as active dependencies or fetch them for rocjitsu work.
