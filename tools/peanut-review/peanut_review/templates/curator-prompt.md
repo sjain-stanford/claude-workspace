@@ -56,10 +56,11 @@ duplicates an imported anchored GitHub thread that is still the right place to
 discuss the issue, use that existing thread instead: run
 `unresolve <comment-id>` if needed, use `add-comment --reply-to <comment-id>`
 with the current evidence or remaining concern, then delete the new duplicate
-local comment. GitHub does not support replies to global comments, so never use
-a global comment ID with `--reply-to`. If the imported global comment already
-covers the finding, delete the local duplicate; if material new evidence is
-needed, keep one concise top-level global comment.
+local comment. For an imported global comment, `--reply-to` creates a new
+top-level global comment that quotes the imported comment before the response,
+because GitHub does not thread review-level comments. Use that when material
+new evidence belongs in direct response; if the imported global comment
+already covers the finding, delete the local duplicate instead.
 
 Optimize for a small, high-signal final comment set:
 

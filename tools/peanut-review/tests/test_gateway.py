@@ -167,6 +167,29 @@ def test_gateway_rejects_bad_anchor_and_non_round_signal(live_gateway):
     assert store.read_all_comments(session_dir) == []
 
 
+def test_remote_cli_reply_to_global_creates_quoted_global(live_gateway):
+    session_dir, _head, token, url, _server = live_gateway
+    parent_result = _remote_cli(
+        session_dir, url, token,
+        "add-global-comment", "--body", "First line\n\nSecond line",
+    )
+    assert parent_result.returncode == 0, parent_result.stderr
+    parent_id = store.read_all_comments(session_dir)[0].id
+
+    reply_result = _remote_cli(
+        session_dir, url, token,
+        "add-comment", "--reply-to", parent_id, "--body", "Response",
+    )
+    assert reply_result.returncode == 0, reply_result.stderr
+    assert f"(global reply to {parent_id})" in reply_result.stdout
+
+    reply = store.read_all_comments(session_dir)[1]
+    assert reply.file == ""
+    assert reply.line == 0
+    assert reply.reply_to is None
+    assert reply.body == "> First line\n>\n> Second line\n\nResponse"
+
+
 def test_capability_is_hashed_private_scoped_and_revocable(live_gateway, tmp_path: Path):
     session_dir, _head, token, url, _server = live_gateway
     path = gateway._capability_path(session_dir, "launch-one")

@@ -301,7 +301,13 @@ round signals are cleared before the selected reviewers start:
 "$PR_BIN" --session "$SESSION" curate                 # launch the comment curator
 "$PR_BIN" --session "$SESSION" add-global-comment --severity suggestion --body "A few comments."
 "$PR_BIN" --session "$SESSION" add-global-comment --category request-changes --body-file /tmp/blocking.md
+"$PR_BIN" --session "$SESSION" add-comment --reply-to <global-comment-id> --body "Response"
 ```
+
+Replies to anchored comments remain in their GitHub thread. Because GitHub
+does not support threading review-level comments, replying to a global comment
+creates a new global comment that quotes the original body as a Markdown
+blockquote before the response.
 
 `note` is a report-only channel for non-review output such as test execution
 and comment curation. Review findings and discussion belong in comments.

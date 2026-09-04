@@ -557,8 +557,9 @@ def cmd_add_comment(args: argparse.Namespace) -> int:
         print("Error: --body or --body-file is required", file=sys.stderr)
         return 1
 
-    # Reply mode: --reply-to <id>. Inherits the parent's file/line so the
-    # reply renders in the same thread.
+    # Reply mode: --reply-to <id>. Anchored replies inherit the parent's
+    # location. GitHub cannot thread global comments, so a global reply is
+    # stored as a new global comment with the parent quoted in Markdown.
     reply_to_arg = getattr(args, "reply_to", None)
     try:
         category = models.normalize_comment_category(getattr(args, "category", None))
@@ -566,6 +567,7 @@ def cmd_add_comment(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     reply_to: str | None = None
+    global_reply_to: str | None = None
     if reply_to_arg:
         all_comments = store.read_all_comments(session_dir)
         reply_to = store.normalize_reply_to(all_comments, reply_to_arg)
@@ -585,13 +587,18 @@ def cmd_add_comment(args: argparse.Namespace) -> int:
             return 1
         parent = next(c for c in all_comments if c.id == reply_to)
         if parent.file == sess.GLOBAL_FILE:
-            print("Error: replies to global comments are not supported",
-                  file=sys.stderr)
-            return 1
-        file = parent.file
-        line = parent.line
-        end_line = None
-        is_global = (file == sess.GLOBAL_FILE)
+            global_reply_to = reply_to
+            body = store.format_global_reply(parent.body, body)
+            reply_to = None
+            file = sess.GLOBAL_FILE
+            line = 0
+            end_line = None
+            is_global = True
+        else:
+            file = parent.file
+            line = parent.line
+            end_line = None
+            is_global = False
         file_lines = None
     else:
         # Global comment mode: --global OR neither --file nor --line given.
@@ -644,7 +651,9 @@ def cmd_add_comment(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    if reply_to:
+    if global_reply_to:
+        print(f"{comment.id} (global reply to {global_reply_to})")
+    elif reply_to:
         print(f"{comment.id} (reply to {reply_to})")
     elif is_global:
         print(f"{comment.id} (global)")
@@ -1601,8 +1610,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--global", dest="global_", action="store_true",
                     help="Post a high-level comment with no file/line anchor")
     sp.add_argument("--reply-to", dest="reply_to", default=None, metavar="ID",
-                    help="Post as a reply to an existing comment thread "
-                         "(file/line are inherited from the parent)")
+                    help="Reply to a comment (anchored replies inherit the "
+                         "parent location; global replies quote the parent in "
+                         "a new global comment)")
     sp.add_argument("--body", help="Comment text (watch for shell-eaten backticks — prefer --body-file)")
     sp.add_argument("--body-file", help="Read comment text from FILE (safer for bodies with backticks or $ chars)")
     sp.add_argument("--severity", default="suggestion",

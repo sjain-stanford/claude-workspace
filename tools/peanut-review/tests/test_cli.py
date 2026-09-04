@@ -937,7 +937,7 @@ def test_add_comment_reply_to_inherits_parent_location():
     assert reply.line == 2
 
 
-def test_add_comment_reply_to_global_comment_errors():
+def test_add_comment_reply_to_global_comment_creates_quoted_global():
     ws = _make_workspace({"foo.py": "alpha\n"})
     sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
     _init_session(sd, workspace=ws)
@@ -947,13 +947,19 @@ def test_add_comment_reply_to_global_comment_errors():
     from peanut_review.store import read_all_comments
     parent_id = read_all_comments(sd)[0].id
 
-    err = io.StringIO()
-    with redirect_stderr(err):
+    out = io.StringIO()
+    with redirect_stdout(out):
         rc = main(["--session", sd, "add-comment", "--reply-to", parent_id,
                    "--body", "agreed", "--author", "felix"])
-    assert rc == 1
-    assert "replies to global comments are not supported" in err.getvalue()
-    assert len(read_all_comments(sd)) == 1
+    assert rc == 0
+    assert f"global reply to {parent_id}" in out.getvalue()
+    comments = read_all_comments(sd)
+    assert len(comments) == 2
+    reply = comments[1]
+    assert reply.file == ""
+    assert reply.line == 0
+    assert reply.reply_to is None
+    assert reply.body == "> scope concern\n\nagreed"
 
 
 def test_add_comment_reply_to_unknown_id_errors():

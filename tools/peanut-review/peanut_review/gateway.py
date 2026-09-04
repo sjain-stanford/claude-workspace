@@ -191,6 +191,7 @@ def _comment_result(session_dir: Path, author: str, payload: dict[str, Any]) -> 
     session = sess.load_session(session_dir)
     reply_arg = payload.get("reply_to")
     reply_to: str | None = None
+    global_reply_to: str | None = None
     file_lines: list[str] | None = None
     if reply_arg:
         comments = store.read_all_comments(session_dir)
@@ -201,11 +202,18 @@ def _comment_result(session_dir: Path, author: str, payload: dict[str, Any]) -> 
             raise GatewayError("review decisions cannot be used on replies")
         parent = next(comment for comment in comments if comment.id == reply_to)
         if parent.file == sess.GLOBAL_FILE:
-            raise GatewayError("replies to global comments are not supported")
-        file = parent.file
-        line = parent.line
-        end_line = None
-        is_global = False
+            global_reply_to = reply_to
+            body = store.format_global_reply(parent.body, body)
+            reply_to = None
+            file = sess.GLOBAL_FILE
+            line = 0
+            end_line = None
+            is_global = True
+        else:
+            file = parent.file
+            line = parent.line
+            end_line = None
+            is_global = False
     else:
         file_value = payload.get("file")
         line_value = payload.get("line")
@@ -247,7 +255,9 @@ def _comment_result(session_dir: Path, author: str, payload: dict[str, Any]) -> 
         store.append_comment(session_dir, comment)
     except ValueError as exc:
         raise GatewayError(str(exc)) from exc
-    if reply_to:
+    if global_reply_to:
+        message = f"{comment.id} (global reply to {global_reply_to})"
+    elif reply_to:
         message = f"{comment.id} (reply to {reply_to})"
     elif is_global:
         message = f"{comment.id} (global)"

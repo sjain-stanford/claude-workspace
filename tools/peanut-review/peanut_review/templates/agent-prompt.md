@@ -99,8 +99,10 @@ ${PR_BIN} --session ${SESSION} add-comment --reply-to <c_id> \
 the parent. Run `unresolve` only when the parent is currently resolved, but
 never leave a resolved thread resolved after adding a renewed actionable
 concern. It remains unresolved until the concern is addressed and explicitly
-resolved again. GitHub does not support replies to global comments, so use a
-new `add-global-comment` instead when the original has no file/line anchor.
+resolved again. When the original has no file/line anchor, the same
+`--reply-to` command creates a new global comment with the original body
+quoted before your response, because GitHub does not thread review-level
+comments.
 For brand-new findings in the fix diff, use a regular `add-comment` or
 `add-global-comment`.
 

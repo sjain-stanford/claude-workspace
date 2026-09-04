@@ -82,6 +82,15 @@ def _validate_comment(comment: Comment) -> None:
         )
 
 
+def format_global_reply(parent_body: str, reply_body: str) -> str:
+    """Render a reply as a pushable global comment with its parent quoted."""
+    parent_lines = parent_body.rstrip("\r\n").splitlines() or [""]
+    quoted_parent = "\n".join(
+        f"> {line}" if line else ">" for line in parent_lines
+    )
+    return f"{quoted_parent}\n\n{reply_body}"
+
+
 def append_comment(session_dir: str | Path, comment: Comment) -> Comment:
     """Append a comment to the agent's JSONL file. Returns the comment."""
     _validate_comment(comment)
