@@ -58,7 +58,10 @@ author-facing comment set:
 - Delete duplicate, incorrect, stale, nitpicky, speculative, praise-only,
   overly broad, or low-ROI comments. When merging duplicates, edit the kept
   comment first so it absorbs any useful detail, then delete the redundant
-  copy.
+  copy. Preserve disposition history: never delete a resolved comment, a
+  reply, or a thread root that has replies. Deletion is only for comments that
+  have not become part of a reply/resolution trail; if such a comment was
+  deleted by mistake, undelete it before replying to or resolving it.
 - For GitHub-backed sessions, finish with `gh-push --dry-run`. Treat it as
   authoritative for what will surface and whether anchors are pushable. If an
   anchor is out of range, recreate the finding as a global comment preserving
@@ -369,12 +372,16 @@ enough.
 
 4. After the commit, migrate the session to the new `HEAD` so comment anchors
    follow the updated snapshot. Then reply to and resolve comments addressed by
-   the commit; keep genuinely outstanding comments unresolved. Refresh the
-   review by rerunning every configured reviewer in the same session, wait for
-   the reviewer round, and run the curator again. Repeat from step 2 until the
-   curator leaves no actionable findings. Here, "refresh" means `migrate` plus
-   a full configured-reviewer rerun and curator pass; there is no `refresh` CLI
-   subcommand.
+   the commit; keep genuinely outstanding comments unresolved. Do not delete
+   addressed comments after resolving them: the comment, its commit reply, and
+   any other replies are the iteration's audit trail. On later curator passes,
+   preserve every resolved comment, every reply, and every thread root with
+   replies even when the finding is now stale or duplicated by a new comment.
+   Refresh the review by rerunning every configured reviewer in the same
+   session, wait for the reviewer round, and run the curator again. Repeat from
+   step 2 until the curator leaves no actionable findings. Here, "refresh"
+   means `migrate` plus a full configured-reviewer rerun and curator pass; there
+   is no `refresh` CLI subcommand.
 
    ```bash
    "$PR_BIN" --session "$SESSION" migrate

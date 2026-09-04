@@ -40,6 +40,13 @@ Curate local reviewer comments from the configured reviewer agents. Treat
 visible, resolved, deleted, and imported GitHub comments as duplicate history
 before deciding to keep any new finding.
 
+Preserve disposition history. Never delete a resolved comment, a reply, or a
+thread root that has replies. These threads record how a finding was handled,
+including commit references and rebuttals, and remain intact even when the
+finding is now stale or duplicated by a new comment. Deletion is only for
+comments that have not become part of a reply/resolution trail. If one was
+deleted by mistake, undelete it before replying to or resolving it.
+
 Do not edit or delete imported GitHub comments. If a new local reviewer finding
 duplicates an imported anchored GitHub thread that is still the right place to
 discuss the issue, use that existing thread instead: run
@@ -81,7 +88,7 @@ Classify reviewer comments as:
 - keep/rewrite: actionable, correct, and worth showing to the PR author
 - merge: duplicate or overlapping with a stronger nearby comment
 - delete: incorrect, stale, speculative, praise-only, nitpicky, too broad, or
-  low ROI
+  low ROI, but only when it is not resolved and neither is nor has replies
 - undelete: only when a prior deletion clearly removed the best current
   finding
 

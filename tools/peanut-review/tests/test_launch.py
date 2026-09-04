@@ -356,6 +356,8 @@ def test_launch_default_excludes_curator_and_curate_uses_dedicated_prompt(tmp_pa
     assert "Optimize for a small, high-signal final comment set" in curator_prompt
     assert "collapse similar low-level findings into one concise global comment" in curator_prompt
     assert "visible, resolved, deleted, and imported GitHub comments" in curator_prompt
+    assert "Never delete a resolved comment, a reply, or a" in curator_prompt
+    assert "thread root that has replies" in curator_prompt
     assert "Prefer existing threads over new duplicate comments" in curator_prompt
     assert "add-comment --reply-to <comment-id>" in curator_prompt
     assert "unresolve <comment-id>" in curator_prompt
