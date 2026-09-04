@@ -46,6 +46,10 @@ including commit references and rebuttals, and remain intact even when the
 finding is now stale or duplicated by a new comment. Deletion is only for
 comments that have not become part of a reply/resolution trail. If one was
 deleted by mistake, undelete it before replying to or resolving it.
+If a later review round adds a substantive actionable reply to a resolved
+thread, run `unresolve <comment-id>` on the thread root. Leave it unresolved
+until the renewed concern is addressed and explicitly resolved again; this is
+a safety net for reviewers that forgot to reopen the thread before replying.
 
 Do not edit or delete imported GitHub comments. If a new local reviewer finding
 duplicates an imported anchored GitHub thread that is still the right place to
@@ -76,6 +80,8 @@ Prefer existing threads over new duplicate comments:
 - if a resolved anchored thread covers an issue that still applies, use
   `unresolve` and `add-comment --reply-to` to explain what remains true on the
   current diff
+- if a new actionable reply already explains why a resolved issue still
+  applies, `unresolve` the thread root without adding a duplicate reply
 - if several old or new line comments are all examples of one broader pattern,
   use one global comment when the global framing is more useful than another
   inline thread, include representative `file:line` examples, and delete the

@@ -345,6 +345,9 @@ def test_launch_default_excludes_curator_and_curate_uses_dedicated_prompt(tmp_pa
     reviewer_prompt = (Path(sd) / "prompts" / "vera.md").read_text()
     curator_prompt = (Path(sd) / "prompts" / "Curator.md").read_text()
     assert "Read your persona" in reviewer_prompt
+    assert "reopen it first if it" in reviewer_prompt
+    assert "unresolve <c_id>" in reviewer_prompt
+    assert "never leave a resolved thread resolved" in reviewer_prompt
     assert "comment curator" in curator_prompt
     completion_contract = (
         "This signal and your process outcome are the authoritative "
@@ -358,6 +361,8 @@ def test_launch_default_excludes_curator_and_curate_uses_dedicated_prompt(tmp_pa
     assert "visible, resolved, deleted, and imported GitHub comments" in curator_prompt
     assert "Never delete a resolved comment, a reply, or a" in curator_prompt
     assert "thread root that has replies" in curator_prompt
+    assert "adds a substantive actionable reply to a resolved" in curator_prompt
+    assert "unresolve <comment-id>` on the thread root" in curator_prompt
     assert "Prefer existing threads over new duplicate comments" in curator_prompt
     assert "add-comment --reply-to <comment-id>" in curator_prompt
     assert "unresolve <comment-id>" in curator_prompt

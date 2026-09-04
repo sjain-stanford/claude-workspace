@@ -61,7 +61,10 @@ author-facing comment set:
   copy. Preserve disposition history: never delete a resolved comment, a
   reply, or a thread root that has replies. Deletion is only for comments that
   have not become part of a reply/resolution trail; if such a comment was
-  deleted by mistake, undelete it before replying to or resolving it.
+  deleted by mistake, undelete it before replying to or resolving it. When a
+  later review round adds a substantive new finding or rebuttal to a resolved
+  thread, unresolve the thread before adding the reply and leave it unresolved
+  until the renewed concern is addressed and resolved again.
 - For GitHub-backed sessions, finish with `gh-push --dry-run`. Treat it as
   authoritative for what will surface and whether anchors are pushable. If an
   anchor is out of range, recreate the finding as a global comment preserving
@@ -377,6 +380,11 @@ enough.
    any other replies are the iteration's audit trail. On later curator passes,
    preserve every resolved comment, every reply, and every thread root with
    replies even when the finding is now stale or duplicated by a new comment.
+   If a later reviewer finds that a resolved concern still applies, that
+   reviewer must `unresolve <c_id>` before replying on the existing thread.
+   Keep the reopened thread unresolved until the new concern has been fixed or
+   rebutted and explicitly resolved again. The curator must unresolve it as a
+   safety net if a reviewer adds an actionable reply without doing so.
    Refresh the review by rerunning every configured reviewer in the same
    session, wait for the reviewer round, and run the curator again. Repeat from
    step 2 until the curator leaves no actionable findings. Here, "refresh"

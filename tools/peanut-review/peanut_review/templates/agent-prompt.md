@@ -84,19 +84,24 @@ before forming opinions:
    `git -C ${REPO_PATH} log --oneline -5` to find the fix commit, then
    `git -C ${REPO_PATH} diff <original-head>..<fix-commit>` to see the actual fixes.
 
-For each rebutted finding, assess whether you agree with the rebuttal. If you
-disagree and the original comment is anchored to a file, post a reply so the
-discussion stays threaded:
+For each previously resolved finding, assess whether its fix or rebuttal still
+holds on the current diff. If the concern still applies and the original
+comment is anchored to a file, reopen it first if it is resolved, then post a
+reply so the discussion stays threaded and visibly actionable:
 
 ```
+${PR_BIN} --session ${SESSION} unresolve <c_id>
 ${PR_BIN} --session ${SESSION} add-comment --reply-to <c_id> \
     --severity <...> --body "Why the rebuttal doesn't hold: ..."
 ```
 
 `<c_id>` is the original comment ID. The reply inherits its file/line from
-the parent. GitHub does not support replies to global comments, so use a new
-`add-global-comment` instead when the original has no file/line anchor. For
-brand-new findings in the fix diff, use a regular `add-comment` or
+the parent. Run `unresolve` only when the parent is currently resolved, but
+never leave a resolved thread resolved after adding a renewed actionable
+concern. It remains unresolved until the concern is addressed and explicitly
+resolved again. GitHub does not support replies to global comments, so use a
+new `add-global-comment` instead when the original has no file/line anchor.
+For brand-new findings in the fix diff, use a regular `add-comment` or
 `add-global-comment`.
 
 IMPORTANT: `--line <N>` is the line number in the SOURCE FILE, not the diff
