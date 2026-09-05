@@ -1,6 +1,6 @@
 ---
 name: pr-create
-description: Create a GitHub pull request for a sub-repo branch with evidence-backed provenance, reproduction, root-cause, fix, validation details, and PR-body agent attribution. Use when asked to create a PR, open a pull request, or submit changes for review.
+description: Create a GitHub pull request for a sub-repo branch with a complexity-appropriate description, validation details, and PR-body agent attribution. Use when asked to create a PR, open a pull request, or submit changes for review.
 ---
 
 # PR Create Skill
@@ -48,7 +48,16 @@ cd projects/<repo> && git push -u origin HEAD
 
 **Title**: Use the same style as commit messages — concise, imperative mood, under 72 characters. For single-commit PRs, reuse the commit subject line.
 
-**Description**: Give reviewers the investigation narrative, not just a summary of the diff. Cover these points when applicable:
+**Description**: Match the structure to the complexity of the change.
+
+- For a small, self-explanatory PR such as a version bump, documentation edit,
+  or narrow configuration change, use one to three short paragraphs without
+  Markdown section headings. State why the change is needed, what it changes,
+  and the validation performed. Use a compact `Validation:` line or list only
+  when it improves readability.
+- For a non-trivial fix or feature, use short Markdown sections so reviewers
+  can follow the investigation and design. Cover the following points when
+  applicable:
 
 - **Provenance**: Link the originating issue, report, or request. State the base revision or environment used for investigation and distinguish pre-existing work from this PR when that history affects the diagnosis.
 - **Reproducer**: Record the smallest meaningful reproducer, relevant hardware/software configuration, and the observed versus expected behavior. If the original reproducer was unavailable, say so and explain why the substitute exercises the same path.
@@ -56,7 +65,23 @@ cd projects/<repo> && git push -u origin HEAD
 - **Fix**: Describe the design and important invariants or tradeoffs, including why the approach is robust. Avoid a file-by-file changelog.
 - **Validation**: List the commands, test groups, or end-to-end workloads actually run and their outcomes. Include test counts or exit behavior when useful, and disclose meaningful gaps.
 
-Use short Markdown sections for a non-trivial fix so reviewers can scan each part. A small, self-explanatory change may combine categories into prose, but must not omit relevant provenance, reproduction, root-cause, fix, or validation details merely to keep the body short.
+Do not force provenance, reproduction, or root-cause sections onto a simple PR
+when those concepts add no useful information. Never add empty or redundant
+sections merely to match a template.
+
+Simple PR format:
+
+```markdown
+<Why the change is needed and what it changes.>
+
+Validation: <checks actually run and any meaningful gaps.>
+
+Co-authored-by: GPT-5.6 Sol <codex@openai.com>
+
+🤖 Generated with [Codex](https://openai.com/codex)
+```
+
+Non-trivial PR format:
 
 ```markdown
 ## Context
@@ -85,8 +110,11 @@ Co-authored-by: GPT-5.6 Sol <codex@openai.com>
 ```
 
 **Rules**:
-- Focus on the causal chain: provenance and reproduction → root cause → fix → validation
-- Be precise enough that a reviewer can assess scope and reproduce the observed failure without rediscovering the investigation
+- For a non-trivial change, focus on the causal chain: provenance and
+  reproduction → root cause → fix → validation
+- Use detail proportional to the change: a simple PR should make the motivation,
+  change, and validation clear; a non-trivial PR should let a reviewer assess
+  scope and reproduce the observed failure without rediscovering the investigation
 - Prefer concrete evidence over generic claims such as "fixes the issue" or "tests pass"
 - Keep sections focused and avoid restating every changed file
 - Never claim the exact reported reproducer was run when only an equivalent path was tested
@@ -113,25 +141,10 @@ Use HEREDOC format for the body to preserve formatting:
 cd projects/<repo> && gh pr create \
   --title "<title>" \
   --body "$(cat <<'EOF'
-## Context
+<Use concise prose for a simple PR or the sectioned format above for a
+non-trivial PR.>
 
-<Originating issue/request, investigation baseline, and relevant prior work.>
-
-## Reproduction
-
-<Minimal reproducer or equivalent, environment, observed behavior, and expected behavior.>
-
-## Root cause
-
-<The failed mechanism and the evidence used to isolate it.>
-
-## Fix
-
-<The design and important invariants.>
-
-## Validation
-
-<Checks actually run and their outcomes.>
+Validation: <Checks actually run and their outcomes.>
 
 Co-authored-by: GPT-5.6 Sol <codex@openai.com>
 
