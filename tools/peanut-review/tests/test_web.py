@@ -2372,7 +2372,11 @@ def test_client_gh_push_modal_includes_selection_controls():
     assert 'class="push-select"' in block
     assert "github_account: ghPreviewAccount" in block
     assert "bindGhSelectionControls(pushable, Boolean(ghPreviewAccount))" in block
+    assert 'ghBody.querySelectorAll(".push-select").forEach((box) =>' in block
+    assert "box.disabled = true" in block
+    assert "if (toggle) toggle.disabled = true" in block
     assert 'ghConfirm.textContent = "Publishing disabled"' in block
+    assert "await fetchGhPreview(selectionState, String(e))" in block
     assert 'class="push-delete"' in block
     assert 'data-push-delete="' in block
     assert 'data-push-edit="' in block

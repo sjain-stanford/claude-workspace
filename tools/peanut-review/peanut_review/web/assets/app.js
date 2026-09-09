@@ -1955,7 +1955,7 @@
     });
   }
 
-  async function fetchGhPreview(selectionState = null) {
+  async function fetchGhPreview(selectionState = null, pushError = null) {
     let plan;
     try {
       plan = await api("GET", "/api/gh/preview");
@@ -1968,7 +1968,10 @@
     const total = plan.total || 0;
     const orphans = (plan.new_replies || []).filter((r) => r.orphaned).length;
     const pushable = total - orphans;
-    let html = `<p class="push-summary">`
+    let html = pushError
+      ? `<p class="error">Push failed: ${esc(pushError)}</p>`
+      : "";
+    html += `<p class="push-summary">`
       + `Repo <span class="mono">${esc(plan.repo)}</span> · `
       + `PR <a href="${esc(plan.url)}" target="_blank" rel="noopener" class="mono">#${plan.number}</a></p>`;
     if (plan.github_account) {
@@ -2191,6 +2194,7 @@
     }
     ghConfirm.disabled = true;
     ghConfirm.textContent = "Pushing…";
+    const selectionState = captureGhSelectionState();
     let res;
     try {
       res = await api("POST", "/api/gh/push", {
@@ -2198,9 +2202,7 @@
         github_account: ghPreviewAccount,
       });
     } catch (e) {
-      ghBody.innerHTML = `<p class="error">Push failed: ${esc(String(e))}</p>`;
-      ghConfirm.disabled = false;
-      ghConfirm.textContent = "Retry push";
+      await fetchGhPreview(selectionState, String(e));
       return;
     }
     let html = `<p class="push-summary">${esc(res.summary || "")}</p>`;
