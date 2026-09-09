@@ -1810,6 +1810,7 @@
   const ghConfirm = document.getElementById("gh-push-confirm");
   const ghPushBtn = document.getElementById("gh-push-btn");
   let ghPreviewItems = new Map();
+  let ghPreviewAccount = null;
 
   function openGhModal() {
     if (!ghModal) return;
@@ -1819,6 +1820,7 @@
     ghConfirm.textContent = "Confirm push";
     ghConfirm.classList.remove("danger");
     ghConfirm.dataset.mode = "confirm";
+    ghPreviewAccount = null;
     document.body.classList.add("modal-open");
     fetchGhPreview();
   }
@@ -1962,6 +1964,7 @@
       return;
     }
     ghPreviewItems = new Map(allPlanItems(plan).map((it) => [String(it.id), it]));
+    ghPreviewAccount = plan.github_account || null;
     const total = plan.total || 0;
     const orphans = (plan.new_replies || []).filter((r) => r.orphaned).length;
     const pushable = total - orphans;
@@ -2006,7 +2009,7 @@
     }
     ghBody.innerHTML = html;
     restoreGhSelectionState(selectionState);
-    bindGhSelectionControls(plan.github_account ? pushable : 0);
+    bindGhSelectionControls(pushable, Boolean(ghPreviewAccount));
   }
 
   function selectedGhPushIds() {
@@ -2056,8 +2059,17 @@
       : "Nothing selected";
   }
 
-  function bindGhSelectionControls(pushable) {
+  function bindGhSelectionControls(pushable, publishingEnabled) {
     const toggle = document.getElementById("gh-include-agents");
+    if (!publishingEnabled) {
+      ghBody.querySelectorAll(".push-select").forEach((box) => {
+        box.disabled = true;
+      });
+      if (toggle) toggle.disabled = true;
+      ghConfirm.disabled = true;
+      ghConfirm.textContent = "Publishing disabled";
+      return;
+    }
     if (toggle) {
       toggle.addEventListener("change", () => {
         ghBody.querySelectorAll(".push-select[data-agent-comment='1']:not(:disabled)")
@@ -2181,7 +2193,10 @@
     ghConfirm.textContent = "Pushing…";
     let res;
     try {
-      res = await api("POST", "/api/gh/push", { comment_ids: commentIds });
+      res = await api("POST", "/api/gh/push", {
+        comment_ids: commentIds,
+        github_account: ghPreviewAccount,
+      });
     } catch (e) {
       ghBody.innerHTML = `<p class="error">Push failed: ${esc(String(e))}</p>`;
       ghConfirm.disabled = false;

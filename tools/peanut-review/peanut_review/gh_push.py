@@ -899,7 +899,11 @@ def execute_push(
     session: models.Session,
     ghpr: models.GitHubPR,
     plan: PushPlan,
+    *,
+    expected_account: str | None = None,
 ) -> PushResult:
     """Execute a push as the account configured in the reviewed repository."""
-    with gh.repo_auth(sess.repo_path(session)):
+    with gh.repo_auth(
+        sess.repo_path(session), expected_account=expected_account,
+    ):
         return _execute_push(session_dir, session, ghpr, plan)

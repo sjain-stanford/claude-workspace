@@ -203,6 +203,19 @@ def test_repo_auth_fails_closed_without_repo_account(gh_shim, tmp_path):
     assert gh_shim.calls(include_auth=True) == []
 
 
+def test_repo_auth_rejects_account_changed_after_confirmation(gh_shim, tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "other-bot",
+    ], check=True)
+
+    with pytest.raises(gh.RepoAccountError, match="changed after confirmation"):
+        with gh.repo_auth(tmp_path, expected_account="review-bot"):
+            pass
+    assert gh_shim.calls(include_auth=True) == []
+
+
 def test_resolve_pr_spec_uses_gh_for_bare_number(gh_shim, tmp_path):
     gh_shim.set_fixtures([{
         "match": ["pr", "view", "42", "url"],

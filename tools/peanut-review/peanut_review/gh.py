@@ -128,9 +128,19 @@ def _token_for_account(account: str) -> str:
 
 
 @contextmanager
-def repo_auth(repo_path: str | Path) -> Iterator[str]:
-    """Pin gh calls in this context to the checkout's configured account."""
+def repo_auth(
+    repo_path: str | Path,
+    *,
+    expected_account: str | None = None,
+) -> Iterator[str]:
+    """Pin gh calls to the checkout's configured, optionally expected account."""
     account = repo_account(repo_path)
+    if expected_account is not None and account != expected_account:
+        raise RepoAccountError(
+            "repository-specific GitHub account changed after confirmation "
+            f"(expected {expected_account!r}, found {account!r}); preview the "
+            "push again before publishing"
+        )
     token = _token_for_account(account)
     marker = _AUTH_ENV.set({"GH_TOKEN": token, "GH_HOST": "github.com"})
     try:

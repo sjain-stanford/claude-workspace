@@ -1001,6 +1001,20 @@ class _Handler(BaseHTTPRequestHandler):
         s = load_session(session_dir)
         if s.github is None:
             return self._error(400, "session is not GitHub-backed")
+        try:
+            configured_account = gh.repo_account(repo_path(s))
+        except gh.RepoAccountError as e:
+            return self._error(409, str(e))
+        expected_account = data.get("github_account")
+        if not isinstance(expected_account, str) or not expected_account:
+            return self._error(400, "missing github_account from push preview")
+        if expected_account != configured_account:
+            return self._error(
+                409,
+                "repository-specific GitHub account changed after confirmation "
+                f"(expected {expected_account!r}, found {configured_account!r}); "
+                "preview the push again before publishing",
+            )
         comments = store.read_all_comments(session_dir)
         anchor_index = gh_push.build_review_anchor_index(
             repo_path(s), s.base_ref, s.topic_ref,
@@ -1023,7 +1037,10 @@ class _Handler(BaseHTTPRequestHandler):
                 "summary": "Nothing to push.",
             })
         try:
-            result = gh_push.execute_push(session_dir, s, s.github, plan)
+            result = gh_push.execute_push(
+                session_dir, s, s.github, plan,
+                expected_account=expected_account,
+            )
         except gh.RepoAccountError as e:
             return self._error(409, str(e))
         self._json(200, {

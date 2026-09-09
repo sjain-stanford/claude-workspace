@@ -1382,8 +1382,11 @@ def test_server_gh_push_filters_to_selected_comment_ids(
     store.append_comment(session_dir, human_comment)
     captured_ids = []
 
-    def fake_execute_push(session_dir_arg, session_arg, ghpr_arg, plan):
+    def fake_execute_push(
+        session_dir_arg, session_arg, ghpr_arg, plan, *, expected_account=None,
+    ):
         del session_dir_arg, session_arg, ghpr_arg
+        assert expected_account == "review-bot"
         selected = [*plan.new_top, *plan.new_replies, *plan.edits]
         captured_ids.append([c.id for c in selected])
         return web_app.gh_push.PushResult(pushed=plan.total)
@@ -1394,7 +1397,7 @@ def test_server_gh_push_filters_to_selected_comment_ids(
     try:
         code, data = _post(
             f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
-            {"comment_ids": [agent_comment.id]},
+            {"comment_ids": [agent_comment.id], "github_account": "review-bot"},
         )
         assert code == 200
         assert data["summary"] == "Pushed 1."
@@ -1414,8 +1417,11 @@ def test_server_gh_push_default_excludes_agent_comments(
     store.append_comment(session_dir, human_comment)
     captured_ids = []
 
-    def fake_execute_push(session_dir_arg, session_arg, ghpr_arg, plan):
+    def fake_execute_push(
+        session_dir_arg, session_arg, ghpr_arg, plan, *, expected_account=None,
+    ):
         del session_dir_arg, session_arg, ghpr_arg
+        assert expected_account == "review-bot"
         selected = [*plan.new_top, *plan.new_replies, *plan.edits]
         captured_ids.append([c.id for c in selected])
         return web_app.gh_push.PushResult(pushed=plan.total)
@@ -1426,7 +1432,7 @@ def test_server_gh_push_default_excludes_agent_comments(
     try:
         code, data = _post(
             f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
-            {},
+            {"github_account": "review-bot"},
         )
         assert code == 200
         assert data["summary"] == "Pushed 1."
@@ -1450,10 +1456,34 @@ def test_server_gh_push_fails_closed_without_repo_account(
     try:
         code, data = _post(
             f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
-            {},
+            {"github_account": "review-bot"},
         )
         assert code == 409
         assert "repository-specific GitHub account" in data["error"]
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_push_rejects_account_changed_after_preview(
+    session_dir: Path,
+    repo: Path,
+):
+    _mark_github_backed(session_dir)
+    store.append_comment(
+        session_dir,
+        Comment(author="jakub", file="foo.py", line=2, body="human"),
+    )
+    _git(repo, "config", "--local", "peanut-review.githubAccount", "other-bot")
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
+            {"github_account": "review-bot"},
+        )
+        assert code == 409
+        assert "account changed after confirmation" in data["error"]
+        assert "preview the push again" in data["error"]
     finally:
         srv.shutdown()
 
@@ -2340,7 +2370,9 @@ def test_client_gh_push_modal_includes_selection_controls():
     assert "Publishing disabled" in block
     assert 'id="gh-include-agents"' in block
     assert 'class="push-select"' in block
-    assert "{ comment_ids: commentIds }" in block
+    assert "github_account: ghPreviewAccount" in block
+    assert "bindGhSelectionControls(pushable, Boolean(ghPreviewAccount))" in block
+    assert 'ghConfirm.textContent = "Publishing disabled"' in block
     assert 'class="push-delete"' in block
     assert 'data-push-delete="' in block
     assert 'data-push-edit="' in block
