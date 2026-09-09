@@ -40,6 +40,10 @@ def repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "init", "-q", "-b", "main", str(wd)], check=True)
     subprocess.run(["git", "-C", str(wd), "config", "user.email", "t@t"], check=True)
     subprocess.run(["git", "-C", str(wd), "config", "user.name", "t"], check=True)
+    subprocess.run([
+        "git", "-C", str(wd), "config", "--local",
+        "peanut-review.githubAccount", "review-bot",
+    ], check=True)
     (wd / "foo.py").write_text("def greet(name):\n    return f'hi {name}'\n")
     _git(wd, "add", ".")
     _git(wd, "commit", "-q", "-m", "base")
@@ -1313,6 +1317,8 @@ def test_server_gh_preview_defaults_humans_on_agents_off(session_dir: Path):
         data = json.loads(raw)
         items = {item["id"]: item for item in data["new_top"]}
 
+        assert data["github_account"] == "review-bot"
+        assert data["github_account_error"] is None
         assert items[agent_comment.id]["is_agent"] is True
         assert items[agent_comment.id]["default_included"] is False
         assert items[human_comment.id]["is_agent"] is False
@@ -1425,6 +1431,29 @@ def test_server_gh_push_default_excludes_agent_comments(
         assert code == 200
         assert data["summary"] == "Pushed 1."
         assert captured_ids[-1] == [human_comment.id]
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_push_fails_closed_without_repo_account(
+    session_dir: Path,
+    repo: Path,
+):
+    _mark_github_backed(session_dir)
+    _git(repo, "config", "--local", "--unset", "peanut-review.githubAccount")
+    store.append_comment(
+        session_dir,
+        Comment(author="jakub", file="foo.py", line=2, body="human"),
+    )
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
+            {},
+        )
+        assert code == 409
+        assert "repository-specific GitHub account" in data["error"]
     finally:
         srv.shutdown()
 
@@ -2306,6 +2335,9 @@ def test_client_gh_push_modal_includes_selection_controls():
     end = text.index("  // --- Keyboard navigation ---", start)
     block = text[start:end]
 
+    assert "Publishing as" in block
+    assert "plan.github_account" in block
+    assert "Publishing disabled" in block
     assert 'id="gh-include-agents"' in block
     assert 'class="push-select"' in block
     assert "{ comment_ids: commentIds }" in block

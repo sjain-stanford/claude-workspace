@@ -698,7 +698,7 @@ def _match_review_comments(
     return matched
 
 
-def execute_push(
+def _execute_push(
     session_dir: str | Path,
     session: models.Session,
     ghpr: models.GitHubPR,
@@ -892,3 +892,14 @@ def execute_push(
         result.pushed += 1
 
     return result
+
+
+def execute_push(
+    session_dir: str | Path,
+    session: models.Session,
+    ghpr: models.GitHubPR,
+    plan: PushPlan,
+) -> PushResult:
+    """Execute a push as the account configured in the reviewed repository."""
+    with gh.repo_auth(sess.repo_path(session)):
+        return _execute_push(session_dir, session, ghpr, plan)

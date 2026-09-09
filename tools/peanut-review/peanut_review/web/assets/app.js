@@ -1968,6 +1968,12 @@
     let html = `<p class="push-summary">`
       + `Repo <span class="mono">${esc(plan.repo)}</span> · `
       + `PR <a href="${esc(plan.url)}" target="_blank" rel="noopener" class="mono">#${plan.number}</a></p>`;
+    if (plan.github_account) {
+      html += `<p class="push-summary">Publishing as <strong>@${esc(plan.github_account)}</strong> `
+        + `<span class="muted">(repository configuration)</span></p>`;
+    } else {
+      html += `<p class="error">Publishing disabled: ${esc(plan.github_account_error || "repository GitHub account is not configured")}</p>`;
+    }
     if (total === 0) {
       html += `<p class="muted">Nothing to push.`
         + (plan.skipped_meta ? ` (${plan.skipped_meta} __meta__ comment${plan.skipped_meta === 1 ? "" : "s"} skipped)` : "")
@@ -2000,7 +2006,7 @@
     }
     ghBody.innerHTML = html;
     restoreGhSelectionState(selectionState);
-    bindGhSelectionControls(pushable);
+    bindGhSelectionControls(plan.github_account ? pushable : 0);
   }
 
   function selectedGhPushIds() {

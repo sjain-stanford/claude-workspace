@@ -1,9 +1,10 @@
 """GitHub PR integration via the `gh` CLI.
 
-Every call shells out to `gh` (or `$PEANUT_REVIEW_GH_BIN` for tests). The
-caller's existing `gh auth` is reused; we never touch tokens. Push/pull
-primitives pass JSON bodies via stdin (`gh api --input -`) so multi-line
-bodies, backticks, and shell metacharacters travel verbatim.
+Every call shells out to `gh` (or `$PEANUT_REVIEW_GH_BIN` for tests). Remote
+writes run inside :func:`repo_auth`, which selects the account configured in
+the reviewed repository without changing gh's globally active account.
+Push/pull primitives pass JSON bodies via stdin (`gh api --input -`) so
+multi-line bodies, backticks, and shell metacharacters travel verbatim.
 """
 from __future__ import annotations
 
@@ -12,10 +13,19 @@ import os
 import re
 import shutil
 import subprocess
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterator
 
 
 GH_BIN_ENV = "PEANUT_REVIEW_GH_BIN"
+REPO_ACCOUNT_CONFIG = "peanut-review.githubAccount"
+
+_AUTH_ENV: ContextVar[dict[str, str] | None] = ContextVar(
+    "peanut_review_gh_auth_env", default=None,
+)
 
 # Spec parser: accepts `owner/repo#123`, `owner/repo/pull/123`, and
 # `https://github.com/owner/repo/pull/123` (plus `http://` and trailing /).
@@ -66,6 +76,69 @@ class GhError(RuntimeError):
         self.stdout = stdout
 
 
+class RepoAccountError(RuntimeError):
+    """The reviewed checkout has no usable repo-specific GitHub account."""
+
+
+def repo_account(repo_path: str | Path) -> str:
+    """Return the GitHub login explicitly configured for ``repo_path``.
+
+    Publishing deliberately fails closed instead of falling back to gh's
+    active account, which may belong to a different organization or identity.
+    """
+    result = subprocess.run(
+        [
+            "git", "-C", str(repo_path), "config", "--local", "--get",
+            REPO_ACCOUNT_CONFIG,
+        ],
+        capture_output=True, text=True, timeout=10,
+    )
+    account = result.stdout.strip() if result.returncode == 0 else ""
+    if account:
+        return account
+    raise RepoAccountError(
+        f"no repository-specific GitHub account is configured; run "
+        f"`git config --local {REPO_ACCOUNT_CONFIG} <github-login>` in the "
+        "reviewed checkout"
+    )
+
+
+def _token_for_account(account: str) -> str:
+    """Read one named gh credential without consulting its active account."""
+    cmd = [
+        _gh_bin(), "auth", "token", "--hostname", "github.com",
+        "--user", account,
+    ]
+    env = os.environ.copy()
+    # These variables override gh's credential store and could silently defeat
+    # --user. Remove them only for the credential lookup; the selected token is
+    # injected explicitly into subsequent gh subprocesses.
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
+        env.pop(name, None)
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=30, env=env,
+    )
+    token = result.stdout.strip() if result.returncode == 0 else ""
+    if not token:
+        detail = result.stderr.strip() or "credential was not found"
+        raise RepoAccountError(
+            f"GitHub account {account!r} is not authenticated in gh: {detail}"
+        )
+    return token
+
+
+@contextmanager
+def repo_auth(repo_path: str | Path) -> Iterator[str]:
+    """Pin gh calls in this context to the checkout's configured account."""
+    account = repo_account(repo_path)
+    token = _token_for_account(account)
+    marker = _AUTH_ENV.set({"GH_TOKEN": token, "GH_HOST": "github.com"})
+    try:
+        yield account
+    finally:
+        _AUTH_ENV.reset(marker)
+
+
 def parse_pr_spec(spec: str) -> tuple[str, int]:
     """Return (`owner/repo`, pr_number). Raises ValueError on bad input."""
     m = _SPEC_RE.match(spec.strip())
@@ -81,9 +154,14 @@ def _run(args: list[str], *, input: str | None = None,
          timeout: int = 60, cwd: str | None = None) -> str:
     """Invoke `gh` and return stdout. Raises GhError on non-zero exit."""
     cmd = [_gh_bin(), *args]
+    auth_env = _AUTH_ENV.get()
+    env = None
+    if auth_env is not None:
+        env = os.environ.copy()
+        env.update(auth_env)
     res = subprocess.run(
         cmd, input=input, capture_output=True, text=True, timeout=timeout,
-        cwd=cwd,
+        cwd=cwd, env=env,
     )
     if res.returncode != 0:
         raise GhError(cmd, res.returncode, res.stderr, res.stdout)

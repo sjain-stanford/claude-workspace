@@ -38,7 +38,11 @@ if "--input" in argv and argv[argv.index("--input") + 1] == "-":
     stdin = sys.stdin.read()
 
 with open(calls_path, "a") as f:
-    f.write(json.dumps({"argv": argv, "stdin": stdin}) + "\\n")
+    f.write(json.dumps({
+        "argv": argv,
+        "stdin": stdin,
+        "gh_token": os.environ.get("GH_TOKEN"),
+    }) + "\\n")
 
 with open(fixtures_path) as f:
     fixtures = json.load(f)
@@ -79,6 +83,15 @@ def gh_shim(tmp_path: Path, monkeypatch):
     class Shim:
         def set_fixtures(self, fxs: list[dict]) -> None:
             fixtures = list(fxs)
+            has_auth_token = any(
+                "token" in fx.get("match", []) and "auth" in fx.get("match", [])
+                for fx in fixtures
+            )
+            if not has_auth_token:
+                fixtures.append({
+                    "match": ["auth", "token", "--user", "review-bot"],
+                    "stdout": "repo-specific-token\n",
+                })
             has_reviews = any(
                 "repos/acme/foo/pulls/42/reviews" in fx.get("match", [])
                 for fx in fixtures
@@ -113,12 +126,21 @@ def gh_shim(tmp_path: Path, monkeypatch):
                 })
             fixtures_path.write_text(json.dumps(fixtures))
 
-        def calls(self) -> list[dict]:
+        def calls(self, *, include_auth: bool = False) -> list[dict]:
             if not calls_path.exists():
                 return []
-            return [json.loads(line) for line in calls_path.read_text().splitlines() if line]
+            calls = [
+                json.loads(line)
+                for line in calls_path.read_text().splitlines()
+                if line
+            ]
+            if include_auth:
+                return calls
+            return [c for c in calls if c["argv"][:2] != ["auth", "token"]]
 
-    return Shim()
+    shim = Shim()
+    shim.set_fixtures([])
+    return shim
 
 
 # ---------------- parse_pr_spec ----------------
@@ -149,6 +171,36 @@ def test_parse_pr_spec_rejects_bad_input(bad):
 def test_resolve_pr_spec_accepts_full_spec_without_gh(gh_shim):
     assert gh.resolve_pr_spec("acme/foo#42") == ("acme/foo", 42)
     assert gh_shim.calls() == []
+
+
+def test_repo_auth_selects_repo_configured_account(gh_shim, tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "review-bot",
+    ], check=True)
+    gh_shim.set_fixtures([{
+        "match": ["api", "repos/acme/foo/issues/42/comments"],
+        "stdout": "[]",
+    }])
+
+    with gh.repo_auth(tmp_path) as account:
+        assert account == "review-bot"
+        gh.fetch_issue_comments("acme/foo", 42)
+
+    auth_call, api_call = gh_shim.calls(include_auth=True)
+    assert auth_call["argv"] == [
+        "auth", "token", "--hostname", "github.com", "--user", "review-bot",
+    ]
+    assert api_call["gh_token"] == "repo-specific-token"
+
+
+def test_repo_auth_fails_closed_without_repo_account(gh_shim, tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    with pytest.raises(gh.RepoAccountError, match="githubAccount"):
+        with gh.repo_auth(tmp_path):
+            pass
+    assert gh_shim.calls(include_auth=True) == []
 
 
 def test_resolve_pr_spec_uses_gh_for_bare_number(gh_shim, tmp_path):
@@ -853,6 +905,11 @@ def test_start_requires_curator_agent_in_project_config(tmp_path):
 
 def _make_gh_session(tmp_path: Path) -> str:
     """Build a session with .github populated, no real gh fetch involved."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "review-bot",
+    ], check=True)
     sd = tmp_path / "sess"
     (sd / "comments").mkdir(parents=True)
     (sd / "signals").mkdir()
@@ -877,6 +934,10 @@ def _make_gh_git_session(tmp_path: Path) -> str:
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    subprocess.run([
+        "git", "-C", str(repo), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "review-bot",
+    ], check=True)
     src = repo / "src"
     src.mkdir()
     lines = [f"value_{i:02d} = {i}\n" for i in range(1, 81)]
@@ -1676,6 +1737,25 @@ def test_gh_push_refuses_session_without_github_field(tmp_path):
         rc = main(["--session", str(sd), "gh-push"])
     assert rc == 1
     assert "not GitHub-backed" in err.getvalue()
+
+
+def test_gh_push_fails_closed_without_repo_account(gh_shim, tmp_path):
+    sd = _make_gh_session(tmp_path)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local", "--unset",
+        gh.REPO_ACCOUNT_CONFIG,
+    ], check=True)
+    store.append_comment(sd, models.Comment(
+        author="human", file="", line=0, body="publish me",
+    ))
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["--session", sd, "gh-push"])
+
+    assert rc == 1
+    assert "repository-specific GitHub account" in err.getvalue()
+    assert gh_shim.calls(include_auth=True) == []
 
 
 # ---------------- gh-pull ----------------

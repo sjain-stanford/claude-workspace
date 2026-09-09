@@ -48,6 +48,19 @@ container, enable its forwarding when launching the container:
 DOCKER_ENABLE_PEANUT_REVIEW_WEB=1 ./projects/docker/run_docker.sh
 ```
 
+Before publishing GitHub comments from either the UI or CLI, configure the
+intended GitHub login in each reviewed repository:
+
+```bash
+git config --local peanut-review.githubAccount <github-login>
+gh auth login --hostname github.com
+```
+
+Publishing selects that named `gh` credential without changing the globally
+active account. It fails closed when the repository setting is absent or the
+named account is not authenticated. The UI confirmation modal shows the login
+that will be used.
+
 The Docker launcher publishes port `27183` only on the SSH host's loopback, so
 VSCode Remote SSH can forward it without exposing the UI externally. Set
 `PR_HOST` or `PR_PORT` only to override the normal bind or port. Set
