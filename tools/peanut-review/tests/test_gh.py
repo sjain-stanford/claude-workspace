@@ -212,6 +212,27 @@ def test_repo_auth_fails_closed_without_repo_account(gh_shim, tmp_path):
     assert gh_shim.calls(include_auth=True) == []
 
 
+def test_repo_auth_fails_closed_without_named_credential(gh_shim, tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "review-bot",
+    ], check=True)
+    gh_shim.set_fixtures([{
+        "match": ["auth", "token", "--user", "review-bot"],
+        "rc": 1,
+        "stderr": "not logged into review-bot",
+    }])
+
+    with pytest.raises(gh.RepoAccountError, match="not logged into review-bot"):
+        with gh.repo_auth(tmp_path):
+            pass
+    [auth_call] = gh_shim.calls(include_auth=True)
+    assert auth_call["argv"] == [
+        "auth", "token", "--hostname", "github.com", "--user", "review-bot",
+    ]
+
+
 def test_repo_auth_rejects_account_changed_after_confirmation(gh_shim, tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     subprocess.run([

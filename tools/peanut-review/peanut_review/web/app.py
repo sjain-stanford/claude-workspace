@@ -872,7 +872,8 @@ class _Handler(BaseHTTPRequestHandler):
         promoted_ids = set(plan.promoted_anchors)
         default_push_ids = _default_selected_push_ids(plan, agent_authors)
         try:
-            github_account = gh.repo_account(repo_path(s))
+            with gh.repo_auth(repo_path(s)) as github_account:
+                pass
             github_account_error = None
         except gh.RepoAccountError as e:
             github_account = None

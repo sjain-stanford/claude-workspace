@@ -1303,8 +1303,12 @@ def test_server_kill_agents_endpoint(session_dir: Path, monkeypatch):
         srv.shutdown()
 
 
-def test_server_gh_preview_defaults_humans_on_agents_off(session_dir: Path):
+def test_server_gh_preview_defaults_humans_on_agents_off(
+    session_dir: Path,
+    monkeypatch,
+):
     _mark_github_backed(session_dir)
+    monkeypatch.setattr(web_app.gh, "_token_for_account", lambda account: "token")
     agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
     human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
     store.append_comment(session_dir, agent_comment)
@@ -1323,6 +1327,34 @@ def test_server_gh_preview_defaults_humans_on_agents_off(session_dir: Path):
         assert items[agent_comment.id]["default_included"] is False
         assert items[human_comment.id]["is_agent"] is False
         assert items[human_comment.id]["default_included"] is True
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_preview_disables_push_for_unauthenticated_account(
+    session_dir: Path,
+    monkeypatch,
+):
+    _mark_github_backed(session_dir)
+    store.append_comment(
+        session_dir,
+        Comment(author="jakub", file="foo.py", line=2, body="human"),
+    )
+
+    def fail_token(account):
+        raise web_app.gh.RepoAccountError(
+            f"GitHub account {account!r} is not authenticated in gh"
+        )
+
+    monkeypatch.setattr(web_app.gh, "_token_for_account", fail_token)
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/gh/preview")
+        assert code == 200
+        data = json.loads(raw)
+        assert data["github_account"] is None
+        assert "not authenticated" in data["github_account_error"]
+        assert data["total"] == 1
     finally:
         srv.shutdown()
 
