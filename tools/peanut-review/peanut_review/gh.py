@@ -22,6 +22,7 @@ from typing import Iterator
 
 GH_BIN_ENV = "PEANUT_REVIEW_GH_BIN"
 REPO_ACCOUNT_CONFIG = "peanut-review.githubAccount"
+_TOKEN_ENV_VARS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN")
 
 _AUTH_ENV: ContextVar[dict[str, str] | None] = ContextVar(
     "peanut_review_gh_auth_env", default=None,
@@ -113,7 +114,7 @@ def _token_for_account(account: str) -> str:
     # These variables override gh's credential store and could silently defeat
     # --user. Remove them only for the credential lookup; the selected token is
     # injected explicitly into subsequent gh subprocesses.
-    for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
+    for name in _TOKEN_ENV_VARS:
         env.pop(name, None)
     result = subprocess.run(
         cmd, capture_output=True, text=True, timeout=30, env=env,
@@ -168,6 +169,8 @@ def _run(args: list[str], *, input: str | None = None,
     env = None
     if auth_env is not None:
         env = os.environ.copy()
+        for name in _TOKEN_ENV_VARS:
+            env.pop(name, None)
         env.update(auth_env)
     res = subprocess.run(
         cmd, input=input, capture_output=True, text=True, timeout=timeout,

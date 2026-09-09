@@ -2064,6 +2064,12 @@
 
   function bindGhSelectionControls(pushable, publishingEnabled) {
     const toggle = document.getElementById("gh-include-agents");
+    ghBody.querySelectorAll("[data-push-edit]").forEach((btn) => {
+      btn.addEventListener("click", openPushPreviewEditForm);
+    });
+    ghBody.querySelectorAll("[data-push-delete]").forEach((btn) => {
+      btn.addEventListener("click", deletePushPreviewComment);
+    });
     if (!publishingEnabled) {
       ghBody.querySelectorAll(".push-select").forEach((box) => {
         box.disabled = true;
@@ -2082,12 +2088,6 @@
     }
     ghBody.querySelectorAll(".push-select").forEach((box) => {
       box.addEventListener("change", updateGhSelectionState);
-    });
-    ghBody.querySelectorAll("[data-push-edit]").forEach((btn) => {
-      btn.addEventListener("click", openPushPreviewEditForm);
-    });
-    ghBody.querySelectorAll("[data-push-delete]").forEach((btn) => {
-      btn.addEventListener("click", deletePushPreviewComment);
     });
     if (pushable > 0) {
       updateGhSelectionState();

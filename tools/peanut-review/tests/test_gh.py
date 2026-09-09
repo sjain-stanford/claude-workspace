@@ -51,6 +51,8 @@ with open(calls_path, "a") as f:
         "argv": argv,
         "stdin": stdin,
         "gh_token": os.environ.get("GH_TOKEN"),
+        "github_token": os.environ.get("GITHUB_TOKEN"),
+        "gh_enterprise_token": os.environ.get("GH_ENTERPRISE_TOKEN"),
     }) + "\\n")
 
 with open(fixtures_path) as f:
@@ -182,7 +184,9 @@ def test_resolve_pr_spec_accepts_full_spec_without_gh(gh_shim):
     assert gh_shim.calls() == []
 
 
-def test_repo_auth_selects_repo_configured_account(gh_shim, tmp_path):
+def test_repo_auth_selects_repo_configured_account(
+    gh_shim, tmp_path, monkeypatch,
+):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     subprocess.run([
         "git", "-C", str(tmp_path), "config", "--local",
@@ -192,6 +196,9 @@ def test_repo_auth_selects_repo_configured_account(gh_shim, tmp_path):
         "match": ["api", "repos/acme/foo/issues/42/comments"],
         "stdout": "[]",
     }])
+    monkeypatch.setenv("GH_TOKEN", "ambient-gh-token")
+    monkeypatch.setenv("GITHUB_TOKEN", "ambient-github-token")
+    monkeypatch.setenv("GH_ENTERPRISE_TOKEN", "ambient-enterprise-token")
 
     with gh.repo_auth(tmp_path) as account:
         assert account == "review-bot"
@@ -201,7 +208,12 @@ def test_repo_auth_selects_repo_configured_account(gh_shim, tmp_path):
     assert auth_call["argv"] == [
         "auth", "token", "--hostname", "github.com", "--user", "review-bot",
     ]
+    assert auth_call["gh_token"] is None
+    assert auth_call["github_token"] is None
+    assert auth_call["gh_enterprise_token"] is None
     assert api_call["gh_token"] == "repo-specific-token"
+    assert api_call["github_token"] is None
+    assert api_call["gh_enterprise_token"] is None
 
 
 def test_repo_auth_fails_closed_without_repo_account(gh_shim, tmp_path):

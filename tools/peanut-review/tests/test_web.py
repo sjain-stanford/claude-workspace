@@ -2409,6 +2409,15 @@ def test_client_gh_push_modal_includes_selection_controls():
     assert "if (toggle) toggle.disabled = true" in block
     assert 'ghConfirm.textContent = "Publishing disabled"' in block
     assert "await fetchGhPreview(selectionState, String(e))" in block
+    bind_start = block.index("function bindGhSelectionControls")
+    bind_end = block.index("function pushPreviewBody", bind_start)
+    bind_block = block[bind_start:bind_end]
+    assert bind_block.index('querySelectorAll("[data-push-edit]")') < (
+        bind_block.index("if (!publishingEnabled)")
+    )
+    assert bind_block.index('querySelectorAll("[data-push-delete]")') < (
+        bind_block.index("if (!publishingEnabled)")
+    )
     assert 'class="push-delete"' in block
     assert 'data-push-delete="' in block
     assert 'data-push-edit="' in block
