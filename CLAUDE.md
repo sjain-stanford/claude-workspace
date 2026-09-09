@@ -82,6 +82,14 @@ ordinary review into peanut-review unless the user requests those capabilities.
 All three workflows must read `skills/review-criteria.md` and any applicable
 project-specific instructions before assessing changes.
 
+## Branch Naming
+
+Name branches created for workspace tasks `users/sambhav/<feature>`, including
+branches in the `claude-workspace` meta repository and managed sub-repositories.
+Use a concise, descriptive kebab-case feature name. Preserve an existing PR or
+user-owned branch name, and use another namespace only when the user explicitly
+requests it.
+
 ## Sub-Repo Git Usage
 
 Run git commands from the relevant repository directory. For sub-repos under `projects/`, set the command working directory to `projects/<repo>` or its task worktree and use plain `git` commands.
