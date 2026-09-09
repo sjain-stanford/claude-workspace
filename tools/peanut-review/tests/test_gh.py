@@ -2530,6 +2530,25 @@ def test_gh_push_verdict_force_overrides_resubmit_guard(gh_shim, tmp_path):
     assert v2.external_review_id == "fresh"
 
 
+def test_gh_push_verdict_fails_closed_without_repo_account(gh_shim, tmp_path):
+    sd = _make_gh_session(tmp_path)
+    result_path = _stage_verdict(sd, "approve", "lgtm")
+    original_result = result_path.read_bytes()
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local", "--unset",
+        gh.REPO_ACCOUNT_CONFIG,
+    ], check=True)
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["--session", sd, "gh-push-verdict"])
+
+    assert rc == 1
+    assert "repository-specific GitHub account" in err.getvalue()
+    assert gh_shim.calls(include_auth=True) == []
+    assert result_path.read_bytes() == original_result
+
+
 def test_gh_push_verdict_refuses_without_result_json(tmp_path):
     sd = _make_gh_session(tmp_path)
     err = io.StringIO()
