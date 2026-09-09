@@ -227,6 +227,11 @@ def resolve_pr_spec(spec: str, *, workspace: str | None = None) -> tuple[str, in
 def _api(endpoint: str, *, method: str = "GET",
          payload: dict | None = None,
          paginate: bool = False) -> str:
+    if method != "GET" and _AUTH_ENV.get() is None:
+        raise RepoAccountError(
+            "GitHub mutations require a repository-authenticated context; "
+            "enter repo_auth before publishing"
+        )
     args = ["api", endpoint]
     if method != "GET":
         args += ["-X", method]

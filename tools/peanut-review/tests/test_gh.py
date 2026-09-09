@@ -12,7 +12,7 @@ import os
 import stat
 import subprocess
 import tempfile
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +22,15 @@ from peanut_review import gh, gh_push, models
 from peanut_review import session as sess
 from peanut_review import store
 from peanut_review.cli import _session_id_for_pr, main
+
+
+@contextmanager
+def _authenticated_gh_context():
+    marker = gh._AUTH_ENV.set({"GH_TOKEN": "repo-specific-token"})
+    try:
+        yield
+    finally:
+        gh._AUTH_ENV.reset(marker)
 
 
 # ---------------- gh shim ----------------
@@ -216,6 +225,12 @@ def test_repo_auth_rejects_account_changed_after_confirmation(gh_shim, tmp_path)
     assert gh_shim.calls(include_auth=True) == []
 
 
+def test_mutation_fails_closed_outside_repo_auth(gh_shim):
+    with pytest.raises(gh.RepoAccountError, match="repo_auth"):
+        gh.post_issue_comment("acme/foo", 42, body="must not publish")
+    assert gh_shim.calls(include_auth=True) == []
+
+
 def test_resolve_pr_spec_uses_gh_for_bare_number(gh_shim, tmp_path):
     gh_shim.set_fixtures([{
         "match": ["pr", "view", "42", "url"],
@@ -301,11 +316,12 @@ def test_post_review_comment_sends_json_via_stdin(gh_shim):
         "match": ["api", "repos/acme/foo/pulls/42/comments", "-X", "POST"],
         "stdout": json.dumps({"id": 123, "html_url": "https://example/c/123"}),
     }])
-    resp = gh.post_review_comment(
-        "acme/foo", 42,
-        body="bad take", commit_id="abc123",
-        path="src/x.py", line=10,
-    )
+    with _authenticated_gh_context():
+        resp = gh.post_review_comment(
+            "acme/foo", 42,
+            body="bad take", commit_id="abc123",
+            path="src/x.py", line=10,
+        )
     assert resp["id"] == 123
     [call] = gh_shim.calls()
     payload = json.loads(call["stdin"])
@@ -322,10 +338,11 @@ def test_post_review_comment_with_range_includes_start_line(gh_shim):
         "match": ["api", "repos/acme/foo/pulls/42/comments"],
         "stdout": json.dumps({"id": 124, "html_url": ""}),
     }])
-    gh.post_review_comment(
-        "acme/foo", 42, body="b", commit_id="abc",
-        path="x.py", line=20, start_line=15,
-    )
+    with _authenticated_gh_context():
+        gh.post_review_comment(
+            "acme/foo", 42, body="b", commit_id="abc",
+            path="x.py", line=20, start_line=15,
+        )
     [call] = gh_shim.calls()
     payload = json.loads(call["stdin"])
     assert payload["start_line"] == 15
@@ -337,7 +354,8 @@ def test_post_issue_comment_routes_to_issues_endpoint(gh_shim):
         "match": ["api", "repos/acme/foo/issues/42/comments", "-X", "POST"],
         "stdout": json.dumps({"id": 999, "html_url": "https://example/i/999"}),
     }])
-    resp = gh.post_issue_comment("acme/foo", 42, body="overall lgtm")
+    with _authenticated_gh_context():
+        resp = gh.post_issue_comment("acme/foo", 42, body="overall lgtm")
     assert resp["id"] == 999
     [call] = gh_shim.calls()
     payload = json.loads(call["stdin"])
@@ -349,18 +367,19 @@ def test_post_pr_review_can_batch_inline_comments(gh_shim):
         "match": ["api", "repos/acme/foo/pulls/42/reviews", "-X", "POST"],
         "stdout": json.dumps({"id": 300, "html_url": "https://example/r/300"}),
     }])
-    resp = gh.post_pr_review(
-        "acme/foo", 42,
-        event="COMMENT",
-        body="overall",
-        commit_id="abc",
-        comments=[{
-            "path": "src/x.py",
-            "line": 10,
-            "side": "RIGHT",
-            "body": "anchored",
-        }],
-    )
+    with _authenticated_gh_context():
+        resp = gh.post_pr_review(
+            "acme/foo", 42,
+            event="COMMENT",
+            body="overall",
+            commit_id="abc",
+            comments=[{
+                "path": "src/x.py",
+                "line": 10,
+                "side": "RIGHT",
+                "body": "anchored",
+            }],
+        )
     assert resp["id"] == 300
     [call] = gh_shim.calls()
     payload = json.loads(call["stdin"])
@@ -1492,8 +1511,12 @@ def test_gh_error_surfaces_response_body(gh_shim):
                         "code": "invalid", "field": "line"}],
         }),
     }])
-    with pytest.raises(gh.GhError) as ei:
-        gh._api("repos/acme/foo/pulls/42/comments", method="POST", payload={"x": 1})
+    with _authenticated_gh_context(), pytest.raises(gh.GhError) as ei:
+        gh._api(
+            "repos/acme/foo/pulls/42/comments",
+            method="POST",
+            payload={"x": 1},
+        )
     msg = str(ei.value)
     assert "HTTP 422" in msg
     assert "Validation Failed" in msg
