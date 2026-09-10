@@ -485,7 +485,7 @@ def cmd_start(args: argparse.Namespace) -> int:
     if session_json.exists() and not args.reuse:
         print(
             f"Error: session already exists: {session_dir} "
-            f"(use --reuse to launch it)",
+            "(use --reuse to launch it, or --id <unique-name> to create another session)",
             file=sys.stderr,
         )
         return 1

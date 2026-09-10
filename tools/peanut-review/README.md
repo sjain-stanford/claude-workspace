@@ -56,6 +56,18 @@ the second verifies the saved identity. Bound sessions cannot be reassigned to
 a different account; create a new session when a different author is needed.
 Existing local review data remains readable without a binding.
 
+For a second account on the same PR, provide a unique `--id` so the new session
+does not collide with the existing session's generated name:
+
+```bash
+"$PR_BIN" start https://github.com/owner/repo/pull/123 \
+  --gh-account public-login --id repo-pr-123-public-login --no-launch
+```
+
+To reuse that session later, pass the same `--id` with `--reuse`, or select its
+path with `--session`. Session IDs must also differ when separate repositories
+or hosts would otherwise generate the same name.
+
 For each operation, peanut-review retrieves the selected account's stored token
 with `gh auth token --hostname HOST --user LOGIN`, verifies it with `gh api user`,
 and uses that same token for every request in the operation. It overrides
