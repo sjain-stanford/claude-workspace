@@ -74,7 +74,7 @@ Simple PR format:
 
 Validation: <checks actually run and any meaningful gaps.>
 
-Co-authored-by: GPT-6 Astra <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 ```
@@ -102,7 +102,7 @@ Non-trivial PR format:
 
 <Tests and end-to-end checks actually run, with outcomes and any gaps.>
 
-Co-authored-by: GPT-6 Astra <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 ```
@@ -117,9 +117,12 @@ Co-authored-by: GPT-6 Astra <codex@openai.com>
 - Keep sections focused and avoid restating every changed file
 - Never claim the exact reported reproducer was run when only an equivalent path was tested
 - Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
-- For Codex, use GPT-6 Astra in the final PR-body attribution footer:
+- For Codex, use the active model display name supplied by the runtime or
+  system context in the final PR-body footer. If the exact model variant is
+  unavailable, use `Codex` instead of guessing. Do not copy a model version
+  from a previous PR or template:
   ```markdown
-  Co-authored-by: GPT-6 Astra <codex@openai.com>
+  Co-authored-by: <active Codex model> <codex@openai.com>
 
   🤖 Generated with [Codex](https://openai.com/codex)
   ```
@@ -146,7 +149,7 @@ non-trivial PR. Replace all placeholders before publishing.>
 
 Validation: <Checks actually run and their outcomes.>
 
-Co-authored-by: GPT-6 Astra <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 EOF
@@ -188,7 +191,7 @@ follow-up fixes.
 
 Validation: checked the documented commands against the local worktree layout.
 
-Co-authored-by: GPT-6 Astra <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 ```

@@ -31,9 +31,12 @@ and separate from IREE/TheRock version bumps).
 
 Use the active agent's identity in generated PR footers only. Do not add agent co-authorship trailers to individual commit messages.
 
-For Codex, use GPT-6 Astra in the PR attribution footer:
+For Codex, use the active model display name supplied by the runtime or system
+context in the PR attribution footer. If the exact model variant is unavailable,
+use `Codex` instead of guessing. Do not copy a model version from a previous PR
+or template:
 ```markdown
-Co-authored-by: GPT-6 Astra <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 ```
