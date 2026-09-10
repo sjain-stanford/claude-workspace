@@ -174,6 +174,22 @@ def _sync_session_to_pr(
     return session, head_changed, changed, stale_count
 
 
+def _resolve_github_target(spec: str, *, workspace: str,
+                           hostname: str | None = None,
+                           default_host: str | None = None) -> tuple[str, str, int]:
+    from . import gh
+    if spec.strip().isdigit():
+        # A bare number always names origin's PR, even when reusing a session.
+        # Only an explicit host override may replace origin's SSH alias.
+        origin_host, repo = gh.workspace_repository(workspace)
+        return gh.validate_hostname(hostname or origin_host), repo, int(spec)
+    host = gh.hostname_for_spec(spec, default=hostname or default_host)
+    if hostname and gh.validate_hostname(hostname) != host:
+        raise ValueError("--gh-host does not match the PR URL")
+    repo, number = gh.resolve_pr_spec(spec, workspace=workspace)
+    return host, repo, number
+
+
 def _read_github_pr(spec: str, *, workspace: str, login: str | None = None,
                     hostname: str | None = None,
                     existing: models.GitHubPR | None = None):
@@ -185,18 +201,15 @@ def _read_github_pr(spec: str, *, workspace: str, login: str | None = None,
         if login and login.casefold() != expected.login.casefold():
             raise gh.RepoAccountError("session is already bound to a different GitHub account")
         login = expected.login
-    host = gh.hostname_for_spec(
-        spec, workspace=workspace,
-        default=hostname or (existing.hostname if existing else None),
+    host, repo, number = _resolve_github_target(
+        spec, workspace=workspace, hostname=hostname,
+        default_host=existing.hostname if existing else None,
     )
-    if hostname and gh.validate_hostname(hostname) != host:
-        raise ValueError("--gh-host does not match the PR URL")
     if existing and host != existing.hostname:
         raise ValueError("PR host does not match the session")
+    if existing and (repo.casefold(), number) != (existing.repo.casefold(), existing.number):
+        raise ValueError("PR does not match the session")
     with gh.account_auth(host, login or gh.repo_account(workspace), expected=expected) as account:
-        repo, number = gh.resolve_pr_spec(spec, workspace=workspace)
-        if existing and (repo.casefold(), number) != (existing.repo.casefold(), existing.number):
-            raise ValueError("PR does not match the session")
         info = gh.fetch_pr_info(repo, number)
         return dataclasses.replace(info, hostname=host, account=account)
 
@@ -205,7 +218,6 @@ def _reused_pr_session(
     args: argparse.Namespace, cfg: dict,
 ) -> tuple[Path | None, models.Session | None]:
     """Locate a reused session before fetching private metadata with its account."""
-    from . import gh
     if not args.reuse:
         return None, None
     if args.session or args.id:
@@ -213,6 +225,10 @@ def _reused_pr_session(
         if (path / "session.json").exists():
             return path, sess.load_session(path)
         return None, None
+    host, repo, number = _resolve_github_target(
+        args.pr, workspace=cfg["repoPath"], hostname=args.gh_host,
+    )
+    bare_number = args.pr.strip().isdigit()
     matches = []
     for path in Path(cfg["reviewRoot"]).glob("*/session.json"):
         try:
@@ -222,12 +238,10 @@ def _reused_pr_session(
         pr = candidate.github
         if pr is None:
             continue
-        if args.pr.isdigit():
-            matches_pr = pr.number == int(args.pr) and Path(candidate.repo_path()).resolve() == Path(cfg["repoPath"]).resolve()
-        else:
-            repo, number = gh.parse_pr_spec(args.pr)
-            matches_pr = ((pr.repo.casefold(), pr.number) == (repo.casefold(), number)
-                          and pr.hostname == gh.hostname_for_spec(args.pr, default=args.gh_host))
+        matches_pr = ((pr.repo.casefold(), pr.number) == (repo.casefold(), number)
+                      and pr.hostname == host)
+        if bare_number:
+            matches_pr = matches_pr and Path(candidate.repo_path()).resolve() == Path(cfg["repoPath"]).resolve()
         if matches_pr:
             matches.append((path.parent, candidate))
     if len(matches) > 1:

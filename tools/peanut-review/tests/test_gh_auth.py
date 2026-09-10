@@ -520,6 +520,69 @@ def test_repository_case_normalization_still_rejects_different_targets(
     assert writes(fake_gh) == []
 
 
+@pytest.mark.parametrize("origin_host, host_override", [
+    ("github.com", None),
+    ("public-ssh-alias", "github.com"),
+])
+def test_bare_number_reuse_matches_origin_before_selecting_account(
+    tmp_path, fake_gh, origin_host, host_override,
+):
+    from peanut_review.cli import _reused_pr_session
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "remote", "add", "origin",
+        f"git@{origin_host}:example/public.git",
+    ], check=True)
+    enterprise = models.GitHubAccount("enterprise.example", WORK.login, WORK.user_id)
+    old_dir, old = make_session(
+        tmp_path, enterprise, name="old-host", hostname=enterprise.hostname,
+    )
+    old.github.repo = "example/public"
+    old.github.url = "https://enterprise.example/example/public/pull/42"
+    session.save_session(old_dir, old)
+    args = SimpleNamespace(
+        reuse=True, session=None, id=None, pr="42", gh_host=host_override,
+    )
+    cfg = {"reviewRoot": str(tmp_path), "repoPath": str(tmp_path)}
+    assert _reused_pr_session(args, cfg) == (None, None)
+    assert fake_gh.calls == []
+
+    public_dir, public = make_session(tmp_path)
+    assert _reused_pr_session(args, cfg)[0] == public_dir
+    config = tmp_path / ".peanut-review.json"
+    config.write_text(json.dumps({
+        "reviewRoot": str(tmp_path), "workspaceRoot": str(tmp_path),
+        "repoRelative": ".", "agents": [
+            {"name": "Vera", "model": "test", "persona": "vera.md"},
+            {"name": "Curator", "model": "test", "role": "curator"},
+        ],
+    }))
+    command = ["start", "42", "--reuse", "--no-launch", "--config", str(config)]
+    if host_override:
+        command += ["--gh-host", host_override]
+    assert main(command) == 0
+    assert session.load_session(public_dir).github.account == public.github.account
+    assert session.load_session(old_dir).github == old.github
+    assert all(c["env"].get("GH_ENTERPRISE_TOKEN") is None for c in fake_gh.calls)
+    assert writes(fake_gh) == []
+
+
+def test_explicit_session_cannot_override_bare_number_origin(tmp_path, fake_gh):
+    from peanut_review.cli import _read_github_pr
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "remote", "add", "origin",
+        "https://github.com/example/public.git",
+    ], check=True)
+    enterprise = models.GitHubAccount("enterprise.example", WORK.login, WORK.user_id)
+    _, saved = make_session(tmp_path, enterprise, hostname=enterprise.hostname)
+    with pytest.raises(ValueError, match="PR host does not match"):
+        _read_github_pr("42", workspace=str(tmp_path), existing=saved.github)
+    assert fake_gh.calls == []
+
+
 def test_binding_preserves_concurrent_session_updates(tmp_path):
     directory, s = make_session(tmp_path, None)
     updated = session.load_session(directory)
