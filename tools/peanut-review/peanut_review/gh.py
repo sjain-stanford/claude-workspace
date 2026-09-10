@@ -110,10 +110,15 @@ def validate_hostname(hostname: str) -> str:
 
 def repo_account(repo_path: str | Path) -> str:
     """Read an explicit default from git config, including includeIf rules."""
-    result = subprocess.run(
-        ["git", "-C", str(repo_path), "config", "--get", REPO_ACCOUNT_CONFIG],
-        capture_output=True, text=True, timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "config", "--get", REPO_ACCOUNT_CONFIG],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise RepoAccountError(
+            "cannot read the GitHub account from git config; use --gh-account <login>"
+        ) from None
     account = result.stdout.strip() if result.returncode == 0 else ""
     if not account:
         raise RepoAccountError(
@@ -138,10 +143,15 @@ def hostname_for_spec(spec: str, *, workspace: str | None = None,
 
 def workspace_repository(workspace: str | None) -> tuple[str, str]:
     """Resolve origin locally so gh never chooses a host using ambient config."""
-    result = subprocess.run(
-        ["git", "-C", workspace or ".", "remote", "get-url", "origin"],
-        capture_output=True, text=True, timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", workspace or ".", "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise RepoAccountError(
+            "cannot read the GitHub repository from origin; use a full PR URL"
+        ) from None
     remote = result.stdout.strip()
     if result.returncode == 0:
         if "://" in remote:

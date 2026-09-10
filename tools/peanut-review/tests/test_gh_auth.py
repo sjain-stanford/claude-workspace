@@ -583,6 +583,37 @@ def test_explicit_session_cannot_override_bare_number_origin(tmp_path, fake_gh):
     assert fake_gh.calls == []
 
 
+@pytest.mark.parametrize("spec, account_args, recovery", [
+    ("42", ["--gh-account", PUBLIC.login], "full PR URL"),
+    ("example/public#42", [], "--gh-account"),
+])
+@pytest.mark.parametrize("failure", [
+    subprocess.TimeoutExpired("git", 10, output="private-git-output"),
+    FileNotFoundError("private-git-output"),
+])
+def test_local_git_lookup_failures_return_cli_errors(
+    tmp_path, fake_gh, monkeypatch, capsys, spec, account_args, recovery, failure,
+):
+    original_run = subprocess.run
+
+    def fail_git(cmd, **kwargs):
+        if cmd[0] == "git":
+            raise failure
+        return original_run(cmd, **kwargs)
+
+    monkeypatch.setattr(gh.subprocess, "run", fail_git)
+    directory = tmp_path / "session"
+    assert main([
+        "--session", str(directory), "init", "--workspace", str(tmp_path),
+        "--gh-pr", spec, *account_args,
+    ]) == 1
+    error = capsys.readouterr().err
+    assert "Error:" in error and recovery in error
+    assert "Traceback" not in error and "private-git-output" not in error
+    assert not directory.exists()
+    assert fake_gh.calls == []
+
+
 def test_binding_preserves_concurrent_session_updates(tmp_path):
     directory, s = make_session(tmp_path, None)
     updated = session.load_session(directory)
