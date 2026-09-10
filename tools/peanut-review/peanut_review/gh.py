@@ -29,7 +29,7 @@ _PUBLISHING_ACCOUNT: ContextVar[str | None] = ContextVar(
 # Spec parser: accepts `owner/repo#123`, `owner/repo/pull/123`, and
 # `https://github.com/owner/repo/pull/123` (plus `http://` and trailing /).
 _SPEC_RE = re.compile(
-    r"^(?:https?://[^/]+/)?"
+    r"^(?:https?://(?P<host>[^/]+)/)?"
     r"(?P<owner>[^/\s#]+)/(?P<repo>[^/\s#]+?)"
     r"(?:#|/pull/|/pulls/)(?P<num>\d+)/?$"
 )
@@ -163,6 +163,11 @@ def parse_pr_spec(spec: str) -> tuple[str, int]:
             f"invalid PR spec: {spec!r} "
             f"(expected owner/repo#N, owner/repo/pull/N, or a github.com URL)"
         )
+    host = m["host"]
+    if host is not None and host.casefold() != GITHUB_HOST:
+        raise ValueError(
+            f"unsupported GitHub host: {host!r} (expected {GITHUB_HOST})"
+        )
     return f"{m['owner']}/{m['repo']}", int(m["num"])
 
 
@@ -170,9 +175,11 @@ def _run(args: list[str], *, input: str | None = None,
          timeout: int = 60, cwd: str | None = None) -> str:
     """Invoke `gh` and return stdout. Raises GhError on non-zero exit."""
     cmd = [_gh_bin(), *args]
+    gh_env = os.environ.copy()
+    gh_env["GH_HOST"] = GITHUB_HOST
     res = subprocess.run(
         cmd, input=input, capture_output=True, text=True, timeout=timeout,
-        cwd=cwd,
+        cwd=cwd, env=gh_env,
     )
     if res.returncode != 0:
         raise GhError(cmd, res.returncode, res.stderr, res.stdout)

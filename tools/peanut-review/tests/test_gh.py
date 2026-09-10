@@ -38,7 +38,11 @@ if "--input" in argv and argv[argv.index("--input") + 1] == "-":
     stdin = sys.stdin.read()
 
 with open(calls_path, "a") as f:
-    f.write(json.dumps({"argv": argv, "stdin": stdin}) + "\\n")
+    f.write(json.dumps({
+        "argv": argv,
+        "stdin": stdin,
+        "gh_host": os.environ.get("GH_HOST"),
+    }) + "\\n")
 
 with open(fixtures_path) as f:
     fixtures = json.load(f)
@@ -156,6 +160,7 @@ def test_parse_pr_spec_accepts_common_forms(spec, expect):
     "acme#42",          # no repo
     "/foo#42",          # missing owner
     "acme/foo#abc",     # non-numeric
+    "https://ghe.example.com/acme/foo/pull/42",
     "",
 ])
 def test_parse_pr_spec_rejects_bad_input(bad):
@@ -263,6 +268,16 @@ def test_active_account_wraps_process_launch_failure(monkeypatch, tmp_path):
         gh.active_account()
 
 
+def test_active_account_wraps_timeout(monkeypatch):
+    def timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(["gh", "api", "user"], 60)
+
+    monkeypatch.setattr(gh, "_run", timeout)
+
+    with pytest.raises(gh.RepoAccountError, match="cannot run gh"):
+        gh.active_account()
+
+
 def test_repo_auth_rechecks_identity_before_mutation(
     gh_shim, tmp_path, monkeypatch,
 ):
@@ -303,7 +318,10 @@ def test_repo_auth_pins_mutation_to_github_host(
     assert call["argv"][host_arg + 1] == "github.com"
 
 
-def test_resolve_pr_spec_uses_gh_for_bare_number(gh_shim, tmp_path):
+def test_resolve_pr_spec_uses_gh_for_bare_number(
+    gh_shim, tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("GH_HOST", "enterprise.example.com")
     gh_shim.set_fixtures([{
         "match": ["pr", "view", "42", "url"],
         "stdout": json.dumps({"url": "https://github.com/acme/foo/pull/42"}),
@@ -311,6 +329,7 @@ def test_resolve_pr_spec_uses_gh_for_bare_number(gh_shim, tmp_path):
     assert gh.resolve_pr_spec("42", workspace=str(tmp_path)) == ("acme/foo", 42)
     [call] = gh_shim.calls()
     assert call["argv"] == ["pr", "view", "42", "--json", "url"]
+    assert call["gh_host"] == "github.com"
 
 
 def test_resolve_pr_spec_falls_back_to_repo_view(gh_shim, tmp_path):
