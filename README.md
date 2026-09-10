@@ -140,6 +140,10 @@ logs, patches, and supporting text contain no material derived from
 
 ## Agent Workflow
 
+Prefer `users/sambhav/<short-descriptive-feature>` for new development branches
+in this workspace and its sub-repos, unless an explicit user request or
+repository requirement calls for another pattern.
+
 For non-trivial feature work, write or reference a plan in `plans/`, decompose it into local Beads tasks, and have worker agents claim tasks with `br update <id> --claim`. Implementation agents should use per-task git worktrees under `projects/worktrees/<repo>/` instead of sharing the canonical `projects/<repo>/` checkout.
 
 Beads state is intentionally local to this machine and is not tracked in git. Plans and reviews are the durable human-readable record; Beads is the executable queue and session handoff memory for short-lived agents.

@@ -84,6 +84,12 @@ project-specific instructions before assessing changes.
 
 ## Sub-Repo Git Usage
 
+When creating a new development branch in this workspace or any sub-repo,
+prefer `users/sambhav/<short-descriptive-feature>`, for example
+`users/sambhav/rocjitsu-waitcnt-semantics`. Follow this convention unless the
+user requests another name or the target repository requires a different
+pattern. Preserve existing branch names when resuming work or checking out a PR.
+
 Run git commands from the relevant repository directory. For sub-repos under `projects/`, set the command working directory to `projects/<repo>` or its task worktree and use plain `git` commands.
 
 The canonical checkouts under `projects/<repo>/` are for reading, planning, debugging, and gathering context. Before making implementation edits, create or switch to a task-specific worktree under `projects/worktrees/<repo>/...` and do the edits, build, test, lint, commit, and PR work there. Only edit a canonical checkout directly when the user explicitly asks for that exact checkout to be modified.
