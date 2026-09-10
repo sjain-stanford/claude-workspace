@@ -133,6 +133,8 @@ def _github_pr_from_info(
         base_sha=base_sha or pr_info.base_sha,
         title=pr_info.title,
         head_ref_name=pr_info.head_ref_name,
+        hostname=pr_info.hostname,
+        account=pr_info.account,
     )
 
 
@@ -147,7 +149,9 @@ def _sync_session_to_pr(
 ) -> tuple[models.Session, bool, bool, int]:
     existing = sess.load_session(session_dir)
     if existing.github is not None and (
-        existing.github.repo != pr_info.repo
+        existing.github.hostname != pr_info.hostname
+        or existing.github.account != pr_info.account
+        or existing.github.repo != pr_info.repo
         or existing.github.number != pr_info.number
     ):
         raise ValueError(
@@ -168,6 +172,65 @@ def _sync_session_to_pr(
     )
     stale_count = store.mark_stale(session_dir) if head_changed else 0
     return session, head_changed, changed, stale_count
+
+
+def _read_github_pr(spec: str, *, workspace: str, login: str | None = None,
+                    hostname: str | None = None,
+                    existing: models.GitHubPR | None = None):
+    from . import gh
+    expected = None
+    if existing is not None:
+        gh.publish_identity(existing)  # Legacy sessions must be bound explicitly.
+        expected = existing.account
+        if login and login.casefold() != expected.login.casefold():
+            raise gh.RepoAccountError("session is already bound to a different GitHub account")
+        login = expected.login
+    host = gh.hostname_for_spec(
+        spec, workspace=workspace,
+        default=hostname or (existing.hostname if existing else None),
+    )
+    if hostname and gh.validate_hostname(hostname) != host:
+        raise ValueError("--gh-host does not match the PR URL")
+    if existing and host != existing.hostname:
+        raise ValueError("PR host does not match the session")
+    with gh.account_auth(host, login or gh.repo_account(workspace), expected=expected) as account:
+        repo, number = gh.resolve_pr_spec(spec, workspace=workspace)
+        if existing and (repo, number) != (existing.repo, existing.number):
+            raise ValueError("PR does not match the session")
+        info = gh.fetch_pr_info(repo, number)
+        return dataclasses.replace(info, hostname=host, account=account)
+
+
+def _reused_pr_session(
+    args: argparse.Namespace, cfg: dict,
+) -> tuple[Path | None, models.Session | None]:
+    """Locate a reused session before fetching private metadata with its account."""
+    from . import gh
+    if not args.reuse:
+        return None, None
+    if args.session or args.id:
+        path = Path(args.session) if args.session else Path(cfg["reviewRoot"]) / args.id
+        if (path / "session.json").exists():
+            return path, sess.load_session(path)
+        return None, None
+    matches = []
+    for path in Path(cfg["reviewRoot"]).glob("*/session.json"):
+        try:
+            candidate = sess.load_session(path.parent)
+        except (OSError, ValueError, TypeError):
+            continue
+        pr = candidate.github
+        if pr is None:
+            continue
+        if args.pr.isdigit():
+            matches_pr = pr.number == int(args.pr) and Path(candidate.repo_path()).resolve() == Path(cfg["repoPath"]).resolve()
+        else:
+            matches_pr = (pr.repo, pr.number) == gh.parse_pr_spec(args.pr) and pr.hostname == gh.hostname_for_spec(args.pr, default=args.gh_host)
+        if matches_pr:
+            matches.append((path.parent, candidate))
+    if len(matches) > 1:
+        raise ValueError("multiple sessions match this PR; select one with --session")
+    return matches[0] if matches else (None, None)
 
 
 # ── Subcommand handlers ────────────────────────────────────────────
@@ -200,11 +263,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     session_id = args.id
     github = None
     if args.gh_pr:
-        from . import gh
         try:
-            repo, number = gh.parse_pr_spec(args.gh_pr)
-            pr_info = gh.fetch_pr_info(repo, number)
-        except (ValueError, gh.GhError) as e:
+            workspace = str(Path(args.workspace) / (args.repo_relative or "."))
+            pr_info = _read_github_pr(
+                args.gh_pr, workspace=workspace,
+                login=args.gh_account, hostname=args.gh_host,
+            )
+        except (ValueError, RuntimeError, OSError) as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
         base_ref = args.base if args.base is not None else pr_info.base_sha
@@ -359,9 +424,13 @@ def cmd_start(args: argparse.Namespace) -> int:
 
     from . import gh
     try:
-        repo, number = gh.resolve_pr_spec(args.pr, workspace=cfg["repoPath"])
-        pr_info = gh.fetch_pr_info(repo, number)
-    except (ValueError, gh.GhError) as e:
+        reuse_path, reused = _reused_pr_session(args, cfg)
+        pr_info = _read_github_pr(
+            args.pr, workspace=cfg["repoPath"],
+            login=args.gh_account, hostname=args.gh_host,
+            existing=reused.github if reused else None,
+        )
+    except (ValueError, RuntimeError, OSError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
@@ -369,7 +438,7 @@ def cmd_start(args: argparse.Namespace) -> int:
         pr_info.repo, pr_info.number,
         pr_info.head_ref_name or pr_info.title,
     )
-    session_dir = Path(args.session) if args.session else Path(cfg["reviewRoot"]) / session_id
+    session_dir = reuse_path or (Path(args.session) if args.session else Path(cfg["reviewRoot"]) / session_id)
     session_dir = session_dir.expanduser().resolve()
     timeout = (
         args.timeout
@@ -384,7 +453,8 @@ def cmd_start(args: argparse.Namespace) -> int:
         print(f"Session:  {session_dir}")
         print(f"Workspace: {cfg['workspace']}")
         print(f"Repo:      {cfg['repoPath']}")
-        print(f"PR:       {pr_info.repo}#{pr_info.number}")
+        print(f"PR:       {pr_info.hostname}/{pr_info.repo}#{pr_info.number}")
+        print(f"Account:  @{pr_info.account.login}")
         print(f"Agents:   {len(agents)}")
         print()
         print("Init command:")
@@ -393,7 +463,8 @@ def cmd_start(args: argparse.Namespace) -> int:
             f"{shlex.quote(str(session_dir))} init --workspace "
             f"{shlex.quote(cfg['workspace'])} --repo-relative "
             f"{shlex.quote(cfg['repoRelative'])} "
-            f"--gh-pr {pr_info.repo}#{pr_info.number} "
+            f"--gh-pr {shlex.quote(pr_info.url)} "
+            f"--gh-account {shlex.quote(pr_info.account.login)} "
             f"--timeout {timeout} --agents {shlex.quote(json.dumps(agents))}"
         )
         if cfg.get("sshTargets"):
@@ -418,6 +489,10 @@ def cmd_start(args: argparse.Namespace) -> int:
         return 1
 
     if session_json.exists():
+        existing_pr = sess.load_session(session_dir).github
+        if existing_pr is None or gh.publish_identity(existing_pr) != gh.publish_identity(_github_pr_from_info(pr_info)):
+            print("Error: existing session target/account differs; use gh-auth to bind a legacy session", file=sys.stderr)
+            return 1
         if args.sync:
             try:
                 session_obj, head_changed, changed, stale_count = _sync_session_to_pr(
@@ -507,15 +582,17 @@ def cmd_sync_pr(args: argparse.Namespace) -> int:
     if args.pr:
         spec = args.pr
     elif session.github is not None:
-        spec = f"{session.github.repo}#{session.github.number}"
+        spec = session.github.url or f"https://{session.github.hostname}/{session.github.repo}/pull/{session.github.number}"
     else:
         print("Error: PR argument required for an unlinked session", file=sys.stderr)
         return 1
 
     from . import gh
     try:
-        repo, number = gh.resolve_pr_spec(spec, workspace=sess.repo_path(session))
-        pr_info = gh.fetch_pr_info(repo, number)
+        pr_info = _read_github_pr(
+            spec, workspace=sess.repo_path(session),
+            login=args.gh_account, hostname=args.gh_host, existing=session.github,
+        )
         synced, head_changed, changed, stale_count = _sync_session_to_pr(
             session_dir, pr_info,
         )
@@ -839,6 +916,35 @@ def _require_github(session_dir: str) -> tuple[models.Session, models.GitHubPR] 
     return s, s.github
 
 
+def cmd_gh_auth(args: argparse.Namespace) -> int:
+    """Explicitly bind an existing session, or verify its saved account."""
+    from . import gh
+    session_dir = _get_session_dir(args)
+    pair = _require_github(session_dir)
+    if pair is None:
+        return 1
+    _, pr = pair
+    try:
+        if pr.account:
+            if args.account and args.account.casefold() != pr.account.login.casefold():
+                raise gh.RepoAccountError("session is already bound to a different account; create a new session to change identity")
+            with gh.pr_auth(pr) as account:
+                pass
+        else:
+            if not args.account:
+                raise gh.RepoAccountError("select the account explicitly with --account <login>")
+            with gh.account_auth(pr.hostname, args.account) as account:
+                candidate = dataclasses.replace(pr, account=account)
+                gh.publish_identity(candidate)
+                gh.fetch_pr_info(pr.repo, pr.number)  # Verify access to the exact PR.
+            sess.bind_github_account(session_dir, pr, account)
+    except (RuntimeError, ValueError, OSError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    print(f"GitHub account: @{account.login} (id {account.user_id}) on {account.hostname}")
+    return 0
+
+
 def cmd_gh_push(args: argparse.Namespace) -> int:
     """Push local comments to the GitHub PR.
 
@@ -870,6 +976,12 @@ def cmd_gh_push(args: argparse.Namespace) -> int:
         return 0
 
     if args.dry_run:
+        try:
+            with gh.pr_auth(ghpr) as account:
+                print(f"[dry-run] Publish as @{account.login} to {ghpr.hostname}/{ghpr.repo}#{ghpr.number}")
+        except (RuntimeError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
         if plan.anchor_validation_error:
             print(
                 "[dry-run] anchor validation skipped: "
@@ -934,7 +1046,7 @@ def cmd_gh_pull(args: argparse.Namespace) -> int:
     s, _ = pair
     try:
         result = gh_pull.pull_comments(session_dir, s, dry_run=args.dry_run)
-    except gh.GhError as e:
+    except (gh.GhError, gh.RepoAccountError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     prefix = "[dry-run] " if args.dry_run else ""
@@ -958,8 +1070,8 @@ def cmd_gh_push_verdict(args: argparse.Namespace) -> int:
 
     result_path = Path(session_dir) / "result.json"
     if not result_path.exists():
-        print(f"Error: no result.json — record a verdict first with "
-              f"`peanut-review verdict --approve|--request-changes`",
+        print("Error: no result.json — record a verdict first with "
+              "`peanut-review verdict --approve|--request-changes`",
               file=sys.stderr)
         return 1
     v = models.Verdict.from_json(result_path.read_text())
@@ -982,13 +1094,19 @@ def cmd_gh_push_verdict(args: argparse.Namespace) -> int:
         return 1
 
     if args.dry_run:
+        try:
+            with gh.pr_auth(ghpr) as account:
+                print(f"[dry-run] Publish as @{account.login} to {ghpr.hostname}/{ghpr.repo}#{ghpr.number}")
+        except (RuntimeError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
         body_preview = v.body[:80].replace("\n", " ")
         print(f"[dry-run] {event} on PR {ghpr.repo}#{ghpr.number}"
               + (f' — "{body_preview}…"' if v.body else ""))
         return 0
 
     try:
-        with gh.repo_auth(sess.repo_path(s)):
+        with gh.pr_auth(ghpr):
             resp = gh.post_pr_review(
                 ghpr.repo, ghpr.number, event=event, body=v.body,
             )
@@ -1492,10 +1610,13 @@ def build_parser() -> argparse.ArgumentParser:
                          "path segment for the web UI.")
     sp.add_argument("--gh-pr", default=None, metavar="OWNER/REPO#N",
                     help="Back this session with a GitHub PR. Accepts "
-                         "owner/repo#N, owner/repo/pull/N, or a github.com URL. "
+                         "owner/repo#N, owner/repo/pull/N, or a GitHub PR URL. "
                          "Defaults --base/--topic to the PR's base/head SHAs "
                          "and --id to <owner>-<repo>-pr-<N> when not given. "
                          "The workspace must already be a local checkout.")
+
+    sp.add_argument("--gh-account", help="GitHub login (default: peanut-review.githubAccount in git config)")
+    sp.add_argument("--gh-host", help="GitHub hostname for a short PR spec")
 
     # launch
     sp = sub.add_parser("launch", help="Spawn agents")
@@ -1593,6 +1714,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--template", help="Agent prompt template path")
     sp.add_argument("--cli-json", help="Path to cli.json for agent permissions")
 
+    sp.add_argument("--gh-account", help="GitHub login (default: saved session account or git config)")
+    sp.add_argument("--gh-host", help="GitHub hostname for a short PR spec")
+
     # sync-pr
     sp = sub.add_parser(
         "sync-pr",
@@ -1603,6 +1727,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         help="Optional PR spec override (defaults to the linked PR)",
     )
+
+    sp.add_argument("--gh-account", help="GitHub login when linking a local session")
+    sp.add_argument("--gh-host", help="GitHub hostname for a short PR spec")
+
+    # gh-auth
+    sp = sub.add_parser("gh-auth", help="Bind or verify the GitHub account for a session")
+    sp.add_argument("--account", help="Stored gh login to bind to an unbound session")
 
     # add-comment
     sp = sub.add_parser("add-comment",
@@ -1862,6 +1993,7 @@ def main(argv: list[str] | None = None) -> int:
         "note": cmd_note,
         "notes": cmd_notes,
         "comments": cmd_comments,
+        "gh-auth": cmd_gh_auth,
         "gh-push": cmd_gh_push,
         "gh-pull": cmd_gh_pull,
         "gh-push-verdict": cmd_gh_push_verdict,
@@ -1893,4 +2025,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 1
 
-    return handler(args)
+    from . import gh
+    try:
+        return handler(args)
+    except gh.RepoAccountError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1

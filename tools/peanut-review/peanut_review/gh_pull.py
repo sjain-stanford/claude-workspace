@@ -227,10 +227,11 @@ def pull_comments(
         raise ValueError("session has no GitHub backing")
     ghpr = session.github
 
-    review_comments = gh.fetch_review_comments(ghpr.repo, ghpr.number)
-    issue_comments = gh.fetch_issue_comments(ghpr.repo, ghpr.number)
-    pr_reviews = gh.fetch_pr_reviews(ghpr.repo, ghpr.number)
-    review_threads = gh.fetch_review_thread_resolutions(ghpr.repo, ghpr.number)
+    with gh.pr_auth(ghpr):
+        review_comments = gh.fetch_review_comments(ghpr.repo, ghpr.number)
+        issue_comments = gh.fetch_issue_comments(ghpr.repo, ghpr.number)
+        pr_reviews = gh.fetch_pr_reviews(ghpr.repo, ghpr.number)
+        review_threads = gh.fetch_review_thread_resolutions(ghpr.repo, ghpr.number)
     resolution_by_ext = _thread_resolution_by_comment_id(review_threads)
 
     local_by_ext: dict[str, models.Comment] = {}

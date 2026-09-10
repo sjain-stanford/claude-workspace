@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import gzip
+from contextlib import nullcontext
 import json
 import os
 import subprocess
-import tempfile
 import threading
 import urllib.parse
 import urllib.request
@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 
 from peanut_review import session as sess, store
-from peanut_review.models import AgentConfig, AgentRole, Comment, GitHubPR, Note
+from peanut_review.models import GitHubAccount, AgentConfig, AgentRole, Comment, GitHubPR, Note
 from peanut_review.web import app as web_app
 from peanut_review.web import diff as diffmod
 from peanut_review.web import render
@@ -490,6 +490,7 @@ def test_render_page_uses_github_title_for_change_label(
     s.topic_ref = "topic-sha"
     s.current_head = "topic-sha"
     s.github = GitHubPR(
+        account=GitHubAccount("github.com", "review-bot", 123),
         repo="acme/foo",
         number=42,
         url="https://github.com/acme/foo/pull/42",
@@ -1149,6 +1150,7 @@ def _post(url: str, body: dict) -> tuple[int, dict]:
 def _mark_github_backed(session_dir: Path) -> None:
     s = sess.load_session(session_dir)
     s.github = GitHubPR(
+        account=GitHubAccount("github.com", "review-bot", 123),
         repo="acme/foo",
         number=42,
         url="https://github.com/acme/foo/pull/42",
@@ -1306,7 +1308,7 @@ def test_server_gh_preview_defaults_humans_on_agents_off(
     _mark_github_backed(session_dir)
     repo = sess.repo_path(sess.load_session(session_dir))
     _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
-    monkeypatch.setattr(web_app.gh, "active_account", lambda: "review-bot")
+    monkeypatch.setattr(web_app.gh, "account_auth", lambda *a, **kw: nullcontext(GitHubAccount("github.com", "review-bot", 123)))
     agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
     human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
     store.append_comment(session_dir, agent_comment)
@@ -1335,7 +1337,7 @@ def test_server_gh_preview_marks_unreviewable_anchor_for_global_promotion(
 ):
     repo = _long_repo(tmp_path, line_count=160, changed_line=120)
     _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
-    monkeypatch.setattr(web_app.gh, "active_account", lambda: "review-bot")
+    monkeypatch.setattr(web_app.gh, "account_auth", lambda *a, **kw: nullcontext(GitHubAccount("github.com", "review-bot", 123)))
     sd = tmp_path / "sess"
     sess.create_session(
         workspace=str(repo),
@@ -1383,7 +1385,9 @@ def test_server_gh_preview_disables_push_for_mismatched_account(
     _mark_github_backed(session_dir)
     repo = sess.repo_path(sess.load_session(session_dir))
     _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
-    monkeypatch.setattr(web_app.gh, "active_account", lambda: "other-bot")
+    def reject_account(*args, **kwargs):
+        raise web_app.gh.RepoAccountError("credentials do not match review-bot")
+    monkeypatch.setattr(web_app.gh, "account_auth", reject_account)
 
     srv, session_id, port = _start_server(session_dir)
     try:
@@ -1391,9 +1395,8 @@ def test_server_gh_preview_disables_push_for_mismatched_account(
         assert code == 200
         data = json.loads(raw)
         assert data["github_account"] is None
-        assert "gh auth switch" in data["github_account_error"]
+        assert "do not match" in data["github_account_error"]
         assert "review-bot" in data["github_account_error"]
-        assert "other-bot" in data["github_account_error"]
     finally:
         srv.shutdown()
 
@@ -1425,7 +1428,9 @@ def test_server_gh_push_rejects_mismatched_active_account(
     _mark_github_backed(session_dir)
     repo = sess.repo_path(sess.load_session(session_dir))
     _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
-    monkeypatch.setattr(web_app.gh, "active_account", lambda: "other-bot")
+    def reject_account(*args, **kwargs):
+        raise web_app.gh.RepoAccountError("credentials do not match review-bot")
+    monkeypatch.setattr(web_app.gh, "account_auth", reject_account)
     human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
     store.append_comment(session_dir, human_comment)
 
@@ -1433,10 +1438,10 @@ def test_server_gh_push_rejects_mismatched_active_account(
     try:
         code, data = _post(
             f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
-            {"comment_ids": [human_comment.id]},
+            {"comment_ids": [human_comment.id], "github_identity": web_app.gh.publish_identity(sess.load_session(session_dir).github)},
         )
         assert code == 409
-        assert "other-bot" in data["error"]
+        assert "do not match" in data["error"]
     finally:
         srv.shutdown()
 
@@ -1464,7 +1469,7 @@ def test_server_gh_push_filters_to_selected_comment_ids(
     try:
         code, data = _post(
             f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
-            {"comment_ids": [agent_comment.id]},
+            {"comment_ids": [agent_comment.id], "github_identity": web_app.gh.publish_identity(sess.load_session(session_dir).github)},
         )
         assert code == 200
         assert data["summary"] == "Pushed 1."
@@ -1496,7 +1501,7 @@ def test_server_gh_push_default_excludes_agent_comments(
     try:
         code, data = _post(
             f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
-            {},
+            {"github_identity": web_app.gh.publish_identity(sess.load_session(session_dir).github)},
         )
         assert code == 200
         assert data["summary"] == "Pushed 1."
@@ -2056,6 +2061,7 @@ def test_index_and_api_sessions_use_github_title(tmp_path: Path, repo: Path):
     s.base_ref = "base-sha"
     s.topic_ref = "topic-sha"
     s.github = GitHubPR(
+        account=GitHubAccount("github.com", "review-bot", 123),
         repo="acme/foo",
         number=42,
         url="https://github.com/acme/foo/pull/42",
@@ -2384,7 +2390,7 @@ def test_client_gh_push_modal_includes_selection_controls():
 
     assert 'id="gh-include-agents"' in block
     assert 'class="push-select"' in block
-    assert "{ comment_ids: commentIds }" in block
+    assert "{ comment_ids: commentIds, github_identity: ghIdentity }" in block
     assert 'class="push-delete"' in block
     assert 'data-push-delete="' in block
     assert 'data-push-edit="' in block

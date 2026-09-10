@@ -280,6 +280,15 @@ class AgentConfig:
         return cls(**{k: v for k, v in raw.items() if k in cls.__dataclass_fields__})
 
 
+@dataclass(frozen=True)
+class GitHubAccount:
+    """Verified account identity. Credentials are never stored in a session."""
+
+    hostname: str
+    login: str
+    user_id: int
+
+
 @dataclass
 class GitHubPR:
     """Provenance for a session backed by a GitHub PR.
@@ -295,13 +304,20 @@ class GitHubPR:
     base_sha: str = ""
     title: str = ""
     head_ref_name: str = ""
+    hostname: str = "github.com"
+    account: GitHubAccount | None = None
 
     def to_dict(self) -> dict:
         return {k: v for k, v in asdict(self).items() if v not in (None, "", 0)}
 
     @classmethod
     def from_dict(cls, d: dict) -> GitHubPR:
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        raw = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        account = raw.pop("account", None)
+        if "hostname" not in raw and raw.get("url"):
+            from urllib.parse import urlsplit
+            raw["hostname"] = urlsplit(raw["url"]).hostname or "github.com"
+        return cls(**raw, account=GitHubAccount(**account) if account else None)
 
 
 @dataclass

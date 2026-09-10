@@ -704,8 +704,8 @@ def execute_push(
     ghpr: models.GitHubPR,
     plan: PushPlan,
 ) -> PushResult:
-    """Verify the repository's active GitHub identity, then run the plan."""
-    with gh.repo_auth(sess.repo_path(session)):
+    """Verify the session account and use one credential for the entire push."""
+    with gh.pr_auth(ghpr):
         return _execute_push(session_dir, session, ghpr, plan)
 
 
