@@ -6,49 +6,57 @@
   "agents": [
     {
       "name": "Felix",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
       "persona": "felix.md",
       "runner": "codex"
     },
     {
       "name": "Irene",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
       "persona": "irene.md",
       "runner": "codex"
     },
     {
       "name": "Merlin",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
       "persona": "merlin.md",
       "runner": "codex"
     },
     {
       "name": "Petra",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
       "persona": "petra.md",
       "runner": "codex"
     },
     {
       "name": "Simone",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
       "persona": "simone.md",
       "runner": "codex"
     },
     {
       "name": "Soren",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
       "persona": "soren.md",
       "runner": "codex"
     },
     {
       "name": "Vera",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
       "persona": "vera.md",
       "runner": "codex"
     },
     {
       "name": "Curator",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-6-astra",
+      "reasoningEffort": "medium",
       "runner": "codex",
       "role": "curator"
     }
