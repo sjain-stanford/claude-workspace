@@ -60,11 +60,12 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/rocjitsu-build-test/` - Risk-based rocjitsu build, test, formatting, sanitizer, and corpus verification
 - `skills/gh-address-comments/` - Use when addressing GitHub PR or issue comments on the current branch
 - `skills/gh-fix-ci/` - Use when debugging and fixing failing GitHub Actions checks for a PR
+- `skills/find-security-vulnerabilities/` - Use for requested security audits and exploitability assessments
 - `skills/peanut-review/` - Use for explicit multi-agent review sessions, personas, curation, the review web UI, or GitHub review publishing
 - `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions and PR-body agent attribution)
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
-- `skills/stage-and-commit/` - Use when asked to commit local changes (enforces signed commits)
+- `skills/stage-and-commit/` - Use when asked to commit local changes (enforces `Signed-off-by` trailers)
 - `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
 - `skills/llvm-coding-standards.md` - LLVM C++ reference used only when the target project adopts it
 
@@ -178,7 +179,10 @@ Save PR reviews and self-review outputs to `reviews/` at claude-workspace root. 
 ## Beads Workflow Integration
 
 This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking. A single central `.beads/` in claude-workspace tracks work across all sub-repos — there are no per-repo `.beads/` directories. Prefix bead titles with `[repo-name]` (e.g. `[rocm-systems]`, `[docker]`) to indicate which sub-repo the work relates to.
-CRITICAL: NEVER MENTION BEADS IN CODE. The beads are for your local work tracking only and do not persist. Always write proper TODOs or use github issues for long term/persistent tracking. 95% of all work you do should be tracked in beads. Think of it like a memory.
+CRITICAL: NEVER MENTION BEADS IN CODE. Beads persist locally for work tracking
+and session handoff, but are not shared project records. Use proper TODOs or
+GitHub issues for references that must travel with source code. Track most
+workspace work in Beads.
 
 `.beads/` is intentionally local-only and gitignored because all agents run on this one machine. Do not change `.gitignore` to track Beads state unless the workflow explicitly moves to multiple machines.
 

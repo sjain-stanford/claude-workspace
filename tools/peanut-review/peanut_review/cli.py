@@ -954,8 +954,8 @@ def cmd_gh_push_verdict(args: argparse.Namespace) -> int:
 
     result_path = Path(session_dir) / "result.json"
     if not result_path.exists():
-        print(f"Error: no result.json — record a verdict first with "
-              f"`peanut-review verdict --approve|--request-changes`",
+        print("Error: no result.json — record a verdict first with "
+              "`peanut-review verdict --approve|--request-changes`",
               file=sys.stderr)
         return 1
     v = models.Verdict.from_json(result_path.read_text())

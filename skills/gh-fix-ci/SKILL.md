@@ -1,6 +1,6 @@
 ---
 name: gh-fix-ci
-description: Inspect GitHub PR checks with gh, pull failing GitHub Actions logs, summarize failure context, then create a fix plan and implement after user approval. Use when a user asks to debug or fix failing PR CI/CD checks on GitHub Actions and wants a plan + code changes; for external checks (e.g., Buildkite), only report the details URL and mark them out of scope.
+description: Inspect and fix failing GitHub Actions PR checks using gh, logs, and focused local verification. For external checks (e.g., Buildkite), report the details URL without attempting provider-specific fixes.
 metadata:
   short-description: Fix failing Github CI actions
 ---
@@ -9,10 +9,15 @@ metadata:
 
 ## Overview
 
-Use gh to locate failing PR checks, fetch GitHub Actions logs for actionable failures, summarize the failure snippet, then propose a fix plan and implement after explicit approval.
-- Depends on the `plan` skill for drafting and approving the fix plan.
+Use gh to locate failing PR checks, fetch GitHub Actions logs, summarize the
+cause, and implement the fix when the user requested it. A diagnosis-only or
+plan-only request stops at that deliverable. Use the PR's development worktree
+and the repository's contribution and verification guidance.
 
-Prereq: ensure `gh` is authenticated (for example, run `gh auth login` once), then run `gh auth status` with escalated permissions (include workflow/repo scopes) so `gh` commands succeed. If sandboxing blocks `gh auth status`, rerun it with `sandbox_permissions=require_escalated`.
+Run `gh auth status` for the target host with normal permissions first. Request
+escalation only if the sandbox blocks network access. Distinguish authentication
+failures from rate limits and network errors; only authentication failures
+require the user to log in.
 
 ## Inputs
 
@@ -28,7 +33,7 @@ Prereq: ensure `gh` is authenticated (for example, run `gh auth login` once), th
 ## Workflow
 
 1. Verify gh authentication.
-   - Run `gh auth status` in the repo with escalated scopes (workflow/repo) after running `gh auth login`.
+   - Run `gh auth status` in the repo for the target host.
    - If sandboxed auth status fails, rerun the command with `sandbox_permissions=require_escalated` to allow network/keyring access.
    - If unauthenticated, ask the user to log in before proceeding.
 2. Resolve the PR.
@@ -41,23 +46,28 @@ Prereq: ensure `gh` is authenticated (for example, run `gh auth login` once), th
    - Manual fallback:
      - `gh pr checks <pr> --json name,state,bucket,link,startedAt,completedAt,workflow`
        - If a field is rejected, rerun with the available fields reported by `gh`.
-     - For each failing check, extract the run id from `detailsUrl` and run:
+     - For each failing check, extract the run id from `link` (or `detailsUrl`
+       in legacy output) and run:
        - `gh run view <run_id> --json name,workflowName,conclusion,status,url,event,headBranch,headSha`
        - `gh run view <run_id> --log`
      - If the run log says it is still in progress, fetch job logs directly:
        - `gh api "/repos/<owner>/<repo>/actions/jobs/<job_id>/logs" > "<path>"`
 4. Scope non-GitHub Actions checks.
-   - If `detailsUrl` is not a GitHub Actions run, label it as external and only report the URL.
+   - If the check URL is not a GitHub Actions run, label it as external and only report the URL.
    - Do not attempt Buildkite or other providers; keep the workflow lean.
 5. Summarize failures for the user.
    - Provide the failing check name, run URL (if any), and a concise log snippet.
    - Call out missing logs explicitly.
 6. Create a plan.
-   - Use the `plan` skill to draft a concise plan and request approval.
-7. Implement after approval.
-   - Apply the approved plan, summarize diffs/tests, and ask about opening a PR.
+   - State the proposed fix and verification. Save a plan under the workspace's
+     `plans/` directory for non-trivial work; no separate `plan` skill is required.
+7. Implement the requested fix.
+   - Apply the fix within the user's authorized scope. Ask only for a material
+     unresolved decision or an action outside that scope.
 8. Recheck status.
-   - After changes, suggest re-running the relevant tests and `gh pr checks` to confirm.
+   - Run the relevant local checks and summarize their results. Remote checks
+     still describe the pushed commit until the fix is published; do not claim
+     CI passed based only on local tests. Respect workspace remote-write rules.
 
 ## Bundled Resources
 
@@ -69,3 +79,5 @@ Usage examples:
 - `python "<path-to-skill>/scripts/inspect_pr_checks.py" --repo "." --pr "123"`
 - `python "<path-to-skill>/scripts/inspect_pr_checks.py" --repo "." --pr "https://github.com/org/repo/pull/123" --json`
 - `python "<path-to-skill>/scripts/inspect_pr_checks.py" --repo "." --max-lines 200 --context 40`
+
+Offline helper checks: `python3 -m pytest <path-to-skill>/tests`.

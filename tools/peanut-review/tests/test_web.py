@@ -5,7 +5,6 @@ import gzip
 import json
 import os
 import subprocess
-import tempfile
 import threading
 import urllib.parse
 import urllib.request
@@ -149,7 +148,7 @@ def test_parse_diff_added_modified(repo: Path):
     assert fd.additions == 1
     assert fd.deletions == 1
     # Should contain a context line for the def statement
-    kinds = [l.kind for l in fd.lines]
+    kinds = [line.kind for line in fd.lines]
     assert "context" in kinds
     assert "added" in kinds
     assert "deleted" in kinds

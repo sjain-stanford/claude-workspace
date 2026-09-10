@@ -32,17 +32,18 @@ and separate from IREE/TheRock version bumps).
 Use the active agent's identity in generated PR footers only. Do not add agent co-authorship trailers to individual commit messages.
 
 For Codex, use the active model display name supplied by the runtime or system
-context. Do not copy a model version from an old PR or skill example. If the
-exact model variant is unavailable, use `Codex` instead of guessing:
+context in the PR attribution footer. If the exact model variant is unavailable,
+use `Codex` instead of guessing. Do not copy a model version from a previous PR
+or template:
 ```markdown
-Co-authored-by: <active Codex model display name> <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 ```
 
 For Claude Code, use:
 ```markdown
-Co-authored-by: Claude Opus 4.7 <noreply@anthropic.com>
+Co-authored-by: <active Claude model> <noreply@anthropic.com>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
@@ -65,7 +66,9 @@ This is the common case — bumping IREE and/or TheRock versions. Each dependenc
 
 1. **Check `gh` auth**: `gh auth status`
 2. **Read current versions** from `projects/fusilli/version.json`
-3. **Check for uncommitted changes**: `git status` in fusilli repo. If unrelated changes exist, ask the user whether to include them or only commit the version bump.
+3. **Inspect existing work**: run `git status` and `git worktree list` in the
+   Fusilli repo. Preserve unrelated changes and use a separate task worktree
+   for each dependency bump.
 
 ### Phase 1: Find Latest Versions
 
@@ -113,24 +116,23 @@ done
 ### Phase 2: Update Fusilli Repo (Separate PRs)
 
 Each dependency that has a newer version gets its own branch, commit, and PR. If only one has changed, only one PR is created.
-Run Fusilli repo commands from `projects/fusilli`.
+Use `projects/fusilli` only to inspect or create worktrees. Run edits, build,
+test, commit, and PR commands from the corresponding task worktree.
 
 1. **Prepare Fusilli Repo**
-   - The fusilli repo may NOT be on `main` when starting. Handle this:
+   - Read the current repository instructions and confirm its base branch
+     (historically `main`). Preserve the canonical checkout's branch and work.
+     From `projects/fusilli`:
      ```bash
-     git stash          # Save any in-progress work
-     git checkout main
-     ```
-   - If `git pull` fails with "no tracking information", set it first:
-     ```bash
-     git branch --set-upstream-to=origin/main main
-     git pull
+     git fetch origin
      ```
 
 2. **IREE Bump** (if version changed)
-   - Create the IREE bump branch from main:
+   - From `projects/fusilli`, create a worktree from the confirmed base:
      ```bash
-     git checkout -b bump-iree-YYYYMMDD
+     git worktree add ../worktrees/fusilli/bump-iree-YYYYMMDD \
+       -b users/sambhav/bump-iree-YYYYMMDD origin/<base>
+     cd ../worktrees/fusilli/bump-iree-YYYYMMDD
      ```
    - Update only the `iree-version` field in `version.json`
    - The `iree-version` value is the bare version string (e.g., `3.11.0rc20260217`) without the `iree-` prefix — consumers prepend it as needed
@@ -146,7 +148,7 @@ Run Fusilli repo commands from `projects/fusilli`.
      ```
    - **Push**: Ask the user to push manually:
      ```
-     Please run: cd projects/fusilli && git push -u origin bump-iree-YYYYMMDD
+     Please run git push -u origin HEAD from the IREE task worktree.
      ```
    - Create PR:
      ```bash
@@ -166,15 +168,15 @@ Run Fusilli repo commands from `projects/fusilli`.
      EOF
      )"
      ```
-   - Return to main for the next bump:
-     ```bash
-     git checkout main
-     ```
+   - Leave the worktree available for follow-up. Create the next bump from
+     the canonical checkout without switching this worktree's branch.
 
 3. **TheRock Bump** (if version changed)
-   - Create the TheRock bump branch from main:
+   - From `projects/fusilli`, create a separate worktree from the same base:
      ```bash
-     git checkout -b bump-therock-YYYYMMDD
+     git worktree add ../worktrees/fusilli/bump-therock-YYYYMMDD \
+       -b users/sambhav/bump-therock-YYYYMMDD origin/<base>
+     cd ../worktrees/fusilli/bump-therock-YYYYMMDD
      ```
    - Update only the `therock-version` field in `version.json`
    - Commit:
@@ -189,7 +191,7 @@ Run Fusilli repo commands from `projects/fusilli`.
      ```
    - **Push**: Ask the user to push manually:
      ```
-     Please run: cd projects/fusilli && git push -u origin bump-therock-YYYYMMDD
+     Please run git push -u origin HEAD from the TheRock task worktree.
      ```
    - Create PR:
      ```bash
@@ -221,17 +223,18 @@ Docker image rebuilds.
 
 ### Steps
 
+Before editing, create or reuse a Docker task worktree under
+`projects/worktrees/docker/` using the confirmed Docker base branch. Run all
+following commands there; read `entrypoint.sh` from that worktree.
+
 1. **Update Docker Entrypoint** (optional)
-   - File: `projects/docker/entrypoint.sh`
+   - File: `entrypoint.sh` in the Docker task worktree
    - Update `IREE_GIT_TAG` and `THEROCK_GIT_TAG` default pins for local dev convenience
    - Make any structural changes needed
 
 2. **Create Docker Branch, Commit, and PR**
-   Run these commands from `projects/docker`:
+   Run these commands from the Docker task worktree:
    ```bash
-   git checkout main
-   git pull
-   git checkout -b update-docker-YYYYMMDD
    git add entrypoint.sh
    git commit -s -m "Update docker image"
    ```
@@ -260,8 +263,9 @@ Docker image rebuilds.
 
 - If IREE or TheRock versions cannot be found, report error and stop
 - If the `iree-base-compiler` pip wheel is not available, stop and suggest retrying later
-- If `git pull` fails with no tracking info, set upstream with `git branch --set-upstream-to=origin/main main`
-- If repo has uncommitted changes on a non-main branch, `git stash` before switching to main
+- If the base branch or remote is unclear, resolve it from repository metadata
+  before creating a worktree; do not change an existing branch's upstream.
+- Preserve uncommitted work in place; do not stash or switch another task's branch.
 - If build/test fails, report failures but still create PR (CI will catch issues)
 - If not in docker container for build/test, skip that step and note in PR that CI will validate
 
@@ -270,4 +274,5 @@ Docker image rebuilds.
 1. **`git push` is sandboxed**: The Bash tool cannot execute `git push`. Always ask the user to push branches manually.
 2. **IREE releases API is unreliable**: The GitHub releases API (`/releases`) may not list recent rc tags. Always use the git tags API (`/git/refs/tags`) with `--paginate`.
 3. **TheRock version prefix may change**: Don't hardcode the version prefix (e.g., `7.12.0a`). Read it from the current `therock-version` in `version.json` and only replace the date portion.
-4. **Fusilli repo branch state**: The fusilli repo may be on a feature branch when this skill runs. Always stash and checkout main first.
+4. **Fusilli repo branch state**: The canonical checkout may be on a feature
+   branch. Leave it intact and create each bump in its own task worktree.

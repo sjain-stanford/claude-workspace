@@ -10,8 +10,11 @@ reviews/*
 # Ignore plan contents.
 plans/*
 
-# Ignore docker cache directory.
-.cache/
+# Ignore local caches, retaining the shared review configuration.
+.cache/*
+!.cache/peanut-review/
+.cache/peanut-review/*
+!.cache/peanut-review/.peanut-review.json
 
 # Ignore machine-specific Claude settings.
 .claude/settings.local.json
@@ -20,3 +23,6 @@ plans/*
 .beads/
 
 __pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/

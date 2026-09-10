@@ -7,19 +7,33 @@ metadata:
 
 # PR Comment Handler
 
-Guide to find the open PR for the current branch and address its comments with gh CLI. Run all `gh` commands with elevated network access.
+Find the open PR for the current branch and address the requested comments with
+the gh CLI. Use the PR's branch-backed development worktree and the target
+repository's contribution and verification guidance.
 
-Prereq: ensure `gh` is authenticated (for example, run `gh auth login` once), then run `gh auth status` with escalated permissions (include workflow/repo scopes) so `gh` commands succeed. If sandboxing blocks `gh auth status`, rerun it with `sandbox_permissions=require_escalated`.
+Run `gh auth status` for the target host with normal permissions first. Request
+network escalation only when the sandbox actually blocks access. Ask the user
+to authenticate only for an authentication failure; distinguish that from rate
+limits and transient network failures.
 
 ## 1) Inspect comments needing attention
-- Run scripts/fetch_comments.py which will print out all the comments and review threads on the PR
+- Run `python3 <skill-dir>/scripts/fetch_comments.py` from the PR worktree to
+  print conversation comments, reviews, and complete inline threads as JSON.
+  The helper resolves the base repository and host from the PR URL, including
+  fork PRs, and paginates each connection and long thread independently.
 
-## 2) Ask the user for clarification
-- Number all the review threads and comments and provide a short summary of what would be required to apply a fix for it
-- Ask the user which numbered comments should be addressed
+## 2) Establish scope
+- Follow comments already selected by the user. A request to address PR
+  feedback authorizes fixing actionable comments; do not ask the user to
+  select the same scope again.
+- Summarize actionable findings and validate them against the current code.
+  Ask only when a comment requires a material product decision or its intended
+  scope is unclear.
 
-## 3) If user chooses comments
-- Apply fixes for the selected comments
+## 3) Apply and verify fixes
+- Implement the requested fixes, run appropriate checks, and summarize which
+  comments were addressed or remain unresolved.
+- Posting replies or resolving GitHub threads requires explicit authorization
+  to change that remote discussion state.
 
-Notes:
-- If gh hits auth/rate issues mid-run, prompt the user to re-authenticate with `gh auth login`, then retry.
+Offline helper checks: `python3 -m pytest <skill-dir>/tests`.

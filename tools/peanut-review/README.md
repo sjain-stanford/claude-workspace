@@ -48,8 +48,10 @@ container, enable its forwarding when launching the container:
 DOCKER_ENABLE_PEANUT_REVIEW_WEB=1 ./projects/docker/run_docker.sh
 ```
 
-The Docker launcher publishes port `27183` only on the SSH host's loopback, so
-VSCode Remote SSH can forward it without exposing the UI externally. Set
+The Docker launcher's `init_docker.sh` publishes port `27183` only on the SSH
+host's loopback when this option is enabled, so VSCode Remote SSH can forward
+it without exposing the UI externally. When attached directly to the container,
+you can instead forward its port through the editor's Ports panel. Set
 `PR_HOST` or `PR_PORT` only to override the normal bind or port. Set
 `PR_BASE_URL` only when a reverse proxy removes that same path prefix before
 forwarding requests.

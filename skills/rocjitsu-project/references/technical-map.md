@@ -35,7 +35,7 @@ Unmodified HIP / ROCR process
 | ELF/code-object loading and mutation | `lib/rocjitsu/src/rocjitsu/code/` |
 | DBT translation | `lib/rocjitsu/src/rocjitsu/code/dbt/` |
 | DBI patching and spill planning | `lib/rocjitsu/src/rocjitsu/code/patch/` |
-| CFG, liveness, def-use | `lib/rocjitsu/src/rocjitsu/analysis/` |
+| CFG, liveness, def-use | `lib/rocjitsu/src/rocjitsu/code/analysis/` |
 | Simulation engine and PDES | `lib/simdojo/` |
 | Shared low-level utilities | `lib/util/` |
 | Plugins | `lib/rocjitsu/src/rocjitsu/vm/plugins/` |
