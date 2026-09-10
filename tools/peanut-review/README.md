@@ -19,6 +19,23 @@ Most flows run from the repo being reviewed, so keep `PR_BIN` absolute.
 In `claude-workspace`, use `skills/peanut-review/` to orchestrate multi-agent
 review sessions and `tools/peanut-review/bin/peanut-review` as the CLI.
 
+### GitHub publishing identity
+
+Declare the account allowed to publish from each reviewed repository, then
+make that account active in `gh`:
+
+```bash
+git config --local peanut-review.githubAccount <github-login>
+gh auth login --hostname github.com
+gh auth switch --hostname github.com --user <github-login>
+```
+
+Before publishing, peanut-review compares the configured login with
+`gh api user`. It fails closed when the setting is missing, `gh` is not
+authenticated, or the active login differs. Peanut-review never requests,
+stores, or injects a GitHub token. The web UI shows the verified login or the
+command needed to authenticate or switch accounts.
+
 ## Web UI
 
 Start the server from this tool checkout:

@@ -1299,8 +1299,14 @@ def test_server_kill_agents_endpoint(session_dir: Path, monkeypatch):
         srv.shutdown()
 
 
-def test_server_gh_preview_defaults_humans_on_agents_off(session_dir: Path):
+def test_server_gh_preview_defaults_humans_on_agents_off(
+    session_dir: Path,
+    monkeypatch,
+):
     _mark_github_backed(session_dir)
+    repo = sess.repo_path(sess.load_session(session_dir))
+    _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
+    monkeypatch.setattr(web_app.gh, "active_account", lambda: "review-bot")
     agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
     human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
     store.append_comment(session_dir, agent_comment)
@@ -1313,6 +1319,8 @@ def test_server_gh_preview_defaults_humans_on_agents_off(session_dir: Path):
         data = json.loads(raw)
         items = {item["id"]: item for item in data["new_top"]}
 
+        assert data["github_account"] == "review-bot"
+        assert data["github_account_error"] is None
         assert items[agent_comment.id]["is_agent"] is True
         assert items[agent_comment.id]["default_included"] is False
         assert items[human_comment.id]["is_agent"] is False
@@ -1323,8 +1331,11 @@ def test_server_gh_preview_defaults_humans_on_agents_off(session_dir: Path):
 
 def test_server_gh_preview_marks_unreviewable_anchor_for_global_promotion(
     tmp_path: Path,
+    monkeypatch,
 ):
     repo = _long_repo(tmp_path, line_count=160, changed_line=120)
+    _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
+    monkeypatch.setattr(web_app.gh, "active_account", lambda: "review-bot")
     sd = tmp_path / "sess"
     sess.create_session(
         workspace=str(repo),
@@ -1361,6 +1372,28 @@ def test_server_gh_preview_marks_unreviewable_anchor_for_global_promotion(
         assert item["body"].startswith("Original anchor: `long.py:5`")
         assert reply_item["parent_promoted_to_global"] is True
         assert reply_item["orphaned"] is True
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_preview_disables_push_for_mismatched_account(
+    session_dir: Path,
+    monkeypatch,
+):
+    _mark_github_backed(session_dir)
+    repo = sess.repo_path(sess.load_session(session_dir))
+    _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
+    monkeypatch.setattr(web_app.gh, "active_account", lambda: "other-bot")
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/gh/preview")
+        assert code == 200
+        data = json.loads(raw)
+        assert data["github_account"] is None
+        assert "gh auth switch" in data["github_account_error"]
+        assert "review-bot" in data["github_account_error"]
+        assert "other-bot" in data["github_account_error"]
     finally:
         srv.shutdown()
 

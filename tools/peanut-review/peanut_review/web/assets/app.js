@@ -1968,6 +1968,11 @@
     let html = `<p class="push-summary">`
       + `Repo <span class="mono">${esc(plan.repo)}</span> · `
       + `PR <a href="${esc(plan.url)}" target="_blank" rel="noopener" class="mono">#${plan.number}</a></p>`;
+    if (plan.github_account_error) {
+      html += `<p class="error">Publishing disabled: ${esc(plan.github_account_error)}</p>`;
+    } else if (plan.github_account) {
+      html += `<p class="muted">Publishing as <span class="mono">${esc(plan.github_account)}</span>.</p>`;
+    }
     if (total === 0) {
       html += `<p class="muted">Nothing to push.`
         + (plan.skipped_meta ? ` (${plan.skipped_meta} __meta__ comment${plan.skipped_meta === 1 ? "" : "s"} skipped)` : "")
@@ -2000,7 +2005,7 @@
     }
     ghBody.innerHTML = html;
     restoreGhSelectionState(selectionState);
-    bindGhSelectionControls(pushable);
+    bindGhSelectionControls(pushable, Boolean(plan.github_account_error));
   }
 
   function selectedGhPushIds() {
@@ -2050,8 +2055,14 @@
       : "Nothing selected";
   }
 
-  function bindGhSelectionControls(pushable) {
+  function bindGhSelectionControls(pushable, publishingDisabled = false) {
     const toggle = document.getElementById("gh-include-agents");
+    if (publishingDisabled) {
+      ghBody.querySelectorAll(".push-select").forEach((box) => {
+        box.disabled = true;
+      });
+      if (toggle) toggle.disabled = true;
+    }
     if (toggle) {
       toggle.addEventListener("change", () => {
         ghBody.querySelectorAll(".push-select[data-agent-comment='1']:not(:disabled)")
@@ -2068,7 +2079,10 @@
     ghBody.querySelectorAll("[data-push-delete]").forEach((btn) => {
       btn.addEventListener("click", deletePushPreviewComment);
     });
-    if (pushable > 0) {
+    if (publishingDisabled) {
+      ghConfirm.disabled = true;
+      ghConfirm.textContent = "Publishing disabled";
+    } else if (pushable > 0) {
       updateGhSelectionState();
     } else {
       ghConfirm.disabled = true;

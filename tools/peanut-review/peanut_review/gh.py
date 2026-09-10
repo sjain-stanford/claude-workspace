@@ -12,10 +12,18 @@ import os
 import re
 import shutil
 import subprocess
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterator
 
 
 GH_BIN_ENV = "PEANUT_REVIEW_GH_BIN"
+REPO_ACCOUNT_CONFIG = "peanut-review.githubAccount"
+_PUBLISHING_ACCOUNT: ContextVar[str | None] = ContextVar(
+    "peanut_review_gh_publishing_account", default=None,
+)
 
 # Spec parser: accepts `owner/repo#123`, `owner/repo/pull/123`, and
 # `https://github.com/owner/repo/pull/123` (plus `http://` and trailing /).
@@ -64,6 +72,69 @@ class GhError(RuntimeError):
         self.rc = rc
         self.stderr = stderr
         self.stdout = stdout
+
+
+class RepoAccountError(RuntimeError):
+    """Raised when the repository's required GitHub identity is unavailable."""
+
+
+def repo_account(repo_path: str | Path) -> str:
+    """Return the GitHub login required by the repository-local config."""
+    result = subprocess.run(
+        [
+            "git", "-C", str(repo_path), "config", "--local", "--get",
+            REPO_ACCOUNT_CONFIG,
+        ],
+        capture_output=True, text=True, timeout=10,
+    )
+    account = result.stdout.strip() if result.returncode == 0 else ""
+    if not account:
+        raise RepoAccountError(
+            f"repository does not configure {REPO_ACCOUNT_CONFIG}; run "
+            f"`git config --local {REPO_ACCOUNT_CONFIG} <github-login>`"
+        )
+    return account
+
+
+def active_account() -> str:
+    """Return the login currently used by ``gh`` without reading its token."""
+    try:
+        account = _run([
+            "api", "user", "--hostname", "github.com", "--jq", ".login",
+        ]).strip()
+    except GhError as e:
+        raise RepoAccountError(
+            "cannot determine the active GitHub account; run "
+            f"`gh auth login --hostname github.com`: {e}"
+        ) from e
+    if not account:
+        raise RepoAccountError(
+            "gh returned no active GitHub login; run "
+            "`gh auth login --hostname github.com`"
+        )
+    return account
+
+
+def _verify_active_account(expected: str) -> None:
+    active = active_account()
+    if active != expected:
+        raise RepoAccountError(
+            f"repository expects GitHub account {expected!r}, but gh is using "
+            f"{active!r}; run `gh auth switch --hostname github.com --user "
+            f"{expected}` before publishing"
+        )
+
+
+@contextmanager
+def repo_auth(repo_path: str | Path) -> Iterator[str]:
+    """Authorize publishing when repo config matches ``gh``'s active login."""
+    account = repo_account(repo_path)
+    _verify_active_account(account)
+    marker = _PUBLISHING_ACCOUNT.set(account)
+    try:
+        yield account
+    finally:
+        _PUBLISHING_ACCOUNT.reset(marker)
 
 
 def parse_pr_spec(spec: str) -> tuple[str, int]:
@@ -139,6 +210,9 @@ def resolve_pr_spec(spec: str, *, workspace: str | None = None) -> tuple[str, in
 def _api(endpoint: str, *, method: str = "GET",
          payload: dict | None = None,
          paginate: bool = False) -> str:
+    publishing_account = _PUBLISHING_ACCOUNT.get()
+    if method != "GET" and publishing_account is not None:
+        _verify_active_account(publishing_account)
     args = ["api", endpoint]
     if method != "GET":
         args += ["-X", method]

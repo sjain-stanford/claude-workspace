@@ -846,7 +846,7 @@ def cmd_gh_push(args: argparse.Namespace) -> int:
     a thin wrapper so the web UI's preview/confirm modal can share the exact
     same planning + execution path.
     """
-    from . import gh_push as _gh_push
+    from . import gh, gh_push as _gh_push
     session_dir = _get_session_dir(args)
     pair = _require_github(session_dir)
     if pair is None:
@@ -902,7 +902,11 @@ def cmd_gh_push(args: argparse.Namespace) -> int:
             print(f"[dry-run] skipped {plan.skipped_imported_reviews} imported reviews")
         return 0
 
-    result = _gh_push.execute_push(session_dir, s, ghpr, plan)
+    try:
+        result = _gh_push.execute_push(session_dir, s, ghpr, plan)
+    except gh.RepoAccountError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     for item in result.items:
         if item.error:
             print(f"  {item.id}: FAILED — {item.error}", file=sys.stderr)
@@ -950,7 +954,7 @@ def cmd_gh_push_verdict(args: argparse.Namespace) -> int:
     pair = _require_github(session_dir)
     if pair is None:
         return 1
-    _, ghpr = pair
+    s, ghpr = pair
 
     result_path = Path(session_dir) / "result.json"
     if not result_path.exists():
@@ -984,10 +988,11 @@ def cmd_gh_push_verdict(args: argparse.Namespace) -> int:
         return 0
 
     try:
-        resp = gh.post_pr_review(
-            ghpr.repo, ghpr.number, event=event, body=v.body,
-        )
-    except gh.GhError as e:
+        with gh.repo_auth(sess.repo_path(s)):
+            resp = gh.post_pr_review(
+                ghpr.repo, ghpr.number, event=event, body=v.body,
+            )
+    except (gh.GhError, gh.RepoAccountError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 

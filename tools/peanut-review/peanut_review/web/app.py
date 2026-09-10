@@ -871,6 +871,13 @@ class _Handler(BaseHTTPRequestHandler):
         new_top_ids = {c.id for c in plan.new_top}
         promoted_ids = set(plan.promoted_anchors)
         default_push_ids = _default_selected_push_ids(plan, agent_authors)
+        github_account = None
+        github_account_error = None
+        try:
+            with gh.repo_auth(repo_path(s)) as verified_account:
+                github_account = verified_account
+        except gh.RepoAccountError as e:
+            github_account_error = str(e)
 
         def _ref(c: Comment) -> str:
             if c.file == GLOBAL_FILE:
@@ -940,6 +947,8 @@ class _Handler(BaseHTTPRequestHandler):
             "repo": s.github.repo,
             "number": s.github.number,
             "url": s.github.url,
+            "github_account": github_account,
+            "github_account_error": github_account_error,
             "new_top": new_top,
             "new_replies": new_replies,
             "edits": edits,
@@ -1014,7 +1023,10 @@ class _Handler(BaseHTTPRequestHandler):
                 "items": [],
                 "summary": "Nothing to push.",
             })
-        result = gh_push.execute_push(session_dir, s, s.github, plan)
+        try:
+            result = gh_push.execute_push(session_dir, s, s.github, plan)
+        except gh.RepoAccountError as e:
+            return self._error(409, str(e))
         self._json(200, {
             "pushed": result.pushed,
             "failed": result.failed,
