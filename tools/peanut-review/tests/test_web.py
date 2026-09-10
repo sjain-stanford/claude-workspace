@@ -1398,6 +1398,49 @@ def test_server_gh_preview_disables_push_for_mismatched_account(
         srv.shutdown()
 
 
+def test_server_gh_preview_handles_missing_gh_binary(
+    session_dir: Path,
+    monkeypatch,
+):
+    _mark_github_backed(session_dir)
+    repo = sess.repo_path(sess.load_session(session_dir))
+    _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
+    monkeypatch.setenv(web_app.gh.GH_BIN_ENV, "/missing/gh")
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, raw = _get(f"http://127.0.0.1:{port}/{session_id}/api/gh/preview")
+        assert code == 200
+        data = json.loads(raw)
+        assert data["github_account"] is None
+        assert "cannot run gh" in data["github_account_error"]
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_push_rejects_mismatched_active_account(
+    session_dir: Path,
+    monkeypatch,
+):
+    _mark_github_backed(session_dir)
+    repo = sess.repo_path(sess.load_session(session_dir))
+    _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
+    monkeypatch.setattr(web_app.gh, "active_account", lambda: "other-bot")
+    human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
+    store.append_comment(session_dir, human_comment)
+
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        code, data = _post(
+            f"http://127.0.0.1:{port}/{session_id}/api/gh/push",
+            {"comment_ids": [human_comment.id]},
+        )
+        assert code == 409
+        assert "other-bot" in data["error"]
+    finally:
+        srv.shutdown()
+
+
 def test_server_gh_push_filters_to_selected_comment_ids(
     session_dir: Path,
     monkeypatch,

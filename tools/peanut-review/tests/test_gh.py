@@ -184,6 +184,19 @@ def test_repo_auth_accepts_matching_active_account(gh_shim, tmp_path):
     ]
 
 
+def test_repo_auth_accepts_matching_account_with_different_case(
+    gh_shim, tmp_path,
+):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "Review-Bot",
+    ], check=True)
+
+    with gh.repo_auth(tmp_path) as account:
+        assert account == "Review-Bot"
+
+
 def test_repo_auth_fails_closed_without_repo_account(gh_shim, tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
 
@@ -226,6 +239,30 @@ def test_repo_auth_reports_missing_gh_login(gh_shim, tmp_path):
             pass
 
 
+def test_repo_auth_explains_token_override(gh_shim, tmp_path, monkeypatch):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "review-bot",
+    ], check=True)
+    monkeypatch.setenv("GH_TOKEN", "not-a-real-token")
+    gh_shim.set_fixtures([{
+        "match": ["api", "user", "--jq", ".login"],
+        "stdout": "other-bot\n",
+    }])
+
+    with pytest.raises(gh.RepoAccountError, match="update or unset `GH_TOKEN`"):
+        with gh.repo_auth(tmp_path):
+            pass
+
+
+def test_active_account_wraps_process_launch_failure(monkeypatch, tmp_path):
+    monkeypatch.setenv(gh.GH_BIN_ENV, str(tmp_path / "missing-gh"))
+
+    with pytest.raises(gh.RepoAccountError, match="cannot run gh"):
+        gh.active_account()
+
+
 def test_repo_auth_rechecks_identity_before_mutation(
     gh_shim, tmp_path, monkeypatch,
 ):
@@ -241,6 +278,29 @@ def test_repo_auth_rechecks_identity_before_mutation(
         with gh.repo_auth(tmp_path):
             gh.post_issue_comment("acme/foo", 42, body="must not publish")
     assert gh_shim.calls() == []
+
+
+def test_repo_auth_pins_mutation_to_github_host(
+    gh_shim, tmp_path, monkeypatch,
+):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "review-bot",
+    ], check=True)
+    monkeypatch.setenv("GH_HOST", "enterprise.example.com")
+    gh_shim.set_fixtures([{
+        "match": ["api", "repos/acme/foo/issues/42/comments", "-X", "POST"],
+        "stdout": json.dumps({"id": 1}),
+    }])
+
+    with gh.repo_auth(tmp_path):
+        gh.post_issue_comment("acme/foo", 42, body="safe host")
+
+    [call] = gh_shim.calls()
+    assert call["argv"][:2] == ["api", "repos/acme/foo/issues/42/comments"]
+    host_arg = call["argv"].index("--hostname")
+    assert call["argv"][host_arg + 1] == "github.com"
 
 
 def test_resolve_pr_spec_uses_gh_for_bare_number(gh_shim, tmp_path):
@@ -485,7 +545,10 @@ def test_fetch_review_thread_resolutions_uses_graphql(gh_shim):
         "resolved_by": "octocat",
     }]
     [call] = gh_shim.calls()
-    assert call["argv"] == ["api", "graphql", "-X", "POST", "--input", "-"]
+    assert call["argv"] == [
+        "api", "graphql", "--hostname", "github.com",
+        "-X", "POST", "--input", "-",
+    ]
     payload = json.loads(call["stdin"])
     assert payload["variables"]["owner"] == "acme"
     assert payload["variables"]["name"] == "foo"
@@ -2466,6 +2529,23 @@ def test_gh_push_verdict_request_changes_maps_to_event(gh_shim, tmp_path):
     assert rc == 0
     [call] = gh_shim.calls()
     assert json.loads(call["stdin"])["event"] == "REQUEST_CHANGES"
+
+
+def test_gh_push_verdict_rejects_mismatched_active_account(gh_shim, tmp_path):
+    sd = _make_gh_session(tmp_path)
+    _stage_verdict(sd, "approve", "must not publish")
+    gh_shim.set_fixtures([{
+        "match": ["api", "user", "--jq", ".login"],
+        "stdout": "other-bot\n",
+    }])
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["--session", sd, "gh-push-verdict"])
+
+    assert rc == 1
+    assert "other-bot" in err.getvalue()
+    assert gh_shim.calls() == []
 
 
 def test_gh_push_verdict_refuses_resubmit_without_force(gh_shim, tmp_path):

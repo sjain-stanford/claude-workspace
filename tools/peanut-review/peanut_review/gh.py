@@ -21,6 +21,7 @@ from typing import Iterator
 
 GH_BIN_ENV = "PEANUT_REVIEW_GH_BIN"
 REPO_ACCOUNT_CONFIG = "peanut-review.githubAccount"
+GITHUB_HOST = "github.com"
 _PUBLISHING_ACCOUNT: ContextVar[str | None] = ContextVar(
     "peanut_review_gh_publishing_account", default=None,
 )
@@ -78,6 +79,17 @@ class RepoAccountError(RuntimeError):
     """Raised when the repository's required GitHub identity is unavailable."""
 
 
+def _auth_recovery(command: str) -> str:
+    """Return recovery guidance that accounts for token environment overrides."""
+    overrides = [
+        name for name in ("GH_TOKEN", "GITHUB_TOKEN") if os.environ.get(name)
+    ]
+    if overrides:
+        names = " and ".join(f"`{name}`" for name in overrides)
+        return f"update or unset {names}, which overrides stored gh credentials"
+    return f"run `{command}`"
+
+
 def repo_account(repo_path: str | Path) -> str:
     """Return the GitHub login required by the repository-local config."""
     result = subprocess.run(
@@ -100,28 +112,34 @@ def active_account() -> str:
     """Return the login currently used by ``gh`` without reading its token."""
     try:
         account = _run([
-            "api", "user", "--hostname", "github.com", "--jq", ".login",
+            "api", "user", "--hostname", GITHUB_HOST, "--jq", ".login",
         ]).strip()
     except GhError as e:
         raise RepoAccountError(
-            "cannot determine the active GitHub account; run "
-            f"`gh auth login --hostname github.com`: {e}"
+            "cannot determine the active GitHub account; "
+            f"{_auth_recovery(f'gh auth login --hostname {GITHUB_HOST}')}: {e}"
+        ) from e
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RepoAccountError(
+            f"cannot run gh to determine the active GitHub account: {e}"
         ) from e
     if not account:
         raise RepoAccountError(
-            "gh returned no active GitHub login; run "
-            "`gh auth login --hostname github.com`"
+            "gh returned no active GitHub login; "
+            f"{_auth_recovery(f'gh auth login --hostname {GITHUB_HOST}')}"
         )
     return account
 
 
 def _verify_active_account(expected: str) -> None:
     active = active_account()
-    if active != expected:
+    if active.casefold() != expected.casefold():
+        recovery = _auth_recovery(
+            f"gh auth switch --hostname {GITHUB_HOST} --user {expected}"
+        )
         raise RepoAccountError(
             f"repository expects GitHub account {expected!r}, but gh is using "
-            f"{active!r}; run `gh auth switch --hostname github.com --user "
-            f"{expected}` before publishing"
+            f"{active!r}; {recovery} before publishing"
         )
 
 
@@ -218,6 +236,7 @@ def _api(endpoint: str, *, method: str = "GET",
         args += ["-X", method]
     if paginate:
         args.append("--paginate")
+    args += ["--hostname", GITHUB_HOST]
     if payload is not None:
         args += ["--input", "-"]
         return _run(args, input=json.dumps(payload))
@@ -226,7 +245,10 @@ def _api(endpoint: str, *, method: str = "GET",
 
 def _graphql(query: str, variables: dict) -> dict:
     out = _run(
-        ["api", "graphql", "-X", "POST", "--input", "-"],
+        [
+            "api", "graphql", "--hostname", GITHUB_HOST,
+            "-X", "POST", "--input", "-",
+        ],
         input=json.dumps({"query": query, "variables": variables}),
     )
     parsed = json.loads(out)
