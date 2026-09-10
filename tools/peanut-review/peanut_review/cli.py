@@ -151,7 +151,7 @@ def _sync_session_to_pr(
     if existing.github is not None and (
         existing.github.hostname != pr_info.hostname
         or existing.github.account != pr_info.account
-        or existing.github.repo != pr_info.repo
+        or existing.github.repo.casefold() != pr_info.repo.casefold()
         or existing.github.number != pr_info.number
     ):
         raise ValueError(
@@ -195,7 +195,7 @@ def _read_github_pr(spec: str, *, workspace: str, login: str | None = None,
         raise ValueError("PR host does not match the session")
     with gh.account_auth(host, login or gh.repo_account(workspace), expected=expected) as account:
         repo, number = gh.resolve_pr_spec(spec, workspace=workspace)
-        if existing and (repo, number) != (existing.repo, existing.number):
+        if existing and (repo.casefold(), number) != (existing.repo.casefold(), existing.number):
             raise ValueError("PR does not match the session")
         info = gh.fetch_pr_info(repo, number)
         return dataclasses.replace(info, hostname=host, account=account)
@@ -225,7 +225,9 @@ def _reused_pr_session(
         if args.pr.isdigit():
             matches_pr = pr.number == int(args.pr) and Path(candidate.repo_path()).resolve() == Path(cfg["repoPath"]).resolve()
         else:
-            matches_pr = (pr.repo, pr.number) == gh.parse_pr_spec(args.pr) and pr.hostname == gh.hostname_for_spec(args.pr, default=args.gh_host)
+            repo, number = gh.parse_pr_spec(args.pr)
+            matches_pr = ((pr.repo.casefold(), pr.number) == (repo.casefold(), number)
+                          and pr.hostname == gh.hostname_for_spec(args.pr, default=args.gh_host))
         if matches_pr:
             matches.append((path.parent, candidate))
     if len(matches) > 1:
@@ -1066,7 +1068,7 @@ def cmd_gh_push_verdict(args: argparse.Namespace) -> int:
     pair = _require_github(session_dir)
     if pair is None:
         return 1
-    s, ghpr = pair
+    _, ghpr = pair
 
     result_path = Path(session_dir) / "result.json"
     if not result_path.exists():

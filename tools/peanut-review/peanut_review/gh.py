@@ -156,6 +156,42 @@ def workspace_repository(workspace: str | None) -> tuple[str, str]:
     raise RepoAccountError("cannot determine GitHub repository from origin; use a full PR URL")
 
 
+def _stored_token(hostname: str, login: str) -> str:
+    def read_token(stored_login: str) -> str:
+        result = subprocess.run(
+            [_gh_bin(), "auth", "token", "--hostname", hostname, "--user", stored_login],
+            capture_output=True, text=True, timeout=15, env=_clean_env(),
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    try:
+        token = read_token(login)
+        if not token:
+            # gh's credential keys are case-sensitive, unlike GitHub logins.
+            # Keep the normal lookup fast; resolve stored spelling only on a miss.
+            result = subprocess.run(
+                [_gh_bin(), "auth", "status", "--hostname", hostname, "--json", "hosts"],
+                capture_output=True, text=True, timeout=30, env=_clean_env(),
+            )
+            if result.returncode == 0:
+                accounts = json.loads(result.stdout)["hosts"].get(hostname, [])
+                matches = {a["login"] for a in accounts
+                           if a["login"].casefold() == login.casefold()}
+                if len(matches) == 1:
+                    stored_login = matches.pop()
+                    if stored_login != login:
+                        token = read_token(stored_login)
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, AttributeError):
+        # Token command output and exception payloads may contain credentials.
+        raise RepoAccountError("cannot run gh to retrieve the selected account's credentials") from None
+    if not token or any(c.isspace() for c in token):
+        raise RepoAccountError(
+            f"no stored credentials for {hostname}/@{login}; "
+            f"run `gh auth login --hostname {hostname}` for that account"
+        )
+    return token
+
+
 @contextmanager
 def account_auth(hostname: str, login: str, *,
                  expected: GitHubAccount | None = None) -> Iterator[GitHubAccount]:
@@ -169,20 +205,7 @@ def account_auth(hostname: str, login: str, *,
         raise RepoAccountError("invalid GitHub account login")
     if expected and (expected.hostname != hostname or expected.login.casefold() != login.casefold()):
         raise RepoAccountError("GitHub account binding does not match the requested account")
-    try:
-        result = subprocess.run(
-            [_gh_bin(), "auth", "token", "--hostname", hostname, "--user", login],
-            capture_output=True, text=True, timeout=15, env=_clean_env(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        # Token command output and exception payloads may contain credentials.
-        raise RepoAccountError("cannot run gh to retrieve the selected account's credentials") from None
-    token = result.stdout.strip() if result.returncode == 0 else ""
-    if not token or any(c.isspace() for c in token):
-        raise RepoAccountError(
-            f"no stored credentials for {hostname}/@{login}; "
-            f"run `gh auth login --hostname {hostname}` for that account"
-        )
+    token = _stored_token(hostname, login)
     marker = _CREDENTIALS.set(_Credentials(hostname, token))
     try:
         try:
@@ -218,13 +241,13 @@ def publish_identity(pr: GitHubPR) -> dict:
         host = validate_hostname(pr.hostname)
         if pr.url:
             repo, number = parse_pr_spec(pr.url)
-            if hostname_for_spec(pr.url) != host or (repo, number) != (pr.repo, pr.number):
+            if hostname_for_spec(pr.url) != host or (repo.casefold(), number) != (pr.repo.casefold(), pr.number):
                 raise ValueError("PR URL does not match its target")
     except ValueError as e:
         raise RepoAccountError(f"invalid session GitHub target: {e}") from None
     if pr.account.hostname != host:
         raise RepoAccountError("session account and PR host do not match")
-    return {"hostname": host, "repo": pr.repo, "number": pr.number,
+    return {"hostname": host, "repo": pr.repo.casefold(), "number": pr.number,
             "account": asdict(pr.account)}
 
 
@@ -334,8 +357,9 @@ def fetch_pr_info(repo: str, number: int) -> PRInfo:
         "--json", "number,headRefOid,baseRefOid,headRefName,url,title",
     ])
     d = json.loads(out)
+    returned_repo, returned_number = parse_pr_spec(d["url"])
     if (hostname_for_spec(d["url"]) != current_account().hostname
-            or parse_pr_spec(d["url"]) != (repo, number)):
+            or (returned_repo.casefold(), returned_number) != (repo.casefold(), number)):
         raise RepoAccountError("GitHub returned a PR outside the selected target")
     return PRInfo(
         repo=repo,

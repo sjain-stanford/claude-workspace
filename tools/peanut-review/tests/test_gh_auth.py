@@ -35,7 +35,9 @@ def fake_gh(monkeypatch):
         },
         on_write=None,
         token_failure=None,
+        status_failure=None,
         api_failure=None,
+        pr_url=None,
     )
     monkeypatch.setenv(gh.GH_BIN_ENV, "test-gh-auth")
 
@@ -46,7 +48,18 @@ def fake_gh(monkeypatch):
         state.calls.append(
             {"args": args, "env": env.copy(), "input": kwargs.get("input")}
         )
-        if args[:2] == ["auth", "token"]:
+        if args[:2] == ["auth", "status"]:
+            assert all(key not in env for key in gh._TOKEN_ENV)
+            assert "GH_HOST" not in env and "GH_REPO" not in env
+            if state.status_failure:
+                if isinstance(state.status_failure, BaseException):
+                    raise state.status_failure
+                return subprocess.CompletedProcess(cmd, 0, state.status_failure, "")
+            host = args[args.index("--hostname") + 1]
+            output = json.dumps({"hosts": {host: [
+                {"login": login} for login in state.tokens
+            ]}})
+        elif args[:2] == ["auth", "token"]:
             assert all(key not in env for key in gh._TOKEN_ENV)
             assert "GH_HOST" not in env and "GH_REPO" not in env
             if state.token_failure:
@@ -73,7 +86,7 @@ def fake_gh(monkeypatch):
                         "number": int(args[2]),
                         "headRefOid": "abc",
                         "baseRefOid": "def",
-                        "url": f"https://{host}/{repo}/pull/{args[2]}",
+                        "url": state.pr_url or f"https://{host}/{repo.lower()}/pull/{args[2]}",
                         "title": "Review",
                     }
                 )
@@ -249,16 +262,50 @@ def test_credential_errors_do_not_expose_output(fake_gh, failure):
         with gh.account_auth(PUBLIC.hostname, PUBLIC.login):
             pytest.fail("must not authenticate")
     assert "secret-token-output" not in str(error.value)
-    assert len(fake_gh.calls) == 1
+    assert all(c["args"][0] == "auth" for c in fake_gh.calls)
 
 
 def test_missing_selected_token_never_falls_back(fake_gh, monkeypatch):
     monkeypatch.setenv("GH_TOKEN", "ambient-secret")
-    fake_gh.tokens.clear()
+    del fake_gh.tokens[PUBLIC.login]
     with pytest.raises(gh.RepoAccountError, match="no stored credentials"):
         with gh.account_auth(PUBLIC.hostname, PUBLIC.login):
             pytest.fail("must not authenticate")
-    assert len(fake_gh.calls) == 1
+    assert all(c["args"][0] == "auth" for c in fake_gh.calls)
+    assert [c["args"][-1] for c in fake_gh.calls
+            if c["args"][:2] == ["auth", "token"]] == [PUBLIC.login]
+
+
+@pytest.mark.parametrize("stored_login, requested_login", [
+    ("public-login", "PUBLIC-LOGIN"),
+    ("Public-Login", "public-login"),
+])
+@pytest.mark.parametrize("expected", [None, PUBLIC])
+def test_mixed_case_login_selects_stored_account(
+    fake_gh, stored_login, requested_login, expected,
+):
+    fake_gh.tokens[stored_login] = fake_gh.tokens.pop(PUBLIC.login)
+    with gh.account_auth("github.com", requested_login, expected=expected) as account:
+        assert account == PUBLIC
+        gh.post_pr_review("example/repo", 42, event="COMMENT", body="feedback")
+    assert [c["args"][-1] for c in fake_gh.calls
+            if c["args"][:2] == ["auth", "token"]] == [requested_login, stored_login]
+    assert writes(fake_gh)[0]["env"]["GH_TOKEN"] == "public-test-token"
+    assert gh._CREDENTIALS.get() is None
+
+
+@pytest.mark.parametrize("failure", [
+    "secret-status-output",
+    '{"hosts": null}',
+    subprocess.TimeoutExpired("gh", 30, output="secret-status-output"),
+])
+def test_account_discovery_errors_do_not_expose_output(fake_gh, failure):
+    fake_gh.status_failure = failure
+    with pytest.raises(gh.RepoAccountError) as error:
+        with gh.account_auth("github.com", PUBLIC.login.upper()):
+            pytest.fail("must not authenticate")
+    assert "secret-status-output" not in str(error.value)
+    assert all(c["args"][0] == "auth" for c in fake_gh.calls)
 
 
 def test_host_specific_token_and_graphql_routing(fake_gh):
@@ -436,6 +483,41 @@ def test_saved_binding_ignores_changed_repository_default(
         for c in fake_gh.calls
         if c["args"][:2] != ["auth", "token"]
     )
+
+
+def test_repository_casing_matches_canonical_url_and_saved_binding(tmp_path, fake_gh):
+    from peanut_review.cli import _read_github_pr
+
+    _, s = make_session(tmp_path)
+    original_identity = gh.publish_identity(s.github)
+    s.github.repo = "EXAMPLE/Public"
+    assert gh.publish_identity(s.github) == original_identity
+    info = _read_github_pr(
+        "example/PUBLIC#42", workspace=str(tmp_path), existing=s.github,
+    )
+    assert info.url == "https://github.com/example/public/pull/42"
+    assert info.account == PUBLIC
+    assert writes(fake_gh) == []
+
+
+@pytest.mark.parametrize("url", [
+    "https://elsewhere.example/example/public/pull/42",
+    "https://github.com/other/public/pull/42",
+    "https://github.com/example/other/pull/42",
+    "https://github.com/example/public/pull/43",
+])
+def test_repository_case_normalization_still_rejects_different_targets(
+    tmp_path, fake_gh, url,
+):
+    _, s = make_session(tmp_path)
+    fake_gh.pr_url = url
+    with gh.account_auth(PUBLIC.hostname, PUBLIC.login):
+        with pytest.raises(gh.RepoAccountError, match="outside the selected target"):
+            gh.fetch_pr_info("EXAMPLE/Public", 42)
+    s.github.url = url
+    with pytest.raises(gh.RepoAccountError, match="does not match"):
+        gh.publish_identity(s.github)
+    assert writes(fake_gh) == []
 
 
 def test_binding_preserves_concurrent_session_updates(tmp_path):

@@ -585,8 +585,9 @@ def test_sync_pr_updates_pinned_snapshot_and_stales_comments(gh_shim, tmp_path):
 
 
 @pytest.mark.parametrize("pin_existing_snapshot", [False, True])
+@pytest.mark.parametrize("existing_repo", ["acme/foo", "ACME/Foo"])
 def test_start_reuse_syncs_snapshot_before_pulling_comments(
-    tmp_path, pin_existing_snapshot, gh_shim,
+    tmp_path, pin_existing_snapshot, existing_repo, gh_shim,
 ):
     ws = _stage_workspace(tmp_path)
     base = subprocess.check_output(
@@ -611,7 +612,7 @@ def test_start_reuse_syncs_snapshot_before_pulling_comments(
         session_id="foo-pr-42-feature-add-it",
         github=models.GitHubPR(
             account=models.GitHubAccount("github.com", "review-bot", 123),
-            repo="acme/foo", number=42,
+            repo=existing_repo, number=42,
             head_sha=old_head, base_sha=base,
         ),
         include_curator=True,
