@@ -19,7 +19,9 @@ Creates GitHub pull requests following workspace conventions: evidence-backed de
 
 ## Process
 
-Run git and `gh` commands from the sub-repo directory.
+Run git and `gh` commands from the branch-backed development worktree that
+owns the change. For meta-workspace changes, use the active workspace checkout.
+Do not return to the canonical sub-repo to push or create the PR.
 
 ### 1. Gather Information
 
@@ -28,23 +30,19 @@ Run these commands in parallel:
 ```bash
 git status -sb
 git log --oneline -5 --decorate
-git diff origin/<base>...HEAD
-git diff origin/<base>...HEAD --name-only
+git diff <base-remote>/<base>...HEAD
+git diff <base-remote>/<base>...HEAD --name-only
 ```
 
 Verify:
 - Branch is not the resolved base branch (must be on a feature branch)
-- Branch has been **pushed** to remote (check for `origin/<branch>` in `--decorate` output, or push first)
+- The diff and commits contain only the intended work. Confirm the PR's base
+  repository and push remote, including when the branch lives in a fork.
+- Determine whether the branch is published and whether the remote has the
+  same commit as `HEAD`; a remote decoration in the last five commits is not
+  sufficient to establish this.
 
-### 2. Push if Needed
-
-If the branch is not yet pushed or is ahead of remote:
-
-```bash
-cd projects/<repo> && git push -u origin HEAD
-```
-
-### 3. Draft PR Title and Description
+### 2. Draft PR Title and Description
 
 **Title**: Use the same style as commit messages — concise, imperative mood, under 72 characters. For single-commit PRs, reuse the commit subject line.
 
@@ -76,7 +74,7 @@ Simple PR format:
 
 Validation: <checks actually run and any meaningful gaps.>
 
-Co-authored-by: GPT-5.6 Sol <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 ```
@@ -104,7 +102,7 @@ Non-trivial PR format:
 
 <Tests and end-to-end checks actually run, with outcomes and any gaps.>
 
-Co-authored-by: GPT-5.6 Sol <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 ```
@@ -119,86 +117,80 @@ Co-authored-by: GPT-5.6 Sol <codex@openai.com>
 - Keep sections focused and avoid restating every changed file
 - Never claim the exact reported reproducer was run when only an equivalent path was tested
 - Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
-- Include this final PR-body attribution footer:
+- Replace the model placeholder with the actual active model identity, not a
+  saved default or copied example. If the model identity is unavailable, use
+  the tool name instead of guessing. Include this final PR-body footer:
   ```markdown
-  Co-authored-by: GPT-5.6 Sol <codex@openai.com>
+  Co-authored-by: <active Codex model> <codex@openai.com>
 
   🤖 Generated with [Codex](https://openai.com/codex)
   ```
 - For Claude Code, use:
   ```markdown
-  Co-authored-by: Claude Opus 4.7 <noreply@anthropic.com>
+  Co-authored-by: <active Claude model> <noreply@anthropic.com>
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
   ```
 - Do NOT include agent `Co-authored-by` trailers in individual commit messages
 
-### 4. Create the PR
+### 3. Publish the Prepared PR
 
-Use HEREDOC format for the body to preserve formatting:
+Write the complete description to a temporary file with a quoted heredoc (or
+use a structured tool argument). Review the title, body, diff, and commit
+history before the remote write. In this workspace, verify that they contain
+no material derived from `projects-emu/`.
 
 ```bash
-cd projects/<repo> && gh pr create \
-  --title "<title>" \
-  --body "$(cat <<'EOF'
+PR_BODY=$(mktemp)
+cat > "$PR_BODY" <<'EOF'
 <Use concise prose for a simple PR or the sectioned format above for a
-non-trivial PR.>
+non-trivial PR. Replace all placeholders before publishing.>
 
 Validation: <Checks actually run and their outcomes.>
 
-Co-authored-by: GPT-5.6 Sol <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
 EOF
-)"
 ```
 
-To target a non-default base branch:
+If the branch needs publishing, push from this same worktree within the user's
+authorization and execution permissions:
 
 ```bash
-cd projects/<repo> && gh pr create \
-  --base <base-branch> \
-  --title "<title>" \
-  --body "$(cat <<'EOF'
-...
-EOF
-)"
+git push -u <push-remote> HEAD
 ```
 
-### 5. Report
+If a remote write is denied, stop remote mutations and report the denial with
+the prepared title/body. Follow the workspace's no-bypass rule; do not try an
+API, alternate tool, or different remote-write mechanism to evade it.
+
+Once the intended commit is available remotely:
+
+```bash
+gh pr create --base <base-branch> --title "<title>" --body-file "$PR_BODY"
+```
+
+For a fork, pass `--repo <base-owner>/<repo>` and `--head <fork-owner>:<branch>`
+when needed to identify the prepared change. Remove the temporary body file
+when it is no longer needed.
+
+### 4. Report
 
 Return the PR URL to the user.
 
 ## Example
 
-```bash
-cd projects/rocm-systems && gh pr create \
-  --base develop \
-  --title "[rocjitsu] Route trap-handler queue exceptions" \
-  --body "$(cat <<'EOF'
-## Context
+A small PR body can be one paragraph plus validation and attribution:
 
-Fixes #1234. The failure was reproduced from the current `origin/develop` baseline; a related earlier change already modeled the architectural registers but did not connect the runtime notification path.
+```markdown
+Resolve the review diff against the PR's declared base branch so rocjitsu PRs
+are reviewed against develop. Reuse the branch's development worktree for
+follow-up fixes.
 
-## Reproduction
+Validation: checked the documented commands against the local worktree layout.
 
-Running the minimal device-assert workload on gfx1250 printed the assertion and then timed out instead of notifying the runtime and terminating.
-
-## Root cause
-
-The trap handler encoded the queue exception in M0, but the simulated KFD acknowledged the interrupt without forwarding those bits to the queue error event.
-
-## Fix
-
-Decode the runtime exception payload and defer delivery until the compute-unit wave lock is released, preserving the command processor's lock ordering.
-
-## Validation
-
-Added a focused gfx1250 regression and ran the affected KFD/debug suites plus the end-to-end device-assert workload. The runtime now reports the queue exception and terminates without timing out.
-
-Co-authored-by: GPT-5.6 Sol <codex@openai.com>
+Co-authored-by: <active Codex model> <codex@openai.com>
 
 🤖 Generated with [Codex](https://openai.com/codex)
-EOF
-)"
 ```

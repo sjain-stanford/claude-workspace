@@ -32,6 +32,7 @@ claude-workspace/
 │   ├── fusilli-project/
 │   ├── gh-address-comments/
 │   ├── gh-fix-ci/
+│   ├── find-security-vulnerabilities/
 │   ├── peanut-review/
 │   ├── pr-create/
 │   ├── pr-review/
@@ -115,7 +116,7 @@ logs, patches, and supporting text contain no material derived from
    ```
 
    The Docker checkout is required to create the workspace's development
-   environment. `projects/rocr-runtime/` provides ROCR and libhsakmt source
+   environment. `projects/rocm-systems/projects/rocr-runtime/` provides ROCR and libhsakmt source
    context for rocjitsu's HSA, topology, queue, event, and KFD-facing behavior;
    it is not an ordinary rocjitsu edit target. The machine-readable ISA tree is
    needed for regeneration, and `.github/` provides the current rocjitsu CI and
@@ -147,3 +148,19 @@ repository requirement calls for another pattern.
 For non-trivial feature work, write or reference a plan in `plans/`, decompose it into local Beads tasks, and have worker agents claim tasks with `br update <id> --claim`. Implementation agents should use per-task git worktrees under `projects/worktrees/<repo>/` instead of sharing the canonical `projects/<repo>/` checkout.
 
 Beads state is intentionally local to this machine and is not tracked in git. Plans and reviews are the durable human-readable record; Beads is the executable queue and session handoff memory for short-lived agents.
+
+## Workspace Tooling Checks
+
+Run these from the workspace root in the development environment. Install the
+review tool's test dependencies if they are not already available:
+
+```bash
+python3 -m pip install -e './tools/peanut-review[dev]'
+python3 -m pytest -q tools/peanut-review/tests
+python3 -m pytest -q skills/gh-address-comments/tests skills/gh-fix-ci/tests
+git diff --check
+```
+
+The GitHub helper tests use offline fixtures. The optional SSH reviewer test
+requires the separate setup described in
+[SSH reviewers](tools/peanut-review/docs/ssh-reviewers.md).

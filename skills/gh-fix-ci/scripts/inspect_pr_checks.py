@@ -112,7 +112,10 @@ def main() -> int:
 
     failing = [c for c in checks if is_failing(c)]
     if not failing:
-        print(f"PR #{pr_value}: no failing checks detected.")
+        if args.json:
+            print(json.dumps({"pr": pr_value, "results": []}, indent=2))
+        else:
+            print(f"PR #{pr_value}: no failing checks detected.")
         return 0
 
     results = []
@@ -176,7 +179,7 @@ def resolve_pr(pr_value: str | None, repo_root: Path) -> str | None:
 
 
 def fetch_checks(pr_value: str, repo_root: Path) -> list[dict[str, Any]] | None:
-    primary_fields = ["name", "state", "conclusion", "detailsUrl", "startedAt", "completedAt"]
+    primary_fields = ["name", "state", "bucket", "link", "startedAt", "completedAt", "workflow"]
     result = run_gh_command(
         ["pr", "checks", pr_value, "--json", ",".join(primary_fields)],
         cwd=repo_root,
@@ -188,6 +191,8 @@ def fetch_checks(pr_value: str, repo_root: Path) -> list[dict[str, Any]] | None:
             fallback_fields = [
                 "name",
                 "state",
+                "conclusion",
+                "detailsUrl",
                 "bucket",
                 "link",
                 "startedAt",
@@ -429,12 +434,12 @@ def extract_failure_snippet(log_text: str, max_lines: int, context: int) -> str:
     if marker_index is None:
         return "\n".join(lines[-max_lines:])
 
-    start = max(0, marker_index - context)
-    end = min(len(lines), marker_index + context)
-    window = lines[start:end]
-    if len(window) > max_lines:
-        window = window[-max_lines:]
-    return "\n".join(window)
+    # Center a bounded window on the failure so a small --max-lines cannot
+    # trim away the very diagnostic this snippet is meant to show.
+    before = min(context, (max_lines - 1) // 2)
+    start = max(0, marker_index - before)
+    end = min(len(lines), marker_index + context + 1, start + max_lines)
+    return "\n".join(lines[start:end])
 
 
 def find_failure_index(lines: Sequence[str]) -> int | None:

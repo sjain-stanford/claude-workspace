@@ -1,5 +1,4 @@
 """Tests for the JSONL comment store."""
-import json
 import tempfile
 import threading
 from pathlib import Path

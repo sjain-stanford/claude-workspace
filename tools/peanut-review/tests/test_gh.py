@@ -11,7 +11,6 @@ import json
 import os
 import stat
 import subprocess
-import tempfile
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import MagicMock, patch
