@@ -297,6 +297,18 @@ def sync_session_snapshot(
     """
     with _session_lock(session_dir):
         session = load_session(session_dir)
+        # Validate the binding under the update lock so concurrent initial
+        # links cannot replace each other's account or PR target.
+        if github is not None and session.github is not None and (
+            session.github.hostname != github.hostname
+            or session.github.account != github.account
+            or session.github.repo.casefold() != github.repo.casefold()
+            or session.github.number != github.number
+        ):
+            raise ValueError(
+                "session is already linked to a different GitHub target or account; "
+                "create a new session to change identity"
+            )
         old_head = session.current_head
         changed = False
         if workspace is not None:

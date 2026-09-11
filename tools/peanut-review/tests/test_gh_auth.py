@@ -15,6 +15,7 @@ import pytest
 from peanut_review import gh, gh_push, models, session, store
 from peanut_review.cli import main
 from peanut_review.web import app
+from .test_gh import _stage_workspace
 from .test_web import _get, _post
 
 
@@ -38,6 +39,8 @@ def fake_gh(monkeypatch):
         status_failure=None,
         api_failure=None,
         pr_url=None,
+        head_sha="abc",
+        base_sha="def",
     )
     monkeypatch.setenv(gh.GH_BIN_ENV, "test-gh-auth")
 
@@ -84,8 +87,8 @@ def fake_gh(monkeypatch):
                 output = json.dumps(
                     {
                         "number": int(args[2]),
-                        "headRefOid": "abc",
-                        "baseRefOid": "def",
+                        "headRefOid": state.head_sha,
+                        "baseRefOid": state.base_sha,
                         "url": state.pr_url or f"https://{host}/{repo.lower()}/pull/{args[2]}",
                         "title": "Review",
                     }
@@ -612,6 +615,76 @@ def test_local_git_lookup_failures_return_cli_errors(
     assert "Traceback" not in error and "private-git-output" not in error
     assert not directory.exists()
     assert fake_gh.calls == []
+
+
+@pytest.mark.parametrize("second_account, second_url, conflict", [
+    (WORK, "https://github.com/example/repo/pull/42", True),
+    (PUBLIC, "https://enterprise.example/example/repo/pull/42", True),
+    (PUBLIC, "https://github.com/example/other/pull/42", True),
+    (PUBLIC, "https://github.com/example/repo/pull/43", True),
+    (PUBLIC, "https://github.com/example/repo/pull/42", False),
+    (PUBLIC, "https://github.com/EXAMPLE/Repo/pull/42", False),
+])
+def test_concurrent_initial_links_preserve_account_and_target(
+    tmp_path, fake_gh, monkeypatch, capsys, second_account, second_url, conflict,
+):
+    workspace = _stage_workspace(tmp_path)
+    fake_gh.head_sha = subprocess.check_output(
+        ["git", "-C", workspace, "rev-parse", "HEAD"], text=True,
+    ).strip()
+    fake_gh.base_sha = subprocess.check_output(
+        ["git", "-C", workspace, "rev-parse", "HEAD~"], text=True,
+    ).strip()
+    directory = tmp_path / "session"
+    session.create_session(
+        workspace=workspace, base_ref=fake_gh.base_sha,
+        topic_ref=fake_gh.head_sha, session_dir=str(directory),
+    )
+    barrier = threading.Barrier(2)
+    real_sync = session.sync_session_snapshot
+
+    def sync(*args, **kwargs):
+        # Both CLI calls have read the initially local session before either
+        # enters the real locked update.
+        barrier.wait(timeout=10)
+        return real_sync(*args, **kwargs)
+
+    monkeypatch.setattr(session, "sync_session_snapshot", sync)
+    attempts = [
+        (PUBLIC, "https://github.com/example/repo/pull/42"),
+        (second_account, second_url),
+    ]
+
+    def link(attempt):
+        account, url = attempt
+        return main([
+            "--session", str(directory), "sync-pr", url,
+            "--gh-account", account.login,
+        ])
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(link, attempts))
+
+    assert sorted(results) == ([0, 1] if conflict else [0, 0])
+    saved = session.load_session(directory)
+    for result, (account, url) in zip(results, attempts):
+        if result != 0:
+            continue
+        hostname = gh.hostname_for_spec(url)
+        repo, number = gh.parse_pr_spec(url)
+        assert gh.publish_identity(saved.github) == {
+            "hostname": hostname, "repo": repo.casefold(), "number": number,
+            "account": {
+                "hostname": hostname, "login": account.login,
+                "user_id": account.user_id,
+            },
+        }
+    error = capsys.readouterr().err
+    if conflict:
+        assert "different GitHub target or account" in error
+    else:
+        assert error == ""
+    assert writes(fake_gh) == []
 
 
 def test_binding_preserves_concurrent_session_updates(tmp_path):

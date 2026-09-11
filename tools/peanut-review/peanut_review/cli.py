@@ -147,17 +147,6 @@ def _sync_session_to_pr(
     workspace: str | None = None,
     repo_relative: str | None = None,
 ) -> tuple[models.Session, bool, bool, int]:
-    existing = sess.load_session(session_dir)
-    if existing.github is not None and (
-        existing.github.hostname != pr_info.hostname
-        or existing.github.account != pr_info.account
-        or existing.github.repo.casefold() != pr_info.repo.casefold()
-        or existing.github.number != pr_info.number
-    ):
-        raise ValueError(
-            f"session is linked to {existing.github.repo}#{existing.github.number}, "
-            f"not {pr_info.repo}#{pr_info.number}"
-        )
     session, head_changed, changed = sess.sync_session_snapshot(
         session_dir,
         base_ref=base_ref or pr_info.base_sha,
