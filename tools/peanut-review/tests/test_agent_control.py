@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import signal
 import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 from peanut_review import agent_control, runtime, session as sess

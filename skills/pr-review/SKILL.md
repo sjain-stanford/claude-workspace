@@ -21,28 +21,51 @@ only when the user asks to incorporate or summarize that session.
 
 ### 1. Fetch PR Branch and Get Diff
 
-Fetch and checkout the PR branch locally using git, then collect diff:
+Resolve the PR's URL, author, head branch/commit, and actual base branch first:
 
 ```shell
-# Fetch the PR branch
-git fetch origin pull/<PR-number>/head:pr-<PR-number>
+gh pr view <PR-number-or-URL> --json url,author,headRefName,headRefOid,baseRefName
+git status --short
+git worktree list
+```
 
-# Checkout the PR branch
-git checkout pr-<PR-number>
+Reuse the branch-backed task worktree that owns the PR branch. If none exists,
+create one under `<workspace-root>/projects/worktrees/<repo>/`; preserve the
+PR branch name. Do not switch the canonical checkout or discard local changes.
+Identify the remote for the PR's base repository, including for fork PRs.
+Fetch its base branch before collecting the diff, including when reusing an
+existing worktree.
 
-# View the diff against main
-git diff main...HEAD
+For a PR branch that is not already local, run from `projects/<repo>`:
+
+```shell
+git fetch <base-remote> <baseRefName>
+git fetch <base-remote> pull/<PR-number>/head
+git worktree add -b <headRefName> ../worktrees/<repo>/pr-<number>-<change> FETCH_HEAD
+```
+
+If the local branch exists, add its worktree using that branch instead of
+`-b ... FETCH_HEAD`. Check that its `HEAD` matches `headRefOid`; handle divergence
+without overwriting local commits or uncommitted work. Ask only if the intended
+review snapshot cannot be inferred safely.
+
+From the selected worktree, use the resolved base (`develop` for rocjitsu),
+never a hardcoded `main`:
+
+```shell
+git diff <base-remote>/<baseRefName>...HEAD
 
 # List all changed files
-git diff main...HEAD --name-only
+git diff --name-only <base-remote>/<baseRefName>...HEAD
 
 # View commit history on this branch
-git log main..HEAD --oneline
+git log <base-remote>/<baseRefName>..HEAD --oneline
 ```
 
 Read the changed files directly using the Read tool and use file-relative line numbers when referencing code.
 
-After the review, stay on the PR branch for follow-up discussion. Do NOT switch back or delete it.
+Leave the PR worktree available for follow-up discussion. Identify any local
+changes separately; a GitHub PR review covers the committed PR snapshot.
 
 ### 2. Review the Changes against Review Criteria
 

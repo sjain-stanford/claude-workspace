@@ -1,11 +1,12 @@
 ---
 name: stage-and-commit
-description: Stage and commit changes to the current branch with signed commits. Use when asked to commit, save changes, or create a commit.
+description: Stage and commit changes to the current branch with Signed-off-by trailers. Use when asked to commit, save changes, or create a commit.
 ---
 
 # Stage and Commit Skill
 
-Stages and commits changes following workspace conventions: signed commits only. Agent attribution is added to pull request descriptions, not individual commit messages.
+Stages and commits changes with the workspace's required `Signed-off-by`
+trailer. Agent attribution belongs in pull request descriptions.
 
 ## Usage
 
@@ -19,7 +20,9 @@ Stages and commits changes following workspace conventions: signed commits only.
 
 **CRITICAL**: These rules must always be followed:
 
-1. **Signed commits**: Always use `git commit -s` to include `Signed-off-by` trailer
+1. **Sign-off**: Always use `git commit -s` to include a `Signed-off-by` trailer.
+   This is distinct from cryptographic signing with `-S`; preserve configured
+   signing and follow any additional repository or user signing requirement.
 2. **No commit co-authorship**: Do not include agent `Co-authored-by` trailers in commit messages. The PR creation workflow handles agent attribution in the pull request description.
 3. **No push**: NEVER push to remote. Only commit locally. User must explicitly request push separately.
 4. **Specific staging**: Prefer staging specific files by name over `git add -A` or `git add .`
@@ -109,7 +112,7 @@ git add skills/stage-and-commit/SKILL.md CLAUDE.md README.md
 git commit -s -m "$(cat <<'EOF'
 Add stage-and-commit skill for standardized commits
 
-Introduces /stage-and-commit skill that enforces signed commits
+Introduces /stage-and-commit skill that enforces commit sign-offs
 per workspace conventions.
 EOF
 )"

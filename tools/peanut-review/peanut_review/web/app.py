@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .. import agent_control, gh, gh_pull, gh_push, launch, runtime, store
-from ..models import Session, Comment, CommentCategory, Note, Severity, normalize_comment_category
+from ..models import Comment, CommentCategory, Note, Session, Severity, normalize_comment_category
 from ..session import (
     GLOBAL_FILE,
     load_session,
