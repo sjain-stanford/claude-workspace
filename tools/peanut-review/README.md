@@ -19,6 +19,71 @@ Most flows run from the repo being reviewed, so keep `PR_BIN` absolute.
 In `claude-workspace`, use `skills/peanut-review/` to orchestrate multi-agent
 review sessions and `tools/peanut-review/bin/peanut-review` as the CLI.
 
+### GitHub accounts
+
+One web server can publish reviews using several accounts, including accounts
+on the same GitHub host. Each GitHub session saves its hostname, login, and
+verified user ID. Authenticate each account with `gh auth login`, then select
+an account when creating a session:
+
+```bash
+"$PR_BIN" start https://github.com/owner/repo/pull/123 --gh-account work-login --no-launch
+```
+
+Alternatively, set a default in the checkout being reviewed:
+
+```bash
+git config --local peanut-review.githubAccount work-login
+```
+
+Git `includeIf` configuration is supported, so different checkout directories
+can have different defaults. The explicit `--gh-account` flag takes precedence.
+The saved session identity is used for `start --reuse`, `sync-pr`, imports,
+comments, replies, edits, and verdicts, even if the repository default changes.
+A bare PR number is resolved from the checkout's `origin` remote locally. Use a
+full PR URL for a different target repository, or `--gh-host` to specify the
+actual GitHub hostname when origin uses an SSH alias.
+
+Bind an existing session explicitly before using its GitHub operations:
+
+```bash
+"$PR_BIN" --session /path/to/session gh-auth --account work-login
+"$PR_BIN" --session /path/to/session gh-auth
+```
+
+The first command verifies the account and PR access before saving a binding;
+the second verifies the saved identity. Bound sessions cannot be reassigned to
+a different account; create a new session when a different author is needed.
+Existing local review data remains readable without a binding.
+
+For a second account on the same PR, provide a unique `--id` so the new session
+does not collide with the existing session's generated name:
+
+```bash
+"$PR_BIN" start https://github.com/owner/repo/pull/123 \
+  --gh-account public-login --id repo-pr-123-public-login --no-launch
+```
+
+To reuse that session later, pass the same `--id` with `--reuse`, or select its
+path with `--session`. Session IDs must also differ when separate repositories
+or hosts would otherwise generate the same name.
+
+For each operation, peanut-review retrieves the selected account's stored token
+with `gh auth token --hostname HOST --user LOGIN`, verifies it with `gh api user`,
+and uses that same token for every request in the operation. It overrides
+inherited token/host settings only in those subprocesses, without changing the
+active `gh` account or the server environment. Tokens stay in memory and child
+process environments; they are never saved to sessions or sent to the browser.
+The server must be able to access the selected accounts in its gh credential
+store. If credentials expire or disappear, authenticate that account again;
+peanut-review never falls back to the active account.
+
+Both CLI dry-runs and the web publish preview show the verified account and
+target. The web server revalidates credentials on submission and rejects a
+changed account or target. Missing bindings, unavailable credentials, and an
+unexpected login or user ID block publishing. Updating the server to this
+version requires restarting it from the updated tool checkout.
+
 ## Web UI
 
 Start the server from this tool checkout:

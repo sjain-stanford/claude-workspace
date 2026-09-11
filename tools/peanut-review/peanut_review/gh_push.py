@@ -704,6 +704,17 @@ def execute_push(
     ghpr: models.GitHubPR,
     plan: PushPlan,
 ) -> PushResult:
+    """Verify the session account and use one credential for the entire push."""
+    with gh.pr_auth(ghpr):
+        return _execute_push(session_dir, session, ghpr, plan)
+
+
+def _execute_push(
+    session_dir: str | Path,
+    session: models.Session,
+    ghpr: models.GitHubPR,
+    plan: PushPlan,
+) -> PushResult:
     """Run the plan: submit new top-levels, then replies, then PATCH edits.
 
     Replies whose parent has no external_id (and isn't pushed in this run)

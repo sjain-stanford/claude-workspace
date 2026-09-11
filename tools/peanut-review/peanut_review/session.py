@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import AgentConfig, AgentStatus, GitHubPR, Session, SshTarget, _now_iso
+from .models import AgentConfig, AgentStatus, GitHubAccount, GitHubPR, Session, SshTarget, _now_iso
 from . import curator, validation
 
 META_FILE = "__meta__"
@@ -297,6 +297,18 @@ def sync_session_snapshot(
     """
     with _session_lock(session_dir):
         session = load_session(session_dir)
+        # Validate the binding under the update lock so concurrent initial
+        # links cannot replace each other's account or PR target.
+        if github is not None and session.github is not None and (
+            session.github.hostname != github.hostname
+            or session.github.account != github.account
+            or session.github.repo.casefold() != github.repo.casefold()
+            or session.github.number != github.number
+        ):
+            raise ValueError(
+                "session is already linked to a different GitHub target or account; "
+                "create a new session to change identity"
+            )
         old_head = session.current_head
         changed = False
         if workspace is not None:
@@ -407,6 +419,19 @@ def _copy_session_fields(dst: Session, src: Session) -> None:
     dst.timeout = src.timeout
     dst.github = src.github
     dst.last_github_push_at = src.last_github_push_at
+
+
+def bind_github_account(session_dir: str | Path, expected_pr: GitHubPR,
+                        account: GitHubAccount) -> None:
+    """Save a verified binding without overwriting concurrent session updates."""
+    with _session_lock(session_dir):
+        session = load_session(session_dir)
+        if session.github != expected_pr:
+            raise ValueError("session changed while binding GitHub account; retry")
+        if session.github.account and session.github.account != account:
+            raise ValueError("session is already bound to a different GitHub account")
+        session.github.account = account
+        save_session(session_dir, session)
 
 
 def record_github_push(session_dir: str | Path, pushed_at: str) -> Session:

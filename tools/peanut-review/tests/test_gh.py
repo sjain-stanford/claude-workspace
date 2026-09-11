@@ -37,7 +37,11 @@ if "--input" in argv and argv[argv.index("--input") + 1] == "-":
     stdin = sys.stdin.read()
 
 with open(calls_path, "a") as f:
-    f.write(json.dumps({"argv": argv, "stdin": stdin}) + "\\n")
+    f.write(json.dumps({
+        "argv": argv,
+        "stdin": stdin,
+        "gh_host": os.environ.get("GH_HOST"),
+    }) + "\\n")
 
 with open(fixtures_path) as f:
     fixtures = json.load(f)
@@ -78,6 +82,16 @@ def gh_shim(tmp_path: Path, monkeypatch):
     class Shim:
         def set_fixtures(self, fxs: list[dict]) -> None:
             fixtures = list(fxs)
+            fixtures.append({"match": ["auth", "token"], "stdout": "test-token"})
+            has_active_account = any(
+                "api" in fx.get("match", []) and "user" in fx.get("match", [])
+                for fx in fixtures
+            )
+            if not has_active_account:
+                fixtures.append({
+                    "match": ["api", "user"],
+                    "stdout": json.dumps({"login": "review-bot", "id": 123}),
+                })
             has_reviews = any(
                 "repos/acme/foo/pulls/42/reviews" in fx.get("match", [])
                 for fx in fixtures
@@ -112,12 +126,26 @@ def gh_shim(tmp_path: Path, monkeypatch):
                 })
             fixtures_path.write_text(json.dumps(fixtures))
 
-        def calls(self) -> list[dict]:
+        def calls(self, *, include_identity: bool = False) -> list[dict]:
             if not calls_path.exists():
                 return []
-            return [json.loads(line) for line in calls_path.read_text().splitlines() if line]
+            calls = [
+                json.loads(line)
+                for line in calls_path.read_text().splitlines() if line
+            ]
+            if include_identity:
+                return calls
+            return [c for c in calls if c["argv"][:2] not in (["api", "user"], ["auth", "token"])]
 
-    return Shim()
+    shim = Shim()
+    shim.set_fixtures([])
+    marker = gh._CREDENTIALS.set(gh._Credentials(
+        "github.com", "test-token", models.GitHubAccount("github.com", "review-bot", 123),
+    ))
+    try:
+        yield shim
+    finally:
+        gh._CREDENTIALS.reset(marker)
 
 
 # ---------------- parse_pr_spec ----------------
@@ -150,38 +178,22 @@ def test_resolve_pr_spec_accepts_full_spec_without_gh(gh_shim):
     assert gh_shim.calls() == []
 
 
-def test_resolve_pr_spec_uses_gh_for_bare_number(gh_shim, tmp_path):
-    gh_shim.set_fixtures([{
-        "match": ["pr", "view", "42", "url"],
-        "stdout": json.dumps({"url": "https://github.com/acme/foo/pull/42"}),
-    }])
-    assert gh.resolve_pr_spec("42", workspace=str(tmp_path)) == ("acme/foo", 42)
-    [call] = gh_shim.calls()
-    assert call["argv"] == ["pr", "view", "42", "--json", "url"]
+# Credential selection, identity failures, and concurrency are covered in test_gh_auth.py.
 
 
-def test_resolve_pr_spec_falls_back_to_repo_view(gh_shim, tmp_path):
-    gh_shim.set_fixtures([
-        {
-            "match": ["pr", "view", "42", "--repo", "acme/foo"],
-            "stdout": json.dumps({"url": "https://github.com/acme/foo/pull/42"}),
-        },
-        {
-            "match": ["pr", "view", "42", "url"],
-            "rc": 1,
-            "stderr": "not on a PR branch",
-        },
-        {
-            "match": ["repo", "view", "nameWithOwner"],
-            "stdout": json.dumps({"nameWithOwner": "acme/foo"}),
-        },
-    ])
+@pytest.mark.parametrize("remote", ["https://github.com/acme/foo.git", "git@github.com:acme/foo.git", "ssh://git@github.com/acme/foo.git"])
+def test_resolve_bare_pr_locally_before_authentication(tmp_path, gh_shim, remote):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "remote", "add", "origin", remote], check=True)
     assert gh.resolve_pr_spec("42", workspace=str(tmp_path)) == ("acme/foo", 42)
-    calls = gh_shim.calls()
-    assert calls[1]["argv"] == ["repo", "view", "--json", "nameWithOwner"]
-    assert calls[2]["argv"] == [
-        "pr", "view", "42", "--repo", "acme/foo", "--json", "url",
-    ]
+    assert gh.hostname_for_spec("42", workspace=str(tmp_path)) == "github.com"
+    assert gh_shim.calls(include_identity=True) == []
+
+
+def test_resolve_bare_pr_requires_a_known_remote(tmp_path, gh_shim):
+    with pytest.raises(gh.RepoAccountError, match="full PR URL"):
+        gh.resolve_pr_spec("42", workspace=str(tmp_path))
+    assert gh_shim.calls(include_identity=True) == []
 
 
 # ---------------- fetch_pr_info ----------------
@@ -392,7 +404,10 @@ def test_fetch_review_thread_resolutions_uses_graphql(gh_shim):
         "resolved_by": "octocat",
     }]
     [call] = gh_shim.calls()
-    assert call["argv"] == ["api", "graphql", "-X", "POST", "--input", "-"]
+    assert call["argv"] == [
+        "api", "graphql", "--hostname", "github.com",
+        "-X", "POST", "--input", "-",
+    ]
     payload = json.loads(call["stdin"])
     assert payload["variables"]["owner"] == "acme"
     assert payload["variables"]["name"] == "foo"
@@ -417,6 +432,8 @@ def _stage_workspace(tmp_path: Path) -> str:
     subprocess.run(["git", "commit", "-m", "topic", "-q"], cwd=ws, check=True,
                    env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
                         "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+    subprocess.run(["git", "-C", str(ws), "config", "peanut-review.githubAccount", "review-bot"], check=True)
+    subprocess.run(["git", "-C", str(ws), "remote", "add", "origin", "https://github.com/acme/foo.git"], check=True)
     return str(ws)
 
 
@@ -480,7 +497,7 @@ def test_init_id_overrides_auto_default(gh_shim, tmp_path):
         "stdout": json.dumps({
             "number": 42, "headRefOid": head, "baseRefOid": base,
             "headRefName": "feature/add-it",
-            "url": "u", "title": "t",
+            "url": "https://github.com/acme/foo/pull/42", "title": "t",
         }),
     }])
 
@@ -517,6 +534,7 @@ def test_sync_pr_updates_pinned_snapshot_and_stales_comments(gh_shim, tmp_path):
         topic_ref=old_head,
         session_dir=sd,
         github=models.GitHubPR(
+            account=models.GitHubAccount("github.com", "review-bot", 123),
             repo="acme/foo", number=42, url="https://github.com/acme/foo/pull/42",
             head_sha=old_head, base_sha=base, title="Old title",
         ),
@@ -567,8 +585,9 @@ def test_sync_pr_updates_pinned_snapshot_and_stales_comments(gh_shim, tmp_path):
 
 
 @pytest.mark.parametrize("pin_existing_snapshot", [False, True])
+@pytest.mark.parametrize("existing_repo", ["acme/foo", "ACME/Foo"])
 def test_start_reuse_syncs_snapshot_before_pulling_comments(
-    tmp_path, pin_existing_snapshot,
+    tmp_path, pin_existing_snapshot, existing_repo, gh_shim,
 ):
     ws = _stage_workspace(tmp_path)
     base = subprocess.check_output(
@@ -592,7 +611,8 @@ def test_start_reuse_syncs_snapshot_before_pulling_comments(
         session_dir=str(sd),
         session_id="foo-pr-42-feature-add-it",
         github=models.GitHubPR(
-            repo="acme/foo", number=42,
+            account=models.GitHubAccount("github.com", "review-bot", 123),
+            repo=existing_repo, number=42,
             head_sha=old_head, base_sha=base,
         ),
         include_curator=True,
@@ -658,7 +678,7 @@ def test_start_reuse_syncs_snapshot_before_pulling_comments(
     assert pulled_session.repo_relative == "ws"
 
 
-def test_start_new_session_preserves_explicit_snapshot(tmp_path):
+def test_start_new_session_preserves_explicit_snapshot(tmp_path, gh_shim):
     ws = _stage_workspace(tmp_path)
     base = subprocess.check_output(
         ["git", "-C", ws, "rev-parse", "HEAD~"], text=True,
@@ -852,6 +872,11 @@ def test_start_requires_curator_agent_in_project_config(tmp_path):
 
 def _make_gh_session(tmp_path: Path) -> str:
     """Build a session with .github populated, no real gh fetch involved."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "review-bot",
+    ], check=True)
     sd = tmp_path / "sess"
     (sd / "comments").mkdir(parents=True)
     (sd / "signals").mkdir()
@@ -861,7 +886,8 @@ def _make_gh_session(tmp_path: Path) -> str:
         base_ref="def", topic_ref="abc",
         original_head="abc", current_head="abc",
         github=models.GitHubPR(
-            repo="acme/foo", number=42, url="u",
+            account=models.GitHubAccount("github.com", "review-bot", 123),
+            repo="acme/foo", number=42, url="https://github.com/acme/foo/pull/42",
             head_sha="abc", base_sha="def", title="t",
         ),
     )
@@ -876,6 +902,10 @@ def _make_gh_git_session(tmp_path: Path) -> str:
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    subprocess.run([
+        "git", "-C", str(repo), "config", "--local",
+        gh.REPO_ACCOUNT_CONFIG, "review-bot",
+    ], check=True)
     src = repo / "src"
     src.mkdir()
     lines = [f"value_{i:02d} = {i}\n" for i in range(1, 81)]
@@ -905,7 +935,8 @@ def _make_gh_git_session(tmp_path: Path) -> str:
         original_head=head,
         current_head=head,
         github=models.GitHubPR(
-            repo="acme/foo", number=42, url="u",
+            account=models.GitHubAccount("github.com", "review-bot", 123),
+            repo="acme/foo", number=42, url="https://github.com/acme/foo/pull/42",
             head_sha=head, base_sha=base, title="t",
         ),
     )
@@ -1010,6 +1041,25 @@ def test_gh_push_anchored_and_global(gh_shim, tmp_path):
         any("issues/42/comments" in arg for arg in c["argv"])
         for c in gh_shim.calls()
     )
+
+
+def test_gh_push_rejects_mismatched_active_account(gh_shim, tmp_path):
+    sd = _make_gh_session(tmp_path)
+    store.append_comment(sd, models.Comment(
+        author="vera", file="src/x.py", line=10, body="must not publish",
+    ))
+    gh_shim.set_fixtures([{
+        "match": ["api", "user"],
+        "stdout": json.dumps({"login": "other-bot", "id": 456}),
+    }])
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["--session", sd, "gh-push"])
+
+    assert rc == 1
+    assert "do not match" in err.getvalue()
+    assert gh_shim.calls() == []
 
 
 def test_gh_push_concats_global_comments_and_preserves_individuals(gh_shim, tmp_path):
@@ -2345,6 +2395,23 @@ def test_gh_push_verdict_request_changes_maps_to_event(gh_shim, tmp_path):
     assert rc == 0
     [call] = gh_shim.calls()
     assert json.loads(call["stdin"])["event"] == "REQUEST_CHANGES"
+
+
+def test_gh_push_verdict_rejects_mismatched_active_account(gh_shim, tmp_path):
+    sd = _make_gh_session(tmp_path)
+    _stage_verdict(sd, "approve", "must not publish")
+    gh_shim.set_fixtures([{
+        "match": ["api", "user"],
+        "stdout": json.dumps({"login": "other-bot", "id": 456}),
+    }])
+
+    err = io.StringIO()
+    with redirect_stderr(err):
+        rc = main(["--session", sd, "gh-push-verdict"])
+
+    assert rc == 1
+    assert "do not match" in err.getvalue()
+    assert gh_shim.calls() == []
 
 
 def test_gh_push_verdict_refuses_resubmit_without_force(gh_shim, tmp_path):

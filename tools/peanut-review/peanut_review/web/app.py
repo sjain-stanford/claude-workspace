@@ -871,6 +871,15 @@ class _Handler(BaseHTTPRequestHandler):
         new_top_ids = {c.id for c in plan.new_top}
         promoted_ids = set(plan.promoted_anchors)
         default_push_ids = _default_selected_push_ids(plan, agent_authors)
+        github_account = None
+        github_account_error = None
+        github_identity = None
+        try:
+            with gh.pr_auth(s.github) as verified_account:
+                github_account = verified_account.login
+                github_identity = gh.publish_identity(s.github)
+        except (gh.RepoAccountError, ValueError) as e:
+            github_account_error = str(e)
 
         def _ref(c: Comment) -> str:
             if c.file == GLOBAL_FILE:
@@ -940,6 +949,10 @@ class _Handler(BaseHTTPRequestHandler):
             "repo": s.github.repo,
             "number": s.github.number,
             "url": s.github.url,
+            "hostname": s.github.hostname,
+            "github_identity": github_identity,
+            "github_account": github_account,
+            "github_account_error": github_account_error,
             "new_top": new_top,
             "new_replies": new_replies,
             "edits": edits,
@@ -1014,7 +1027,13 @@ class _Handler(BaseHTTPRequestHandler):
                 "items": [],
                 "summary": "Nothing to push.",
             })
-        result = gh_push.execute_push(session_dir, s, s.github, plan)
+        try:
+            identity = gh.publish_identity(s.github)
+            if data.get("github_identity") != identity:
+                return self._error(409, "GitHub target or account changed; reload the publish preview")
+            result = gh_push.execute_push(session_dir, s, s.github, plan)
+        except (gh.RepoAccountError, ValueError) as e:
+            return self._error(409, str(e))
         self._json(200, {
             "pushed": result.pushed,
             "failed": result.failed,
@@ -1040,6 +1059,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(400, "session is not GitHub-backed")
         try:
             r = gh_pull.pull_comments(session_dir, s)
+        except (gh.RepoAccountError, ValueError) as e:
+            return self._error(409, str(e))
         except gh.GhError as e:
             return self._error(502, str(e))
         self._json(200, {
