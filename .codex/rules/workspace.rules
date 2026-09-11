@@ -46,13 +46,8 @@ prefix_rule(pattern=["ninja"], decision="allow")
 prefix_rule(pattern=["br"], decision="allow")
 prefix_rule(pattern=["xargs"], decision="allow")
 prefix_rule(pattern=["/bin/bash", "-lc", "[ -f /.dockerenv ] && echo \"In Docker\" || echo \"Not in Docker\""], decision="allow")
-prefix_rule(pattern=["curl", "-sL", "https://iree.dev/pip-release-links.html"], decision="allow")
 prefix_rule(pattern=["pre-commit", "run"], decision="allow")
 prefix_rule(pattern=["rocminfo"], decision="allow")
-prefix_rule(pattern=["iree-compile"], decision="allow")
-prefix_rule(pattern=["./build_tools/scripts/build.sh"], decision="allow")
-prefix_rule(pattern=["./build_tools/scripts/test.sh"], decision="allow")
-prefix_rule(pattern=["./build_tools/scripts/coverage.sh"], decision="allow")
 
 # prompt
 prefix_rule(pattern=["gh", "pr", "create"], decision="prompt")

@@ -27,9 +27,6 @@ claude-workspace/
 ├── skills/           # Project specific skills and shared references
 │   ├── rocjitsu-project/
 │   ├── rocjitsu-build-test/
-│   ├── fusilli-build-test-lint/
-│   ├── bump-fusilli-deps/
-│   ├── fusilli-project/
 │   ├── gh-address-comments/
 │   ├── gh-fix-ci/
 │   ├── find-security-vulnerabilities/
@@ -121,8 +118,7 @@ logs, patches, and supporting text contain no material derived from
    it is not an ordinary rocjitsu edit target. The machine-readable ISA tree is
    needed for regeneration, and `.github/` provides the current rocjitsu CI and
    corpus qualification workflows. The Triton checkout provides upstream
-   compiler source and development context. Clone archival repositories
-   separately only when needed.
+   compiler source and development context.
 
 3. **Launch development container:**
    - Open Cursor or VS Code rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)

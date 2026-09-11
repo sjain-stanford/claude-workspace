@@ -27,14 +27,14 @@ The prompt can be provided as: --prompt, --prompt-file, or trailing positional
 arguments. If multiple sources are given, the first one wins (in that order).
 
 Examples:
-  cursor-task --workspace ~/iree/main \
+  cursor-task --workspace /path/to/workspace \
     --prompt "Review the recent changes to the compiler pipeline"
 
-  cursor-task --workspace ~/iree/main \
+  cursor-task --workspace /path/to/workspace \
     --prompt-file /tmp/review/prompt.txt
 
-  cursor-task --model gpt-5 --workspace ~/iree/main --name vmvx-analysis \
-    "Analyze test failures in the VMVX backend"
+  cursor-task --model gpt-5 --workspace /path/to/workspace --name test-analysis \
+    "Analyze test failures in the GPU backend"
 EOF
     exit "${1:-0}"
 }

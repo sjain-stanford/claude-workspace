@@ -104,12 +104,6 @@ When reviewing `rocm-systems/emulation/rocjitsu`, also load
   modeling gap. Do not use that limitation to dismiss unrelated races.
 - Performance claims require the protocol in `docs/benchmarking.md`.
 
-### Fusilli Checks
-
-Only for explicit Fusilli reviews, retain the historical compatibility checks
-against cuDNN frontend/hipDNN, Torch-MLIR ASM, IREE C APIs, and the public
-`<fusilli.h>` include bundle.
-
 ## Output Format
 
 **Line Number Convention**: Reference file-relative source locations (for

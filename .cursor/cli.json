@@ -25,11 +25,7 @@
       "Shell(xargs)",
       "Shell([ -f /.dockerenv ])",
       "Shell(pre-commit)",
-      "Shell(rocminfo)",
-      "Shell(iree-compile)",
-      "Shell(./build_tools/scripts/build.sh)",
-      "Shell(./build_tools/scripts/test.sh)",
-      "Shell(./build_tools/scripts/coverage.sh)"
+      "Shell(rocminfo)"
     ],
     "deny": [
       "Shell(git:push)",

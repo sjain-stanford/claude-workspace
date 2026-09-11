@@ -24,9 +24,6 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `projects/triton/` - Upstream `triton-lang/triton` compiler checkout
   - Use for Triton development and upstream compiler context
   - Create implementation worktrees under `projects/worktrees/triton/`
-- Historical Fusilli, IREE, Torch-MLIR, hipDNN, cuDNN frontend, and TheRock
-  checkouts may be retained under `projects/` for archival/reference use. Do
-  not treat them as active dependencies or fetch them for rocjitsu work.
 - `projects/worktrees/` - Local git worktrees for parallel agent work
   - This directory is intentionally gitignored by `projects/*`
   - Create per-task worktrees here instead of editing the main checkout for feature work
@@ -68,10 +65,6 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/stage-and-commit/` - Use when asked to commit local changes (enforces `Signed-off-by` trailers)
 - `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
 - `skills/llvm-coding-standards.md` - LLVM C++ reference used only when the target project adopts it
-
-Archived Fusilli-only skills remain available as
-`skills/fusilli-project/`, `skills/fusilli-build-test-lint/`, and
-`skills/bump-fusilli-deps/`. Use them only for explicit Fusilli work.
 
 > **Note**: Skills are symlinked from agent-specific config directories (`.claude/skills` -> `../skills`, `.agents/skills` -> `../skills`) so local agents can discover them while keeping the source files at the repo root for easier editing.
 
