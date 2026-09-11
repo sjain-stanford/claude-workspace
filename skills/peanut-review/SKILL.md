@@ -54,7 +54,11 @@ author-facing comment set:
 - Rewrite kept comments as concise PR feedback. Start with the requested change
   or scoped question, include only compact evidence, and align severity with
   confidence. Avoid internal triage wording such as "confirmed" or "partly
-  confirmed".
+  confirmed". When a dedicated Curator has already completed, preserve its
+  wording unless correcting a substantive problem or following an explicit
+  user request. Its prompt owns the review voice; do not perform another
+  cosmetic pass to normalize openings, remove conversational phrasing, or
+  apply the orchestrator's default prose style.
 - Delete duplicate, incorrect, stale, nitpicky, speculative, praise-only,
   overly broad, or low-ROI comments. When merging duplicates, edit the kept
   comment first so it absorbs any useful detail, then delete the redundant
@@ -273,11 +277,12 @@ explicitly asks.
    "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
    ```
 
-5. Inspect the curator's result. Delete duplicate/noisy local comments with
-   `delete <c_id>` if anything remains. Add replies only when they clarify a
-   finding for the PR author. Do not resolve imported GitHub comments unless
-   the GitHub discussion was actually resolved or the user asks you to manage
-   it.
+5. Inspect the curator's result for correctness, remaining duplicates, and
+   pushable anchors. Preserve its wording as described above. Delete
+   duplicate/noisy local comments with `delete <c_id>` if anything remains.
+   Add replies only when they clarify a finding for the PR author. Do not
+   resolve imported GitHub comments unless the GitHub discussion was actually
+   resolved or the user asks you to manage it.
 
    ```bash
    "$PR_BIN" --session "$SESSION" gh-pull
