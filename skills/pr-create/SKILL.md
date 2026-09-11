@@ -1,11 +1,11 @@
 ---
 name: pr-create
-description: Create a GitHub pull request for a sub-repo branch with a complexity-appropriate description, validation details, and PR-body agent attribution. Use when asked to create a PR, open a pull request, or submit changes for review.
+description: Create a GitHub pull request for a sub-repo branch with a complexity-appropriate description and validation details. Use when asked to create a PR, open a pull request, or submit changes for review.
 ---
 
 # PR Create Skill
 
-Creates GitHub pull requests following workspace conventions: evidence-backed descriptions with enough context for a reviewer to understand the change and PR-body agent attribution.
+Creates GitHub pull requests following workspace conventions: evidence-backed descriptions with enough context for a reviewer to understand the change.
 
 ## Usage
 
@@ -73,10 +73,6 @@ Simple PR format:
 <Why the change is needed and what it changes.>
 
 Validation: <checks actually run and any meaningful gaps.>
-
-Co-authored-by: <active Codex model> <codex@openai.com>
-
-🤖 Generated with [Codex](https://openai.com/codex)
 ```
 
 Non-trivial PR format:
@@ -101,10 +97,6 @@ Non-trivial PR format:
 ## Validation
 
 <Tests and end-to-end checks actually run, with outcomes and any gaps.>
-
-Co-authored-by: <active Codex model> <codex@openai.com>
-
-🤖 Generated with [Codex](https://openai.com/codex)
 ```
 
 **Rules**:
@@ -117,22 +109,6 @@ Co-authored-by: <active Codex model> <codex@openai.com>
 - Keep sections focused and avoid restating every changed file
 - Never claim the exact reported reproducer was run when only an equivalent path was tested
 - Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
-- For Codex, use the active model display name supplied by the runtime or
-  system context in the final PR-body footer. If the exact model variant is
-  unavailable, use `Codex` instead of guessing. Do not copy a model version
-  from a previous PR or template:
-  ```markdown
-  Co-authored-by: <active Codex model> <codex@openai.com>
-
-  🤖 Generated with [Codex](https://openai.com/codex)
-  ```
-- For Claude Code, use:
-  ```markdown
-  Co-authored-by: <active Claude model> <noreply@anthropic.com>
-
-  🤖 Generated with [Claude Code](https://claude.com/claude-code)
-  ```
-- Do NOT include agent `Co-authored-by` trailers in individual commit messages
 
 ### 3. Publish the Prepared PR
 
@@ -148,10 +124,6 @@ cat > "$PR_BODY" <<'EOF'
 non-trivial PR. Replace all placeholders before publishing.>
 
 Validation: <Checks actually run and their outcomes.>
-
-Co-authored-by: <active Codex model> <codex@openai.com>
-
-🤖 Generated with [Codex](https://openai.com/codex)
 EOF
 ```
 
@@ -182,7 +154,7 @@ Return the PR URL to the user.
 
 ## Example
 
-A small PR body can be one paragraph plus validation and attribution:
+A small PR body can be one paragraph plus validation:
 
 ```markdown
 Resolve the review diff against the PR's declared base branch so rocjitsu PRs
@@ -190,8 +162,4 @@ are reviewed against develop. Reuse the branch's development worktree for
 follow-up fixes.
 
 Validation: checked the documented commands against the local worktree layout.
-
-Co-authored-by: <active Codex model> <codex@openai.com>
-
-🤖 Generated with [Codex](https://openai.com/codex)
 ```

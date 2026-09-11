@@ -6,7 +6,7 @@ description: Stage and commit changes to the current branch with Signed-off-by t
 # Stage and Commit Skill
 
 Stages and commits changes with the workspace's required `Signed-off-by`
-trailer. Agent attribution belongs in pull request descriptions.
+trailer.
 
 ## Usage
 
@@ -23,7 +23,7 @@ trailer. Agent attribution belongs in pull request descriptions.
 1. **Sign-off**: Always use `git commit -s` to include a `Signed-off-by` trailer.
    This is distinct from cryptographic signing with `-S`; preserve configured
    signing and follow any additional repository or user signing requirement.
-2. **No commit co-authorship**: Do not include agent `Co-authored-by` trailers in commit messages. The PR creation workflow handles agent attribution in the pull request description.
+2. **No agent attribution**: Omit agent attribution footers from commit messages.
 3. **No push**: NEVER push to remote. Only commit locally. User must explicitly request push separately.
 4. **Specific staging**: Prefer staging specific files by name over `git add -A` or `git add .`
 

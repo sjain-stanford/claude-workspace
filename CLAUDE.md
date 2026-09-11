@@ -62,7 +62,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `skills/gh-fix-ci/` - Use when debugging and fixing failing GitHub Actions checks for a PR
 - `skills/find-security-vulnerabilities/` - Use for requested security audits and exploitability assessments
 - `skills/peanut-review/` - Use for explicit multi-agent review sessions, personas, curation, the review web UI, or GitHub review publishing
-- `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions and PR-body agent attribution)
+- `skills/pr-create/` - Use when asked to create a PR (enforces succinct descriptions)
 - `skills/pr-review/` - Use when asked to review a PR from GitHub
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
 - `skills/stage-and-commit/` - Use when asked to commit local changes (enforces `Signed-off-by` trailers)
@@ -164,7 +164,7 @@ longer needs local follow-up.
 ## PR Preferences
 
 - Do not include a "Test Plan" section in pull request descriptions unless test coverage is not handled by CI.
-- Put active-agent attribution in pull request descriptions as a final footer block, not individual commit messages. Use the active tool/model-specific `Co-authored-by: ...` line followed by the matching `Generated with ...` link.
+- Omit agent attribution footers from pull request descriptions and commit messages.
 
 ## Plans
 

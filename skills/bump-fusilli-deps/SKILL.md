@@ -27,27 +27,6 @@ and separate from IREE/TheRock version bumps).
 - User must have write access to the fusilli repo
 - For docker image updates: write access to the docker repo as well
 
-## Agent Attribution
-
-Use the active agent's identity in generated PR footers only. Do not add agent co-authorship trailers to individual commit messages.
-
-For Codex, use the active model display name supplied by the runtime or system
-context in the PR attribution footer. If the exact model variant is unavailable,
-use `Codex` instead of guessing. Do not copy a model version from a previous PR
-or template:
-```markdown
-Co-authored-by: <active Codex model> <codex@openai.com>
-
-🤖 Generated with [Codex](https://openai.com/codex)
-```
-
-For Claude Code, use:
-```markdown
-Co-authored-by: <active Claude model> <noreply@anthropic.com>
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-```
-
 ## Architecture
 
 Version management uses `version.json` as the single source of truth:
@@ -161,10 +140,6 @@ test, commit, and PR commands from the corresponding task worktree.
      | IREE | `OLD_VERSION` | `NEW_VERSION` |
 
      **IREE changelog**: https://github.com/iree-org/iree/compare/iree-OLD_VERSION...iree-NEW_VERSION
-
-     Co-authored-by: <active agent and model> <agent email>
-
-     🤖 Generated with [<active tool>](<active tool URL>)
      EOF
      )"
      ```
@@ -202,10 +177,6 @@ test, commit, and PR commands from the corresponding task worktree.
      | Dependency | Old | New |
      |------------|-----|-----|
      | TheRock | `OLD_VERSION` | `NEW_VERSION` |
-
-     Co-authored-by: <active agent and model> <agent email>
-
-     🤖 Generated with [<active tool>](<active tool URL>)
      EOF
      )"
      ```
