@@ -1,6 +1,6 @@
 ---
 name: peanut-review
-description: Orchestrate structured multi-agent code review for local changes or GitHub PRs using the peanut-review CLI, and curate existing peanut-review sessions. Use when starting or managing review sessions, or when asked to deduplicate, shorten, validate, dismiss, filter, or decide whether agent review comments are worth pushing.
+description: Orchestrate configured reviewer personas and a dedicated curator through the peanut-review CLI, and address their findings as the developer in local review loops. Use when starting or managing review sessions, or when asked to deduplicate, shorten, validate, dismiss, filter, or decide whether agent review comments are worth pushing.
 ---
 
 # Peanut Review
@@ -8,6 +8,58 @@ description: Orchestrate structured multi-agent code review for local changes or
 You are the orchestrator for a structured multi-agent review. Drive the review
 lifecycle with `tools/peanut-review/bin/peanut-review`; it sets `PYTHONPATH`
 for the local checkout, so no install step is needed.
+
+## Role Boundaries
+
+The driver of this skill orchestrates the review and, in an authorized local
+development loop, acts as the developer. It does not act as a reviewer or
+curator. Launched agents perform only their assigned reviewer or curator role.
+
+- **Configured reviewers** inspect the patch, discover and validate findings,
+  post new review threads, and reassess fixes and rebuttals on later rounds.
+- **Configured curator** validates and curates existing reviewer findings,
+  including wording, severity, deduplication, deletion, and anchor repair. Its
+  authoritative instructions are in
+  `tools/peanut-review/peanut_review/templates/curator-prompt.md`.
+- **Driver** prepares the session and build, launches and monitors configured
+  agents, reads their results, and reports progress. In a local development
+  loop it investigates curated concerns, implements and tests fixes, commits,
+  migrates anchors, replies or rebuts in existing threads, resolves addressed
+  concerns, and launches the next configured round.
+
+Use exactly the `agents` entries from the selected `.peanut-review.json` when
+creating a session. When resuming, use the lineup captured in `session.json`;
+do not silently replace it with a changed project config. Entries with
+`role: curator` are curators; the other entries are reviewers. Preserve their
+names, personas, runners, models, reasoning settings, and other configured
+options. Launch them through peanut-review only. Do not add ad hoc reviewers,
+spawn extra review agents through another tool, substitute the driver model,
+or run an additional driver, self-review, or PR-review pass. If a configured
+runner fails, repair or rerun that entry; do not fill in as the reviewer.
+Missing configuration requires clarification, not an invented lineup. Change
+the lineup or model choices only when the user explicitly requests it.
+
+The driver must not create new finding threads, seed the session with findings
+from prior reviews or its own probes, impersonate a persona, or rewrite/delete
+reviewer findings as curation. Developer investigation and verification of a
+fix are allowed; an independent search for review findings is not. If an
+incidental concern arises while developing, record the observation and repro
+in a `note` report for the next configured reviewer round. The reviewer must
+independently assess it and own any resulting finding.
+
+Reports are not automatically included in agent prompts. When a report needs
+reviewer or curator action, use `--template` on `launch`, `rerun`, or `curate`
+with a temporary copy of the authoritative reviewer or curator template.
+Preserve its existing instructions and append a request to read
+`${PR_BIN} --session ${SESSION} notes --agent Orchestrator --format json`,
+identifying the relevant report ID. Keep the configured agent settings intact;
+do not edit shared templates or the prompts of running agents.
+
+Use `--author Orchestrator` for driver-authored replies and reports, and
+`--by Orchestrator` when resolving addressed comments. Do not let automated
+driver actions inherit the human's Git identity. Driver comments are limited
+to `add-comment --reply-to <c_id>` and an overall verdict that summarizes the
+configured agents' outcome; the verdict must not introduce new findings.
 
 ## Remote Publishing Requires Explicit Authorization
 
@@ -27,8 +79,8 @@ state immediately before publishing.
 Codex skills do not have a separate subcommand registry. Treat the first word
 after `/peanut-review` as a routing hint when present:
 
-- `/peanut-review curate <session-or-pr-context>`: clean up an existing review
-  session's comments, using the dedicated curator agent when appropriate.
+- `/peanut-review curate <session-or-pr-context>`: have the configured curator
+  clean up an existing review session's comments.
   This is not a new reviewer pass.
 - `/peanut-review pr <PR URL>`: run the GitHub PR review lifecycle below.
 - `/peanut-review local <base-ref>`: run the author-owned local review
@@ -36,43 +88,32 @@ after `/peanut-review` as a routing hint when present:
 - `/peanut-review status <session-path>`: inspect or recover a session without
   changing comments unless asked.
 
-For `curate`, start from the live session data and produce a push-ready,
-author-facing comment set:
+For `curate`, orchestrate the configured curator to produce a push-ready,
+author-facing comment set. Do not perform curation in the driver:
 
 - Resolve the live session path and source checkout. If the current directory
   is a wrapper, read `.peanut-review.json` first and keep `reviewRoot`,
   `workspaceRoot`, and `repoRelative` separate.
-- Inspect `comments --format json` before editing. Also inspect
+- Read `comments --format json`. Also read
   `comments --include-deleted --format json` when duplicate cleanup, prior
   deletions, or mistaken cleanup might matter.
-- Bucket local agent comments into keep/rewrite, merge, delete, or undelete.
-  Leave imported GitHub comments alone unless the discussion is actually
-  resolved or the user asks you to manage it.
-- Validate likely survivors against exact files, generated artifacts, or the
-  smallest useful repro/test. Spend verification time on comments that might
-  survive, not on likely deletes.
-- Rewrite kept comments as concise PR feedback. Start with the requested change
-  or scoped question, include only compact evidence, and align severity with
-  confidence. Avoid internal triage wording such as "confirmed" or "partly
-  confirmed". When a dedicated Curator has already completed, preserve its
-  wording unless correcting a substantive problem or following an explicit
-  user request. Its prompt owns the review voice; do not perform another
-  cosmetic pass to normalize openings, remove conversational phrasing, or
-  apply the orchestrator's default prose style.
-- Delete duplicate, incorrect, stale, nitpicky, speculative, praise-only,
-  overly broad, or low-ROI comments. When merging duplicates, edit the kept
-  comment first so it absorbs any useful detail, then delete the redundant
-  copy. Preserve disposition history: never delete a resolved comment, a
-  reply, or a thread root that has replies. Deletion is only for comments that
-  have not become part of a reply/resolution trail; if such a comment was
-  deleted by mistake, undelete it before replying to or resolving it. When a
-  later review round adds a substantive new finding or rebuttal to a resolved
-  thread, unresolve the thread before adding the reply and leave it unresolved
-  until the renewed concern is addressed and resolved again.
+- Run `curate` through the CLI using the session's configured curator, then
+  confirm its `round-done` signal and inspect its report. If the curator is
+  missing or fails, use the configuration or failure workflow; the driver
+  must not take over its role.
+- The curator owns validation, keep/rewrite/merge/delete decisions, and review
+  voice. Preserve its wording. Put any user-requested curation corrections or
+  operational problems in an `Orchestrator` report for a subsequent curator
+  pass instead of editing the findings yourself.
+- Preserve disposition history: never delete a resolved comment, a reply, or
+  a thread root with replies. Have the curator restore mistaken deletions and
+  reopen resolved threads with renewed actionable reviewer concerns. Leave
+  imported GitHub comments alone unless the discussion is actually resolved
+  or the user asks you to manage it.
 - For GitHub-backed sessions, finish with `gh-push --dry-run`. Treat it as
   authoritative for what will surface and whether anchors are pushable. If an
-  anchor is out of range, recreate the finding as a global comment preserving
-  the original `file:line`, then delete the stale anchored copy.
+  anchor is out of range, report it to the curator for repair and repeat the
+  dry-run after that pass completes; do not recreate the finding as the driver.
 
 Do not launch or rerun reviewers, patch source, or push to GitHub during
 `curate` unless the user explicitly asks. Launching the dedicated curator
@@ -97,8 +138,9 @@ before running commands and keep it current.
       `wait-all`.
 - [ ] Inspect failed runs and non-review agent reports promptly.
 - [ ] Track the last reviewed comment id for later `--since` queries.
-- [ ] Triage every finding: keep, delete, resolve, or reply locally; publish
-      only with explicit user authorization.
+- [ ] Wait for configured curation; in a local development loop, address every
+      surviving finding with a fix or rebuttal. Publish only with explicit
+      user authorization.
 - [ ] Finish with the right artifact: a push-ready GitHub dry-run for PRs, or
       a local verdict/archive for author-owned reviews. Push only when the user
       explicitly asks.
@@ -111,15 +153,16 @@ Mode-specific checklist:
       the user says the checkout is already built.
 - [ ] GitHub PR: after all reviewers signal `round-done`, let `wait-all`
       launch and wait for the `Curator` agent by default; use `--no-curate`
-      only when you intentionally want to skip this.
+      only when scheduling a separate configured curator pass.
 - [ ] GitHub PR: inspect the curated feedback; do not fix code, resolve
       imported GitHub threads, or force rebuttal loops unless the user asks.
 - [ ] GitHub PR: always finish with `gh-push --dry-run` and stop unless the
       user explicitly asked to publish the review.
 - [ ] Local review: own the patch and run the iterative development loop below.
-      Review and curate, triage every surviving finding, commit relevant fixes,
-      migrate anchors, reply or resolve addressed comments, and refresh the
-      same session until the curator leaves no actionable comments.
+      Have the configured agents review and curate, address every surviving
+      finding, commit relevant fixes, migrate anchors, reply or resolve
+      addressed comments, and refresh the same session until the curator
+      leaves no actionable comments.
 
 ## Ask Before Guessing
 
@@ -209,13 +252,12 @@ worktree as part of review setup or synchronization. Peanut-review pins commit
 ranges, so commit intended review changes first or use the local author-owned
 lifecycle for work that is not yet represented by the PR snapshot.
 
-For GitHub PR sessions, the config must include a dedicated curator agent in
-`agents`, for example `{"name":"Curator","model":"gpt-5.5-high",
+For GitHub PR and local review sessions, the config must include a dedicated
+curator agent in `agents`, for example `{"name":"Curator","model":"gpt-5.5-high",
 "runner":"cursor","role":"curator"}`. The curator uses a dedicated prompt, so
 do not invent a `curator.md` persona. Do not rely on a Python default for the
-curator model; missing curator config should fail before launch. Add the same
-entry for local sessions when the web UI curator button or `curate` command
-should be available.
+curator model; missing curator config should fail before launch. Both
+lifecycles require configured curation before declaring review complete.
 
 Do not blur roots. `reviewRoot` is session storage/web UI data;
 `workspaceRoot` + `repoRelative` identify the checkout under review. If build
@@ -277,12 +319,13 @@ explicitly asks.
    "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
    ```
 
-5. Inspect the curator's result for correctness, remaining duplicates, and
-   pushable anchors. Preserve its wording as described above. Delete
-   duplicate/noisy local comments with `delete <c_id>` if anything remains.
-   Add replies only when they clarify a finding for the PR author. Do not
-   resolve imported GitHub comments unless the GitHub discussion was actually
-   resolved or the user asks you to manage it.
+5. Read the curator's report and comments to summarize the outcome. The curator
+   owns finding validation and cleanup; use another configured curator pass
+   for requested corrections or anchor failures. Driver replies may clarify
+   workflow or relay an existing finding, using `--author Orchestrator`, but
+   must not introduce new review concerns. Do not resolve imported GitHub
+   comments unless the GitHub discussion was actually resolved or the user
+   asks you to manage it.
 
    ```bash
    "$PR_BIN" --session "$SESSION" gh-pull
@@ -290,16 +333,17 @@ explicitly asks.
    "$PR_BIN" --session "$SESSION" comments --since "$LAST_COMMENT_ID"
    ```
 
-6. Add one top-level verdict comment when there is an overall conclusion:
+6. Add one top-level verdict comment summarizing the completed configured
+   review and curation outcome. This is a lifecycle summary, not a driver
+   review pass; cite existing findings rather than introducing new concerns:
 
    ```bash
-   "$PR_BIN" --session "$SESSION" add-global-comment --category request-changes --body "Blocking issue: ..."
-   "$PR_BIN" --session "$SESSION" add-global-comment --category approve --body "LGTM"
+   "$PR_BIN" --session "$SESSION" add-global-comment --author Orchestrator --category request-changes --body "Configured review leaves <c_id> unresolved: ..."
+   "$PR_BIN" --session "$SESSION" add-global-comment --author Orchestrator --category approve --body "Configured review and curation completed with no actionable findings."
    ```
 
-   Use `--category comment` or omit `--category` for non-verdict feedback. For
-   self-owned PRs, GitHub may reject approve/request-changes events; use a
-   normal global comment in that case.
+   For self-owned PRs, GitHub may reject approve/request-changes events; use
+   `--category comment` for the same outcome summary in that case.
 
 7. Preview the review payload:
 
@@ -371,12 +415,15 @@ enough.
    `wait-all` waits for reviewers only in a local session. If the curator leaves
    no actionable comments, continue to step 5.
 
-3. Triage every curated finding; do not silently skip any. Apply real fixes and
-   run proportionate verification. For findings that should not be fixed, add a
-   concrete local rebuttal explaining the disposition. Review the resulting
-   diff. When code changed, stage only relevant paths and commit the iteration
-   locally using the project's commit workflow. Do not create empty commits and
-   do not push.
+3. Act as the developer addressing every curated finding; do not silently skip
+   any. Investigate the reported behavior, apply real fixes, and run
+   proportionate verification. For findings that should not be fixed, add a
+   concrete rebuttal with `add-comment --reply-to <c_id> --author Orchestrator`
+   so the configured reviewers can reassess it on the next round. Check the
+   implementation diff for intended changes as a developer; do not conduct
+   another review pass or create finding threads. When code changed, stage
+   only relevant paths and commit the iteration locally using the project's
+   commit workflow. Do not create empty commits and do not push.
 
 4. After the commit, migrate the session to the new `HEAD` so comment anchors
    follow the updated snapshot. Then reply to and resolve comments addressed by
@@ -398,8 +445,8 @@ enough.
 
    ```bash
    "$PR_BIN" --session "$SESSION" migrate
-   "$PR_BIN" --session "$SESSION" add-comment --reply-to <c_id> --body "Addressed in <commit>: ..."
-   "$PR_BIN" --session "$SESSION" resolve <c_id>
+   "$PR_BIN" --session "$SESSION" add-comment --reply-to <c_id> --author Orchestrator --body "Addressed in <commit>: ..."
+   "$PR_BIN" --session "$SESSION" resolve <c_id> --by Orchestrator
    "$PR_BIN" --session "$SESSION" rerun \
      --agent <reviewer-1> --agent <reviewer-2>
    "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
@@ -411,11 +458,14 @@ enough.
    curator through `rerun`. Track each round's starting comment id and use
    `--since <comment-id>` to isolate new feedback. There is no round counter.
 
-5. At the clean stopping point, inspect and analyze the complete change set
-   from the session base through the final `HEAD`, not only the last iteration.
-   Run any final project verification warranted by that aggregate diff and
-   record the final verdict. A verdict writes `result.json` but does not close
-   the session or prevent later reruns.
+5. At the clean stopping point, confirm the configured reviewers and curator
+   completed against the final `HEAD`, with the full session base-to-head diff
+   available to them. Do not add a final driver review of the aggregate diff.
+   Run any final project verification warranted by the implemented changes and
+   record the configured review outcome and verification results in the final
+   verdict. If final verification requires another code fix, repeat the
+   configured review/curation loop after committing and migrating. A verdict
+   writes `result.json` but does not close the session or prevent later reruns.
 
    ```bash
    "$PR_BIN" --session "$SESSION" verdict --approve --body "All critical issues addressed"
