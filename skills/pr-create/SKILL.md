@@ -1,11 +1,11 @@
 ---
 name: pr-create
-description: Create a GitHub pull request for a sub-repo branch with a complexity-appropriate description and validation details. Use when asked to create a PR, open a pull request, or submit changes for review.
+description: Create a GitHub pull request for a sub-repo branch with a concise prose description and relevant validation. Use when asked to create a PR, open a pull request, or submit changes for review.
 ---
 
 # PR Create Skill
 
-Creates GitHub pull requests following workspace conventions: evidence-backed descriptions with enough context for a reviewer to understand the change.
+Creates GitHub pull requests following workspace conventions: a few concise paragraphs with enough context for a reviewer to understand the change.
 
 ## Usage
 
@@ -46,69 +46,25 @@ Verify:
 
 **Title**: Use the same style as commit messages — concise, imperative mood, under 72 characters. For single-commit PRs, reuse the commit subject line.
 
-**Description**: Match the structure to the complexity of the change.
+**Description**: Default to one to three short prose paragraphs, including
+for non-trivial fixes and features. Use headings only when the user requests
+them or the repository's template requires them. Prefer prose to bullet lists
+for normal PRs.
 
-- For a small, self-explanatory PR such as a version bump, documentation edit,
-  or narrow configuration change, use one to three short paragraphs without
-  Markdown section headings. State why the change is needed, what it changes,
-  and the validation performed. Use a compact `Validation:` line or list only
-  when it improves readability.
-- For a non-trivial fix or feature, use short Markdown sections so reviewers
-  can follow the investigation and design. Cover the following points when
-  applicable:
+Lead with the problem and the resulting behavior. Add a brief explanation of
+the cause, design, or tradeoff when it helps a reviewer assess the change.
+Include relevant validation and any material gaps in a short final paragraph
+or sentence. A small change may fit in a single paragraph.
 
-- **Provenance**: Link the originating issue, report, or request. State the base revision or environment used for investigation and distinguish pre-existing work from this PR when that history affects the diagnosis.
-- **Reproducer**: Record the smallest meaningful reproducer, relevant hardware/software configuration, and the observed versus expected behavior. If the original reproducer was unavailable, say so and explain why the substitute exercises the same path.
-- **Root cause**: Explain the failed mechanism and the evidence that isolated it. Do not merely restate the symptom.
-- **Fix**: Describe the design and important invariants or tradeoffs, including why the approach is robust. Avoid a file-by-file changelog.
-- **Validation**: List the commands, test groups, or end-to-end workloads actually run and their outcomes. Include test counts or exit behavior when useful, and disclose meaningful gaps.
+Keep only details that affect the review. Link existing issues or documentation
+for longer investigations; omit the investigation chronology and file-by-file
+changelogs. Include exact commands or environment details when needed to
+reproduce the behavior, without listing every check performed. Describe only
+validation actually run, distinguishing an equivalent reproducer from the
+reported one when relevant.
 
-Do not force provenance, reproduction, or root-cause sections onto a simple PR
-when those concepts add no useful information. Never add empty or redundant
-sections merely to match a template.
-
-Simple PR format:
-
-```markdown
-<Why the change is needed and what it changes.>
-
-Validation: <checks actually run and any meaningful gaps.>
-```
-
-Non-trivial PR format:
-
-```markdown
-## Context
-
-<Originating issue/request, investigation baseline, and relevant prior work.>
-
-## Reproduction
-
-<Minimal reproducer or equivalent, environment, observed behavior, and expected behavior.>
-
-## Root cause
-
-<The failed mechanism and the evidence used to isolate it.>
-
-## Fix
-
-<The design, why it resolves the cause, and any important invariants.>
-
-## Validation
-
-<Tests and end-to-end checks actually run, with outcomes and any gaps.>
-```
-
-**Rules**:
-- For a non-trivial change, focus on the causal chain: provenance and
-  reproduction → root cause → fix → validation
-- Use detail proportional to the change: a simple PR should make the motivation,
-  change, and validation clear; a non-trivial PR should let a reviewer assess
-  scope and reproduce the observed failure without rediscovering the investigation
-- Prefer concrete evidence over generic claims such as "fixes the issue" or "tests pass"
-- Keep sections focused and avoid restating every changed file
-- Never claim the exact reported reproducer was run when only an equivalent path was tested
-- Do NOT include a "Test Plan" section unless test coverage is not handled by CI (per workspace PR preferences)
+Do not include a "Test Plan" section unless test coverage is not handled by
+CI, per workspace PR preferences.
 
 ### 3. Publish the Prepared PR
 
@@ -120,12 +76,16 @@ no material derived from `projects-emu/`.
 ```bash
 PR_BODY=$(mktemp)
 cat > "$PR_BODY" <<'EOF'
-<Use concise prose for a simple PR or the sectioned format above for a
-non-trivial PR. Replace all placeholders before publishing.>
+<Briefly explain the problem and resulting behavior.>
 
-Validation: <Checks actually run and their outcomes.>
+<Add only supporting context needed to assess the change, if any.>
+
+<Summarize relevant validation and material gaps in a sentence or two.>
 EOF
 ```
+
+Combine or omit optional paragraphs as appropriate, and replace all
+placeholders before publishing.
 
 If the branch needs publishing, push from this same worktree within the user's
 authorization and execution permissions:
@@ -154,12 +114,12 @@ Return the PR URL to the user.
 
 ## Example
 
-A small PR body can be one paragraph plus validation:
+A typical PR body:
 
 ```markdown
 Resolve the review diff against the PR's declared base branch so rocjitsu PRs
 are reviewed against develop. Reuse the branch's development worktree for
 follow-up fixes.
 
-Validation: checked the documented commands against the local worktree layout.
+Checked the documented commands against the local worktree layout.
 ```

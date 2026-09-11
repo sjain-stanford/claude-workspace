@@ -163,6 +163,10 @@ longer needs local follow-up.
 
 ## PR Preferences
 
+- Default to one to three short prose paragraphs, including for non-trivial
+  changes. Explain the problem, the resulting behavior, and relevant validation
+  concisely. Use headings only when requested or required by the repository's
+  template; include investigation details only when needed to assess the change.
 - Do not include a "Test Plan" section in pull request descriptions unless test coverage is not handled by CI.
 - Omit agent attribution footers from pull request descriptions and commit messages.
 
