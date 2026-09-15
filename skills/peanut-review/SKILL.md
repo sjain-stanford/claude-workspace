@@ -134,6 +134,8 @@ before running commands and keep it current.
 - [ ] Confirm the checkout is built/testable and reviewer-visible tools are
       reachable before launching reviewers.
 - [ ] Confirm project config and reviewer permissions are valid.
+- [ ] Prepare [optional local context](#optional-local-context) and verify its
+      prompt path when available; otherwise continue without it.
 - [ ] Launch reviewers and verify startup with `status`, logs, and
       `wait-all`.
 - [ ] Inspect failed runs and non-review agent reports promptly.
@@ -288,6 +290,31 @@ because it overrides all Shell allows.
 
 When build tools live outside the runner workspace, Cursor permissions must
 also allow the paths or commands reviewers are expected to use.
+
+### Optional Local Context
+
+Use the enclosing workspace's `$PR_BIN` to inject local context into reviewer
+and curator prompts, including reruns, custom templates, and automatic curation.
+
+The launcher discovers the nearest `LOCAL_CONTEXT.md` in the runner workspace
+or its parents. Keep this file gitignored in the enclosing workspace; it holds
+local instructions and routes to references at their original locations.
+Preserve existing files, including empty files that disable inherited context
+for a subtree. No separate path setting is needed. See
+[setup and path resolution](../../tools/peanut-review/README.md#local-reference-context).
+
+Unknown, missing, or unreadable context is optional: continue with tracked
+project instructions without asking for clarification or blocking the review.
+
+While the selected agents are idle, use `launch --dry-run` for reviewers or
+`curate --dry-run` for the curator. Check `$SESSION/prompts/<Agent>.md` for the
+`Optional local context` section, original absolute file path, and workspace
+root. Repeat when the workspace or context file changes. Dry runs rewrite
+prompts; agent execution logs establish whether the file was actually read.
+
+References stay at their original locations, separate from session storage.
+Prompts contain the path only; keep private mappings and contents out of tracked
+files and follow the references' handling rules. SSH reviewers omit local paths.
 
 ## GitHub PR Review
 

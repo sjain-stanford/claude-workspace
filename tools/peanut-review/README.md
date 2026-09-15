@@ -238,6 +238,25 @@ capability gateway while retaining the same reviewer CLI. Curator, web, and
 GitHub operations remain local. See [SSH reviewers](docs/ssh-reviewers.md) for
 the configuration, security boundary, lifecycle, and real localhost validation.
 
+### Local reference context
+
+Put optional local instructions and reference routing in `LOCAL_CONTEXT.md` at
+the enclosing workspace root. This workspace's `.gitignore` excludes the file.
+The launcher finds it directly in the runner workspace or its parents; no
+separate path setting is needed. The nearest file wins, and an empty file
+disables inherited context for that subtree.
+
+Each local reviewer and curator prompt receives the resolved absolute path and
+an instruction to read it once and follow its routing to relevant references.
+This applies to custom templates, reruns, and automatic curation; existing
+sessions discover the current file on their next launch. Reference contents stay
+in their original files. Follow their routing and private-material handling rules.
+
+Missing context does not block launch; an unreadable nearest file disables
+context for that subtree. SSH reviewer prompts omit local context paths.
+Use `launch --dry-run` or `curate --dry-run` while the selected agents are idle
+to inspect the rendered prompts.
+
 ## Flow: GitHub PR
 
 Use this for changes that came from GitHub.

@@ -53,7 +53,7 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 ## Optional Local Context
 
-At task start, read `projects-emu/LOCAL_CONTEXT.md` once if present, resolving
+At task start, read `LOCAL_CONTEXT.md` once if present, resolving
 the path from this workspace root even when working in a sub-repo or worktree.
 It describes available local knowledge sources and when to consult them.
 Follow its routing to relevant pages as needed; do not preload the collection.
