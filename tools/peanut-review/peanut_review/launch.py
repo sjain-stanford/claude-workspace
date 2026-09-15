@@ -480,8 +480,9 @@ def launch_agents(
 
     Returns list of {name, pid, cmd} dicts.
     """
-    session = load_session(session_dir)
-    sdir = Path(session_dir)
+    # Prompts and subprocess arguments must remain valid in the runner workspace.
+    sdir = Path(session_dir).resolve()
+    session = load_session(sdir)
     agents = _select_agents(session.agents, agent_names)
     remote_agents = [agent for agent in agents if agent.ssh_target]
     for agent in remote_agents:
@@ -526,7 +527,7 @@ def launch_agents(
     }
 
     prompts = render_all_prompts(
-        session_dir,
+        sdir,
         template_path,
         agent_names=agent_names,
         remote_launch_ids=remote_launch_ids,

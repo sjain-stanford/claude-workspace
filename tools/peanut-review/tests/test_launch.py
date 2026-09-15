@@ -570,6 +570,68 @@ def test_launch_uses_python_supervisor_for_non_dry_run():
     assert stored.agents[0].supervisor_pid == 424242
 
 
+@pytest.mark.parametrize("launch_method", ["launch_agents", "launch_curator", "rerun_agents"])
+def test_relative_session_survives_supervisor_workspace_change(tmp_path, monkeypatch, launch_method):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    sd = _make_session_dir([
+        AgentConfig(name="vera", model="test-model", persona="vera.md", runner="codex"),
+        AgentConfig(
+            name="Curator", model="test-model", runner="codex",
+            role=AgentRole.CURATOR.value,
+        ),
+    ], workspace=str(workspace))
+    monkeypatch.chdir(Path(sd).parent)
+    monkeypatch.setenv("PYTHONPATH", str(Path(launch.__file__).resolve().parent.parent))
+
+    wrapper = tmp_path / "runner.py"
+    wrapper.write_text(f"#!{sys.executable}\n" + """
+import argparse
+import os
+from pathlib import Path
+from peanut_review import polling, session
+
+parser = argparse.ArgumentParser()
+for flag in ("--workspace", "--output-dir", "--prompt-file", "--name"):
+    parser.add_argument(flag, required=True)
+args, _ = parser.parse_known_args()
+sdir = Path(os.environ["PEANUT_SESSION"])
+assert sdir.is_absolute()
+assert Path.cwd() == Path(args.workspace)
+assert session.load_session(sdir).workspace == args.workspace
+assert Path(args.output_dir) == sdir / "log"
+assert Path(args.prompt_file) == sdir / "prompts" / f"{args.name}.md"
+prompt = Path(args.prompt_file).read_text()
+assert f"--session {sdir}" in prompt
+if args.name == "vera":
+    assert str(sdir / "personas" / "vera.md") in prompt
+polling.write_signal(sdir, args.name, "round-done")
+""")
+    wrapper.chmod(0o755)
+    monkeypatch.setattr(launch, "_find_launcher_script", lambda runner: str(wrapper))
+    original_popen = subprocess.Popen
+    processes = []
+
+    def record_popen(*args, **kwargs):
+        proc = original_popen(*args, **kwargs)
+        processes.append(proc)
+        return proc
+
+    monkeypatch.setattr(launch.subprocess, "Popen", record_popen)
+    try:
+        kwargs = {"agent_names": ["vera"]} if launch_method == "rerun_agents" else {}
+        [result] = getattr(launch, launch_method)("session", **kwargs)
+        for proc in processes:
+            assert proc.wait(timeout=10) == 0, (Path(sd) / "log" / f"{result['name']}.log").read_text()
+        assert (Path(sd) / "signals" / f"{result['name']}.round-done").exists()
+        assert not (workspace / "session").exists()
+    finally:
+        for proc in processes:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+
 def test_rerun_resets_only_selected_agent_round_state():
     from peanut_review import polling, runtime, session as sess
 
