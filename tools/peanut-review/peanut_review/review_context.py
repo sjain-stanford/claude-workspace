@@ -46,7 +46,7 @@ def discover(workspace: str | Path) -> ReviewContext | None:
             value = config.read_text().strip()
         except FileNotFoundError:
             continue
-        except OSError:
+        except (OSError, UnicodeError):
             return None
         if not value:
             return None

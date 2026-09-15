@@ -92,6 +92,25 @@ def test_unavailable_context_is_optional(context_workspace, monkeypatch, kind):
     assert review_context.discover(repo) is None
 
 
+@pytest.mark.parametrize("setting", ["context.md".encode("utf-16"), b"\xffcontext.md"],
+                         ids=["utf16", "invalid_utf8"])
+def test_undecodable_setting_does_not_block_prompt_rendering(context_workspace, tmp_path, setting):
+    _, repo, _ = context_workspace
+    (repo / review_context.CONFIG_NAME).write_bytes(setting)
+    session_dir = tmp_path / "session"
+    create_session(
+        workspace=str(repo), base_ref="HEAD", session_dir=str(session_dir),
+        agents=[
+            {"name": "Vera", "persona": "vera.md", "model": "test", "runner": "codex"},
+            {"name": "Curator", "role": "curator", "model": "test", "runner": "codex"},
+        ],
+    )
+    prompts = launch.render_all_prompts(session_dir, agent_names=["Vera", "Curator"])
+    assert set(prompts) == {"Vera", "Curator"}
+    for prompt in prompts.values():
+        assert "# Optional local context" not in prompt.read_text()
+
+
 def test_rendered_read_command_quotes_path_and_tolerates_disappearance(tmp_path):
     source = tmp_path / "space ' $(touch SENTINEL) `touch SENTINEL`.md"
     source.write_text("only this content\n")
