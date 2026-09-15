@@ -8,6 +8,8 @@ from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from peanut_review.cli import main
 from peanut_review import session as sess, models, store
 
@@ -194,7 +196,8 @@ def test_rerun_dry_run_targets_agent_without_clearing_signals():
     assert (Path(sd) / "signals" / "irene.round-done").exists()
 
 
-def test_wait_all_github_round_done_auto_launches_curator():
+@pytest.mark.parametrize("session_source", ["absolute", "relative", "environment"])
+def test_wait_all_github_round_done_auto_launches_curator(monkeypatch, session_source):
     from peanut_review import polling
 
     sd = os.path.join(tempfile.mkdtemp(prefix="pr-test-"), "session")
@@ -213,6 +216,13 @@ def test_wait_all_github_round_done_auto_launches_curator():
             include_curator=True,
         )
     polling.write_signal(sd, "vera", "round-done")
+    monkeypatch.chdir(Path(sd).parent)
+    session_args = ["--session", sd]
+    if session_source == "relative":
+        session_args = ["--session", "session"]
+    elif session_source == "environment":
+        monkeypatch.setenv("PEANUT_SESSION", "session")
+        session_args = []
 
     def fake_launch_curator(session_dir, **_kwargs):
         assert session_dir == sd
@@ -224,7 +234,7 @@ def test_wait_all_github_round_done_auto_launches_curator():
         patch("peanut_review.launch.launch_curator", side_effect=fake_launch_curator) as mocked,
         redirect_stdout(out),
     ):
-        rc = main(["--session", sd, "wait-all", "round-done", "--timeout", "1", "--poll", "0.01"])
+        rc = main([*session_args, "wait-all", "round-done", "--timeout", "1", "--poll", "0.01"])
 
     assert rc == 0
     mocked.assert_called_once_with(sd)

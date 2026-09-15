@@ -15,7 +15,7 @@ from . import curator, models, polling, runtime, session as sess, store, validat
 
 
 def _get_session_dir(args: argparse.Namespace) -> str:
-    """Resolve session directory from --session flag or environment."""
+    """Return an absolute session directory from --session or the environment."""
     d = getattr(args, "session", None) or os.environ.get("PEANUT_SESSION")
     if not d:
         print("Error: --session or $PEANUT_SESSION required", file=sys.stderr)
@@ -23,7 +23,7 @@ def _get_session_dir(args: argparse.Namespace) -> str:
     if not Path(d).exists():
         print(f"Error: session directory does not exist: {d}", file=sys.stderr)
         sys.exit(1)
-    return d
+    return str(Path(d).resolve())
 
 
 def _get_author(args: argparse.Namespace) -> str:
