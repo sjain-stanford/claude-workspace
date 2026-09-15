@@ -240,21 +240,22 @@ the configuration, security boundary, lifecycle, and real localhost validation.
 
 ### Local reference context
 
-Create `.peanut-review-context` in the enclosing workspace with one context-file
-path, such as `private/context.md`. This workspace's `.gitignore` excludes the
-setting. Paths may be absolute or relative to the setting's directory. The
-nearest setting in the runner workspace or its parents wins; an empty setting
-disables context for that subtree.
+Put optional local instructions and reference routing in `LOCAL_CONTEXT.md` at
+the enclosing workspace root. This workspace's `.gitignore` excludes the file.
+The launcher finds it directly in the runner workspace or its parents; no
+separate path setting is needed. The nearest file wins, and an empty file
+disables inherited context for that subtree.
 
 Each local reviewer and curator prompt receives the resolved absolute path and
 an instruction to read it once and follow its routing to relevant references.
 This applies to custom templates, reruns, and automatic curation; existing
-sessions use the current setting on their next launch. Reference contents stay
+sessions discover the current file on their next launch. Reference contents stay
 in their original files. Follow their routing and private-material handling rules.
 
-Missing or unreadable settings and context files are skipped. SSH reviewer
-prompts omit local context paths. Use `launch --dry-run` or `curate --dry-run`
-while the selected agents are idle to inspect the rendered prompts.
+Missing context does not block launch; an unreadable nearest file disables
+context for that subtree. SSH reviewer prompts omit local context paths.
+Use `launch --dry-run` or `curate --dry-run` while the selected agents are idle
+to inspect the rendered prompts.
 
 ## Flow: GitHub PR
 

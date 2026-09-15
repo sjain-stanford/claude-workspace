@@ -1,6 +1,7 @@
-"""Optional file pointers reach every local launch without worktree mutations."""
+"""Optional workspace context reaches local launches without worktree mutations."""
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,16 +18,14 @@ def git(repo: Path, *args: str) -> str:
 
 @pytest.fixture
 def context_workspace(tmp_path):
-    root = tmp_path / "workspace"
+    root = tmp_path / "workspace with spaces"
     repo = root / "repo"
     repo.mkdir(parents=True)
     git(repo, "init", "-q", "-b", "main")
     git(repo, "-c", "user.name=Test", "-c", "user.email=test@example.com",
         "commit", "-q", "--allow-empty", "-m", "base")
-    source = root / "private references" / "context.md"
-    source.parent.mkdir()
+    source = root / "LOCAL_CONTEXT.md"
     source.write_text("Private routing instructions stay in this file.\n")
-    (root / review_context.CONFIG_NAME).write_text("private references/context.md\n")
     return root, repo, source
 
 
@@ -46,45 +45,40 @@ def test_linked_worktree_inherits_original_path_without_mutation(context_workspa
     assert exclude.read_bytes() == before
 
 
-@pytest.mark.parametrize("kind", ["absolute", "relative", "home"])
-def test_path_resolution(context_workspace, monkeypatch, kind):
+def test_context_is_discovered_directly_without_a_setting(context_workspace, monkeypatch):
     root, repo, source = context_workspace
-    monkeypatch.setenv("HOME", str(root))
-    value = {"absolute": str(source), "relative": "private references/context.md",
-             "home": "~/private references/context.md"}[kind]
-    (root / review_context.CONFIG_NAME).write_text(value + "\n")
+    assert review_context.discover(root).source == source
     assert review_context.discover(repo).source == source
+    monkeypatch.chdir(root)
+    assert review_context.discover("repo").source == source
 
 
-def test_nearest_setting_and_empty_opt_out(context_workspace):
+def test_symlink_context_preserves_original_location(context_workspace):
     root, repo, source = context_workspace
-    local = repo / review_context.CONFIG_NAME
-    local.write_text(str(source))
-    assert review_context.discover(repo).root == repo
-    local.write_text("")
-    assert review_context.discover(repo) is None
+    original = root / "references" / "context.md"
+    original.parent.mkdir()
+    source.rename(original)
+    source.symlink_to(original)
+    context = review_context.discover(repo)
+    assert context.root == root
+    assert context.source == original
 
 
-@pytest.mark.parametrize("kind", ["unconfigured", "empty", "missing", "directory", "broken_link", "unreadable_file", "unreadable_setting"])
-def test_unavailable_context_is_optional(context_workspace, monkeypatch, kind):
-    root, repo, source = context_workspace
-    config = root / review_context.CONFIG_NAME
-    if kind == "unconfigured":
-        config.unlink()
-    elif kind == "empty":
-        config.write_text("\n")
-    elif kind in ("missing", "directory", "broken_link"):
-        source.unlink()
-        if kind == "directory":
-            source.mkdir()
-        elif kind == "broken_link":
-            source.symlink_to(root / "missing.md")
+@pytest.mark.parametrize("kind", ["empty", "unreadable"])
+def test_nearest_file_can_disable_inherited_context(context_workspace, monkeypatch, kind):
+    _, repo, _ = context_workspace
+    local = repo / "LOCAL_CONTEXT.md"
+    local.write_text("Local instructions override the parent context.\n")
+    context = review_context.discover(repo)
+    assert context.root == repo
+    assert context.source == local
+    if kind == "empty":
+        local.write_text("")
     else:
-        target = source if kind == "unreadable_file" else config
         original_open = Path.open
 
         def denied_open(path, *args, **kwargs):
-            if path == target:
+            if path == local:
                 raise PermissionError("test access denied")
             return original_open(path, *args, **kwargs)
 
@@ -92,11 +86,31 @@ def test_unavailable_context_is_optional(context_workspace, monkeypatch, kind):
     assert review_context.discover(repo) is None
 
 
-@pytest.mark.parametrize("setting", ["context.md".encode("utf-16"), b"\xffcontext.md"],
-                         ids=["utf16", "invalid_utf8"])
-def test_undecodable_setting_does_not_block_prompt_rendering(context_workspace, tmp_path, setting):
-    _, repo, _ = context_workspace
-    (repo / review_context.CONFIG_NAME).write_bytes(setting)
+@pytest.mark.parametrize("kind", ["empty", "missing", "directory", "fifo", "broken_link", "symlink_loop", "unreadable_file"])
+def test_unavailable_context_does_not_block_rendering(context_workspace, tmp_path, monkeypatch, kind):
+    root, repo, source = context_workspace
+    if kind == "empty":
+        source.write_text("")
+    elif kind in ("missing", "directory", "fifo", "broken_link", "symlink_loop"):
+        source.unlink()
+        if kind == "directory":
+            source.mkdir()
+        elif kind == "fifo":
+            os.mkfifo(source)
+        elif kind == "broken_link":
+            source.symlink_to(root / "missing.md")
+        elif kind == "symlink_loop":
+            source.symlink_to(source)
+    else:
+        original_open = Path.open
+
+        def denied_open(path, *args, **kwargs):
+            if path == source:
+                raise PermissionError("test access denied")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", denied_open)
+    assert review_context.discover(repo) is None
     session_dir = tmp_path / "session"
     create_session(
         workspace=str(repo), base_ref="HEAD", session_dir=str(session_dir),

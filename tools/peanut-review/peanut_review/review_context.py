@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-CONFIG_NAME = ".peanut-review-context"
+CONTEXT_NAME = "LOCAL_CONTEXT.md"
 
 
 @dataclass(frozen=True)
@@ -33,33 +33,24 @@ class ReviewContext:
 
 
 def discover(workspace: str | Path) -> ReviewContext | None:
-    """Read the nearest local path setting, relative to its enclosing workspace.
+    """Find optional context in the workspace or its parents.
 
-    The setting contains one file path, not the reference contents. An empty or
-    unavailable setting/target disables optional context for this workspace.
+    The nearest file wins; an empty or unreadable file disables inherited context.
     Discovery never changes the worktree, Git exclusions, or reference files.
     """
     root = Path(workspace).resolve()
     for directory in (root, *root.parents):
-        config = directory / CONFIG_NAME
+        source = directory / CONTEXT_NAME
         try:
-            value = config.read_text().strip()
-        except FileNotFoundError:
-            continue
-        except (OSError, UnicodeError):
-            return None
-        if not value:
-            return None
-        try:
-            source = Path(value).expanduser()
-            if not source.is_absolute():
-                source = directory / source
             source = source.resolve(strict=True)
             if not source.is_file():
                 return None
             with source.open("rb") as stream:
-                stream.read(1)
-        except (OSError, RuntimeError, ValueError):
+                if not stream.read(1):
+                    return None
+        except FileNotFoundError:
+            continue
+        except (OSError, RuntimeError):
             return None
         return ReviewContext(root=directory, source=source)
     return None
