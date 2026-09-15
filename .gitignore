@@ -19,6 +19,9 @@ plans/*
 # Ignore machine-specific Claude settings.
 .claude/settings.local.json
 
+# Ignore local review context paths.
+.peanut-review-context
+
 # Ignore beads local issue tracker.
 .beads/
 

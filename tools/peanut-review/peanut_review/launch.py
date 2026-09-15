@@ -11,7 +11,7 @@ from pathlib import Path
 from string import Template
 from typing import Sequence
 
-from . import curator, store
+from . import curator, review_context, store
 from .models import AgentStatus
 from .session import (
     load_session,
@@ -160,6 +160,7 @@ def render_all_prompts(
     """
     session = load_session(session_dir)
     agents = _select_agents(session.agents, agent_names)
+    context = review_context.discover(session.workspace)
     sdir = Path(session_dir)
     prompts_dir = sdir / "prompts"
     prompts_dir.mkdir(exist_ok=True)
@@ -242,6 +243,8 @@ def render_all_prompts(
         }
         tpl = _resolve_template(template_path, agent)
         rendered = render_prompt(tpl, variables)
+        if context and not agent.ssh_target:
+            rendered += context.prompt()
         prompt_path = prompts_dir / f"{agent.name}.md"
         prompt_path.write_text(rendered)
         result[agent.name] = prompt_path

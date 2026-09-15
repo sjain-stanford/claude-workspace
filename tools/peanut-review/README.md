@@ -238,6 +238,24 @@ capability gateway while retaining the same reviewer CLI. Curator, web, and
 GitHub operations remain local. See [SSH reviewers](docs/ssh-reviewers.md) for
 the configuration, security boundary, lifecycle, and real localhost validation.
 
+### Local reference context
+
+Create `.peanut-review-context` in the enclosing workspace with one context-file
+path, such as `private/context.md`. This workspace's `.gitignore` excludes the
+setting. Paths may be absolute or relative to the setting's directory. The
+nearest setting in the runner workspace or its parents wins; an empty setting
+disables context for that subtree.
+
+Each local reviewer and curator prompt receives the resolved absolute path and
+an instruction to read it once and follow its routing to relevant references.
+This applies to custom templates, reruns, and automatic curation; existing
+sessions use the current setting on their next launch. Reference contents stay
+in their original files. Follow their routing and private-material handling rules.
+
+Missing or unreadable settings and context files are skipped. SSH reviewer
+prompts omit local context paths. Use `launch --dry-run` or `curate --dry-run`
+while the selected agents are idle to inspect the rendered prompts.
+
 ## Flow: GitHub PR
 
 Use this for changes that came from GitHub.
