@@ -51,6 +51,21 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 - `AGENTS.md` - Top-level instructions shared with agents (symlink to CLAUDE.md)
 - `README.md` - Human-facing workspace overview and setup guide
 
+## Optional Local Context
+
+At task start, read `projects-emu/LOCAL_CONTEXT.md` once if present, resolving
+the path from this workspace root even when working in a sub-repo or worktree.
+It describes available local knowledge sources and when to consult them.
+Follow its routing to relevant pages as needed; do not preload the collection.
+If the file is absent, continue with the tracked project instructions.
+
+Keep private source names, paths, contents, and derived details in gitignored
+local files. Do not copy them into tracked instructions, skills, examples,
+public artifacts, or external searches. Public work requires independently
+established public evidence; removing names does not make private material
+public. The existing `projects-emu/` confidentiality rules apply to all local
+references.
+
 ## Skills
 
 - `skills/rocjitsu-project/` - rocjitsu architecture, subsystem ownership, and engineering practices
