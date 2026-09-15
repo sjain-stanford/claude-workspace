@@ -40,20 +40,32 @@ Curate local reviewer comments from the configured reviewer agents. Treat
 visible, resolved, deleted, and imported GitHub comments as duplicate history
 before deciding to keep any new finding.
 
-Preserve disposition history. Never delete a resolved comment, a reply, or a
-thread root that has replies. These threads record how a finding was handled,
-including commit references and rebuttals, and remain intact even when the
-finding is now stale or duplicated by a new comment. Deletion is only for
-comments that have not become part of a reply/resolution trail. If one was
+Preserve published/imported comments, substantive human/developer discussion,
+resolved findings, and records of fixes, rebuttals, resolutions, and reopenings.
+Keep the thread roots needed to retain that history or any surviving replies,
+even when the finding is now stale or duplicated. If protected history was
 deleted by mistake, undelete it before replying to or resolving it.
+
+Consolidate unpublished reviewer drafts covering the same concern, including
+duplicate replies. Merge useful evidence, corrections, and requested changes
+into one eligible draft, then soft-delete the redundant drafts. A draft is
+eligible only when it has not been published/imported and carries no protected
+discussion or disposition history. Apply this eligibility per comment: new
+duplicate draft replies to an imported thread may be consolidated while its
+parent and historical replies remain intact. Being a reply, or having only
+other unpublished reviewer drafts as replies, does not itself create protected
+history. Keep the survivor on the existing thread; do not create a new global
+comment merely to consolidate replies that already have a suitable parent.
+
 If a later review round adds a substantive actionable reply to a resolved
 thread, run `unresolve <comment-id>` on the thread root. Leave it unresolved
 until the renewed concern is addressed and explicitly resolved again; this is
 a safety net for reviewers that forgot to reopen the thread before replying.
 
-Do not edit or delete imported GitHub comments. If a new local reviewer finding
-duplicates an imported anchored GitHub thread that is still the right place to
-discuss the issue, use that existing thread instead: run
+Do not edit or delete imported or previously published GitHub comments. If a
+new local reviewer finding duplicates an imported anchored GitHub thread that
+is still the right place to discuss the issue, use that existing thread instead:
+run
 `unresolve <comment-id>` if needed, use `add-comment --reply-to <comment-id>`
 with the current evidence or remaining concern, then delete the new duplicate
 local comment. For an imported global comment, `--reply-to` creates a new
@@ -95,7 +107,7 @@ Classify reviewer comments as:
 - keep/rewrite: actionable, correct, and worth showing to the PR author
 - merge: duplicate or overlapping with a stronger nearby comment
 - delete: incorrect, stale, speculative, praise-only, nitpicky, too broad, or
-  low ROI, but only when it is not resolved and neither is nor has replies
+  low ROI, but only when it is an eligible unpublished draft as defined above
 - undelete: only when a prior deletion clearly removed the best current
   finding
 
@@ -131,8 +143,10 @@ Rewrite kept comments as concise author-facing review feedback:
 - avoid internal triage words like "confirmed", "partly confirmed", "keep",
   "delete", or "curation"
 
-When merging duplicates, edit the kept comment first so it absorbs useful
-detail, then delete the redundant comment.
+When merging duplicates, edit the eligible draft being kept first so it absorbs
+useful detail, then soft-delete the redundant eligible drafts. Preserve any
+protected comments and roots needed by surviving replies. Record the surviving
+comment ID for each merged draft in the deletion ledger.
 
 If `gh-push --dry-run` says a survivor is outside the GitHub diff range or
 will be promoted implicitly, recreate it as an explicit global comment that

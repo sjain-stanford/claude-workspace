@@ -105,11 +105,17 @@ author-facing comment set. Do not perform curation in the driver:
   voice. Preserve its wording. Put any user-requested curation corrections or
   operational problems in an `Orchestrator` report for a subsequent curator
   pass instead of editing the findings yourself.
-- Preserve disposition history: never delete a resolved comment, a reply, or
-  a thread root with replies. Have the curator restore mistaken deletions and
-  reopen resolved threads with renewed actionable reviewer concerns. Leave
-  imported GitHub comments alone unless the discussion is actually resolved
-  or the user asks you to manage it.
+- Preserve published/imported discussion and local fix, rebuttal, resolution,
+  and reopening history, including the thread roots needed to retain it.
+  Unpublished reviewer drafts covering the same concern may be consolidated,
+  including new replies to an imported thread. Have the curator merge useful
+  evidence, corrections, and requested changes into one eligible draft, then
+  soft-delete redundant drafts that carry no protected history. Being a reply
+  does not by itself make a draft protected history. Keep distinct concerns
+  separate, and record the surviving comment ID for each merged draft. Have the
+  curator restore mistaken deletions and reopen resolved threads with renewed
+  actionable concerns. Leave imported GitHub comments alone unless the
+  discussion is actually resolved or the user asks you to manage it.
 - For GitHub-backed sessions, finish with `gh-push --dry-run`. Treat it as
   authoritative for what will surface and whether anchors are pushable. If an
   anchor is out of range, report it to the curator for repair and repeat the
@@ -429,9 +435,12 @@ enough.
    follow the updated snapshot. Then reply to and resolve comments addressed by
    the commit; keep genuinely outstanding comments unresolved. Do not delete
    addressed comments after resolving them: the comment, its commit reply, and
-   any other replies are the iteration's audit trail. On later curator passes,
-   preserve every resolved comment, every reply, and every thread root with
-   replies even when the finding is now stale or duplicated by a new comment.
+   substantive fix/rebuttal replies are the iteration's audit trail. On later
+   curator passes, preserve resolved findings and their fix, rebuttal,
+   resolution, and reopening history, including the necessary thread roots,
+   even when the finding is now stale or duplicated. Unpublished duplicate
+   reviewer drafts that carry no such history remain eligible for consolidation
+   under the curation rules above.
    If a later reviewer finds that a resolved concern still applies, that
    reviewer must `unresolve <c_id>` before replying on the existing thread.
    Keep the reopened thread unresolved until the new concern has been fixed or
