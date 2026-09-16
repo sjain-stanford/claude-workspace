@@ -40,22 +40,25 @@ Curate local reviewer comments from the configured reviewer agents. Treat
 visible, resolved, deleted, and imported GitHub comments as duplicate history
 before deciding to keep any new finding.
 
-Preserve published/imported comments, substantive human/developer discussion,
-resolved findings, and records of fixes, rebuttals, resolutions, and reopenings.
-Keep the thread roots needed to retain that history or any surviving replies,
-even when the finding is now stale or duplicated. If protected history was
-deleted by mistake, undelete it before replying to or resolving it.
+Default to consolidating unpublished reviewer comments that repeat the same
+concern or outcome. A comment's age, resolved status, reply relationship, or
+mention of a fix does not by itself require keeping it. Merge useful evidence,
+corrections, and requested changes into one draft, then soft-delete redundant
+comments. Apply this cleanup automatically during curation.
 
-Consolidate unpublished reviewer drafts covering the same concern, including
-duplicate replies. Merge useful evidence, corrections, and requested changes
-into one eligible draft, then soft-delete the redundant drafts. A draft is
-eligible only when it has not been published/imported and carries no protected
-discussion or disposition history. Apply this eligibility per comment: new
-duplicate draft replies to an imported thread may be consolidated while its
-parent and historical replies remain intact. Being a reply, or having only
-other unpublished reviewer drafts as replies, does not itself create protected
-history. Keep the survivor on the existing thread; do not create a new global
-comment merely to consolidate replies that already have a suitable parent.
+Keep published/imported comments and substantive human/developer discussion
+intact, including the parent comments needed to understand retained replies.
+For other local reviewer history, preserve unique evidence, commit references,
+decisions, and unresolved disagreements in the surviving comment or curation
+report before deleting a redundant record. If a necessary parent or substantive
+discussion was deleted by mistake, restore it.
+
+Routine acknowledgments such as "the fix works", "tests pass", or "no remaining
+concerns" should usually become at most one reply per issue. Delete them all
+when they add no useful information. Several unpublished acknowledgments under
+a published thread do not each need preservation; keep the published thread
+and any useful consolidated response. Keep the survivor on the existing thread
+when it has a suitable parent.
 
 If a later review round adds a substantive actionable reply to a resolved
 thread, run `unresolve <comment-id>` on the thread root. Leave it unresolved
@@ -107,7 +110,7 @@ Classify reviewer comments as:
 - keep/rewrite: actionable, correct, and worth showing to the PR author
 - merge: duplicate or overlapping with a stronger nearby comment
 - delete: incorrect, stale, speculative, praise-only, nitpicky, too broad, or
-  low ROI, but only when it is an eligible unpublished draft as defined above
+  low ROI, subject to the publication and discussion preservation limits above
 - undelete: only when a prior deletion clearly removed the best current
   finding
 
@@ -143,10 +146,10 @@ Rewrite kept comments as concise author-facing review feedback:
 - avoid internal triage words like "confirmed", "partly confirmed", "keep",
   "delete", or "curation"
 
-When merging duplicates, edit the eligible draft being kept first so it absorbs
-useful detail, then soft-delete the redundant eligible drafts. Preserve any
-protected comments and roots needed by surviving replies. Record the surviving
-comment ID for each merged draft in the deletion ledger.
+When merging duplicates, edit the draft being kept first so it absorbs useful
+detail, then soft-delete the redundant local reviewer comments. Keep parents
+needed by retained replies. Record the surviving comment ID for each merged
+comment in the deletion ledger.
 
 If `gh-push --dry-run` says a survivor is outside the GitHub diff range or
 will be promoted implicitly, recreate it as an explicit global comment that

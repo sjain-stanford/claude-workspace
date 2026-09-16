@@ -105,16 +105,18 @@ author-facing comment set. Do not perform curation in the driver:
   voice. Preserve its wording. Put any user-requested curation corrections or
   operational problems in an `Orchestrator` report for a subsequent curator
   pass instead of editing the findings yourself.
-- Preserve published/imported discussion and local fix, rebuttal, resolution,
-  and reopening history, including the thread roots needed to retain it.
-  Unpublished reviewer drafts covering the same concern may be consolidated,
-  including new replies to an imported thread. Have the curator merge useful
-  evidence, corrections, and requested changes into one eligible draft, then
-  soft-delete redundant drafts that carry no protected history. Being a reply
-  does not by itself make a draft protected history. Keep distinct concerns
-  separate, and record the surviving comment ID for each merged draft. Have the
-  curator restore mistaken deletions and reopen resolved threads with renewed
-  actionable concerns. Leave imported GitHub comments alone unless the
+- Keep published/imported comments and substantive human/developer discussion
+  intact, including necessary parent comments. The curator should automatically
+  consolidate unpublished reviewer comments covering the same concern or
+  outcome, including resolved comments, old replies, and fix acknowledgments.
+  None of those properties alone requires preservation. Before soft-deleting
+  redundant records, retain unique evidence, commit references, decisions, and
+  unresolved disagreements in the survivor or curation report. Routine "fixed"
+  or "tests pass" acknowledgments usually need at most one reply per issue and
+  can all be deleted when they add no useful information. Keep distinct concerns
+  separate and record the survivor for each merge. Have the curator restore
+  necessary discussion deleted by mistake and reopen threads with renewed
+  actionable concerns. Leave imported GitHub thread state alone unless the
   discussion is actually resolved or the user asks you to manage it.
 - For GitHub-backed sessions, finish with `gh-push --dry-run`. Treat it as
   authoritative for what will surface and whether anchors are pushable. If an
@@ -460,14 +462,11 @@ enough.
 
 4. After the commit, migrate the session to the new `HEAD` so comment anchors
    follow the updated snapshot. Then reply to and resolve comments addressed by
-   the commit; keep genuinely outstanding comments unresolved. Do not delete
-   addressed comments after resolving them: the comment, its commit reply, and
-   substantive fix/rebuttal replies are the iteration's audit trail. On later
-   curator passes, preserve resolved findings and their fix, rebuttal,
-   resolution, and reopening history, including the necessary thread roots,
-   even when the finding is now stale or duplicated. Unpublished duplicate
-   reviewer drafts that carry no such history remain eligible for consolidation
-   under the curation rules above.
+   the commit; keep genuinely outstanding comments unresolved. Leave comment
+   cleanup to the curator under the rules above. Preserve the substantive
+   commit/fix/rebuttal discussion and necessary parent comments, while allowing
+   the curator to consolidate redundant local reviewer records and routine
+   acknowledgments even when they are resolved or from an earlier round.
    If a later reviewer finds that a resolved concern still applies, that
    reviewer must `unresolve <c_id>` before replying on the existing thread.
    Keep the reopened thread unresolved until the new concern has been fixed or
