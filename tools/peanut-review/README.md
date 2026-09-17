@@ -238,6 +238,36 @@ capability gateway while retaining the same reviewer CLI. Curator, web, and
 GitHub operations remain local. See [SSH reviewers](docs/ssh-reviewers.md) for
 the configuration, security boundary, lifecycle, and real localhost validation.
 
+### Prompt context
+
+Every GitHub-backed reviewer and curator prompt includes the saved PR title,
+full description, repository/number, and URL. This also applies to custom
+templates, reruns, automatic curation, and SSH reviewers. Author-supplied text
+is marked as review context whose claims need verification.
+
+`start` and `init --gh-pr` capture this metadata. `sync-pr` or
+`start --reuse --sync` refresh it, including description-only changes. Launching
+agents renders the saved metadata without fetching GitHub. Older sessions show
+that the description was not captured until synchronized; an empty GitHub
+description is identified separately. Local sessions without a PR omit this
+section. Existing prompt files and running agents are unchanged until the next
+launch or rerun.
+
+The default reviewer prompt also includes workspace/repository paths and layout,
+detected build directories, compilation database and venv paths, diff commands,
+and a command to read the copied persona file. It tells reviewers to load prior
+comments/rebuttals, post structured findings, run relevant tests and report them,
+and signal completion. The default curator prompt includes workspace/repository
+paths, the reviewer lineup and curation baseline, commands to read visible and
+deleted comments and preview GitHub publication, and rules for validating,
+deduplicating, rewriting, and reporting curation decisions.
+
+Diffs, source files, persona contents, and comment history are read by the agents
+using those commands; they are not embedded in the prompt. Agent reports/notes
+are not automatically included or requested. Custom templates replace the role
+instructions; the launcher still appends PR metadata and optional local context.
+Rendered prompts are saved in `<session>/prompts/<Agent>.md`.
+
 ### Local reference context
 
 Put optional local instructions and reference routing in `LOCAL_CONTEXT.md` at
