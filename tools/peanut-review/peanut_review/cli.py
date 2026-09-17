@@ -132,6 +132,7 @@ def _github_pr_from_info(
         head_sha=head_sha or pr_info.head_sha,
         base_sha=base_sha or pr_info.base_sha,
         title=pr_info.title,
+        body=pr_info.body,
         head_ref_name=pr_info.head_ref_name,
         hostname=pr_info.hostname,
         account=pr_info.account,

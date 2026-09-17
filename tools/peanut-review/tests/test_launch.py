@@ -236,6 +236,8 @@ def test_launch_dry_run_mixed_runners():
 
 
 def test_launch_dry_run_mixed_local_and_ssh_uses_remote_prompt_paths(tmp_path):
+    from peanut_review.session import load_session, save_session
+
     workspace = _workspace_with_cursor_config(tmp_path)
     target = {
         "host": "reviewer@docs-host",
@@ -254,11 +256,15 @@ def test_launch_dry_run_mixed_local_and_ssh_uses_remote_prompt_paths(tmp_path):
             ssh_target="docs-host",
         ),
     ], workspace=workspace, ssh_targets={"docs-host": target})
+    session = load_session(sd)
+    session.github = GitHubPR(title="Remote review context", body="Scope for both reviewers.")
+    save_session(sd, session)
     (Path(sd) / "personas").mkdir(exist_ok=True)
     (Path(sd) / "personas" / "vera.md").write_text("local")
     (Path(sd) / "personas" / "felix.md").write_text("remote")
 
-    results = launch.launch_agents(sd, dry_run=True)
+    with patch("peanut_review.session._run_git", side_effect=_mock_git):
+        results = launch.launch_agents(sd, dry_run=True)
 
     assert results[0]["cmd"][0].endswith("codex-agent-task.sh")
     assert results[1]["transport"] == "ssh"
@@ -267,6 +273,9 @@ def test_launch_dry_run_mixed_local_and_ssh_uses_remote_prompt_paths(tmp_path):
     assert not (Path(sd) / "runtime" / "gateway").exists()
     local_prompt = (Path(sd) / "prompts" / "local.md").read_text()
     remote_prompt = (Path(sd) / "prompts" / "remote.md").read_text()
+    for prompt in (local_prompt, remote_prompt):
+        assert "Title: Remote review context" in prompt
+        assert "Scope for both reviewers." in prompt
     assert f"--session {sd}" in local_prompt
     assert "--session peanut://" in remote_prompt
     assert "Workspace: `/srv/review workspace`" in remote_prompt
@@ -852,6 +861,55 @@ def test_agents_use_cli_prompt_template():
     # CLI template self-identifies by instructing the agent to execute shell commands.
     assert "Shell tool" in cursor_rendered
     assert "Shell tool" in rendered
+    assert "# Pull request context" not in cursor_rendered
+    assert "# Pull request context" not in rendered
+
+
+@pytest.mark.parametrize("custom_template", [False, True])
+@pytest.mark.parametrize("body", [
+    None, "", "Preserve ${AGENT}, $HOME, and `code`.\n\n```sh\necho example\n```\n",
+])
+def test_pr_context_reaches_reviewers_and_curator(tmp_path, custom_template, body):
+    from peanut_review.session import load_session, save_session
+
+    sd = _make_session_dir([
+        AgentConfig(name="Vera", model="test", persona="vera.md", runner="codex"),
+        AgentConfig(name="Curator", model="test", role="curator", runner="codex"),
+    ])
+    # Legacy sessions have no body key; empty descriptions must stay distinct.
+    session = load_session(sd)
+    metadata = {
+        "repo": "acme/foo", "number": 42,
+        "url": "https://github.com/acme/foo/pull/42",
+        "title": "Fix ${AGENT} handling — preserve `literal` text",
+    }
+    if body is not None:
+        metadata["body"] = body
+    session.github = GitHubPR.from_dict(metadata)
+    save_session(sd, session)
+    assert load_session(sd).github.body == body
+    template = None
+    if custom_template:
+        template = tmp_path / "custom.md"
+        template.write_text("Custom instructions for ${AGENT}.\n")
+
+    prompts = launch.render_all_prompts(sd, template, agent_names=["Vera", "Curator"])
+
+    for name, path in prompts.items():
+        prompt = path.read_text()
+        assert prompt.count("# Pull request context") == 1
+        assert "PR: acme/foo#42" in prompt
+        assert metadata["url"] in prompt
+        assert metadata["title"] in prompt
+        if body is None:
+            assert "Description not captured in this session" in prompt
+        elif body == "":
+            assert "No PR description provided" in prompt
+        else:
+            assert body in prompt
+            assert "````text\n" in prompt
+        if custom_template:
+            assert f"Custom instructions for {name}." in prompt
 
 
 def test_prompt_uses_persona_filename_independent_of_agent_display_name():

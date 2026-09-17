@@ -199,7 +199,8 @@ def test_resolve_bare_pr_requires_a_known_remote(tmp_path, gh_shim):
 # ---------------- fetch_pr_info ----------------
 
 
-def test_fetch_pr_info_parses_gh_view_output(gh_shim):
+@pytest.mark.parametrize("body", ["Scope\n\n- Preserve `literal` text.", "", None])
+def test_fetch_pr_info_parses_gh_view_output(gh_shim, body):
     gh_shim.set_fixtures([{
         "match": ["pr", "view", "42"],
         "stdout": json.dumps({
@@ -209,6 +210,7 @@ def test_fetch_pr_info_parses_gh_view_output(gh_shim):
             "headRefName": "feature/add-it",
             "url": "https://github.com/acme/foo/pull/42",
             "title": "Add a feature",
+            "body": body,
         }),
     }])
     info = gh.fetch_pr_info("acme/foo", 42)
@@ -217,7 +219,10 @@ def test_fetch_pr_info_parses_gh_view_output(gh_shim):
     assert info.head_sha == "abc123"
     assert info.base_sha == "def456"
     assert info.title == "Add a feature"
+    assert info.body == (body or "")
     assert info.head_ref_name == "feature/add-it"
+    args = gh_shim.calls()[0]["argv"]
+    assert "body" in args[args.index("--json") + 1].split(",")
 
 
 def test_fetch_pr_info_propagates_gh_errors(gh_shim):
@@ -454,6 +459,7 @@ def test_init_with_gh_pr_stamps_metadata_and_uses_pr_shas(gh_shim, tmp_path):
             "headRefName": "feature/add-it",
             "url": "https://github.com/acme/foo/pull/42",
             "title": "Add a feature",
+            "body": "Author's intent\n\nDetailed description.",
         }),
     }])
 
@@ -477,6 +483,7 @@ def test_init_with_gh_pr_stamps_metadata_and_uses_pr_shas(gh_shim, tmp_path):
     assert s.github.head_sha == head
     assert s.github.base_sha == base
     assert s.github.head_ref_name == "feature/add-it"
+    assert s.github.body == "Author's intent\n\nDetailed description."
     assert s.base_ref == base   # defaulted from PR
     assert s.topic_ref == head  # defaulted from PR
     assert [(a.name, a.model, a.role) for a in sess.curator_agents(s)] == [
@@ -567,6 +574,7 @@ def test_sync_pr_updates_pinned_snapshot_and_stales_comments(gh_shim, tmp_path):
             "headRefName": "feature/add-it",
             "url": "https://github.com/acme/foo/pull/42",
             "title": "Updated title",
+            "body": "Updated description.",
         }),
     }])
 
@@ -581,7 +589,24 @@ def test_sync_pr_updates_pinned_snapshot_and_stales_comments(gh_shim, tmp_path):
     assert synced.github is not None
     assert synced.github.head_sha == new_head
     assert synced.github.title == "Updated title"
+    assert synced.github.body == "Updated description."
     assert store.read_all_comments(sd)[0].stale is True
+
+    # Metadata changes must persist even when the commit range stays the same,
+    # including removing a previously nonempty description.
+    for body in ("Description changed without a commit.", ""):
+        gh_shim.set_fixtures([{
+            "match": ["pr", "view", "42"],
+            "stdout": json.dumps({
+                "number": 42, "headRefOid": new_head, "baseRefOid": base,
+                "url": "https://github.com/acme/foo/pull/42",
+                "title": "Updated title", "body": body,
+            }),
+        }])
+        assert main(["--session", sd, "sync-pr"]) == 0
+        synced = sess.load_session(sd)
+        assert synced.github.body == body
+        assert synced.current_head == new_head
 
 
 @pytest.mark.parametrize("pin_existing_snapshot", [False, True])
@@ -647,6 +672,7 @@ def test_start_reuse_syncs_snapshot_before_pulling_comments(
         url="https://github.com/acme/foo/pull/42",
         title="Add a feature", head_sha=new_head, base_sha=base,
         head_ref_name="feature/add-it",
+        body="Refreshed PR description.",
     )
     pull_result = MagicMock()
     pull_result.summary.return_value = "Pulled 0 comments."
@@ -672,6 +698,7 @@ def test_start_reuse_syncs_snapshot_before_pulling_comments(
     assert synced.repo_relative == "ws"
     assert synced.github is not None
     assert synced.github.head_sha == expected_head
+    assert synced.github.body == "Refreshed PR description."
     pulled_session = pull.call_args.args[1]
     assert pulled_session.current_head == expected_head
     assert pulled_session.workspace == str(tmp_path)
@@ -787,7 +814,7 @@ def test_start_from_project_config_with_bare_pr_number(gh_shim, tmp_path):
             "stdout": json.dumps({"url": "https://github.com/acme/foo/pull/42"}),
         },
         {
-            "match": ["pr", "view", "42", "number,headRefOid,baseRefOid,headRefName,url,title"],
+            "match": ["pr", "view", "42", "number,headRefOid,baseRefOid,headRefName,url,title,body"],
             "stdout": json.dumps({
                 "number": 42,
                 "headRefOid": head,
@@ -795,6 +822,7 @@ def test_start_from_project_config_with_bare_pr_number(gh_shim, tmp_path):
                 "headRefName": "feature/add-it",
                 "url": "https://github.com/acme/foo/pull/42",
                 "title": "Add a feature",
+                "body": "Description captured by start.",
             }),
         },
         {
@@ -832,6 +860,7 @@ def test_start_from_project_config_with_bare_pr_number(gh_shim, tmp_path):
     assert s.github is not None
     assert s.github.repo == "acme/foo"
     assert s.github.number == 42
+    assert s.github.body == "Description captured by start."
     assert [a.name for a in sess.reviewer_agents(s)] == ["vera", "irene"]
     assert s.agents[1].runner == "opencode"
     assert [(a.name, a.role, a.model, a.runner) for a in sess.curator_agents(s)] == [

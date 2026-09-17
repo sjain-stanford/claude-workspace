@@ -306,9 +306,14 @@ class GitHubPR:
     head_ref_name: str = ""
     hostname: str = "github.com"
     account: GitHubAccount | None = None
+    # None means an older session has not captured the description yet.
+    body: str | None = None
 
     def to_dict(self) -> dict:
-        return {k: v for k, v in asdict(self).items() if v not in (None, "", 0)}
+        data = {k: v for k, v in asdict(self).items() if v not in (None, "", 0)}
+        if self.body is not None:
+            data["body"] = self.body
+        return data
 
     @classmethod
     def from_dict(cls, d: dict) -> GitHubPR:
