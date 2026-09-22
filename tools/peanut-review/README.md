@@ -435,3 +435,104 @@ There is no interactive agent help channel: blocked reviewers record a
 `Review Blocked` report when possible, exit without `round-done`, and are
 rerun after the environment is fixed. Comment-thread replies remain available
 through `add-comment --reply-to`.
+
+## Review queue
+
+The **Review queue** tab discovers open PRs requested from each configured
+GitHub account, including team requests. It shares the existing server and
+session pages. Started reviews and existing account-bound sessions remain
+tracked when their review request disappears; closed PRs are available through
+**Include closed PRs**. Account failures retain cached rows and show an error.
+
+Keep the queue configuration local and gitignored. Credentials are read from
+`gh auth` at operation time; never put tokens in this file. For example:
+
+```json
+{
+  "pollSeconds": 120,
+  "accounts": [
+    {
+      "hostname": "github.com",
+      "login": "my-public-login",
+      "label": "Public",
+      "cloneRoot": "/home/me/work/public",
+      "worktreeRoot": "/home/me/work/worktrees/public",
+      "reviewConfig": "/home/me/work/.peanut-review.json",
+      "repositories": {
+        "example/project": {
+          "path": "/home/me/work/public/project",
+          "worktreeRoot": "/home/me/work/worktrees/project",
+          "prepare": [["cmake", "--build", "build"]]
+        }
+      }
+    },
+    {
+      "hostname": "github.com",
+      "login": "my-work-login",
+      "label": "Work",
+      "cloneRoot": "/home/me/work/private",
+      "worktreeRoot": "/home/me/work/private-worktrees",
+      "reviewConfig": "/home/me/work/.peanut-review.json"
+    }
+  ]
+}
+```
+
+Paths may be absolute or relative to the queue config, and support `~` and
+environment variables. `repositories` provides optional per-repository
+settings; unmapped repositories use `<cloneRoot>/<owner>/<repo>` and
+`<worktreeRoot>/<owner>/<repo>`. Missing clones are created only when a review
+is explicitly started. Account defaults and repository overrides must identify
+both a review config and a worktree root to enable the start button.
+
+`prepare` is an optional list of literal argument arrays, executed in the
+selected task worktree before launching reviewers. Configure the complete
+setup/build sequence needed for a fresh worktree; omitting it means no prebuild.
+Commands use no implicit shell. `prepareTimeoutSeconds` defaults to 1800 per
+command. Logs are saved to the session's `log/queue-prepare.log`. New sessions
+use the selected review config's exact agents; refreshed sessions keep their
+saved agents, models and runners. The queue supplies the worktree and server's
+primary session root explicitly, without changing the process environment.
+
+```bash
+peanut-review serve --host 127.0.0.1 --port 27183 \
+  --root /home/me/work/review-sessions \
+  --queue-config /home/me/work/queue.local.json
+```
+
+Open `http://localhost:27183/queue`. The queue requires a loopback bind; remote
+access can use an SSH localhost port forward. A stripped proxy prefix is still
+supported through `--base-url`. The browser polls local cached status every
+three seconds; GitHub is polled at `pollSeconds` (minimum 30). **Refresh queue**
+requests a remote poll and never starts reviewers. Search results are paginated;
+GitHub's incomplete-search response or 1,000-result cap is reported as an error
+rather than silently dropping requests.
+
+**Start review** creates/reuses a branch-backed task worktree and a session,
+imports GitHub discussion, runs the reviewers, and then runs the curator.
+**Refresh & re-review** keeps the session and findings, archives prior round
+artifacts under `rounds/`, synchronizes the snapshot, and reruns the saved
+lineup. Prior verdicts are archived before refresh. Jobs run one at a time and
+repeated clicks reuse the active job. Neither action publishes to GitHub.
+
+Freshness compares the remote head, base commit and base branch with the last
+completed reviewer-and-curator round. Merely fetching commits or synchronizing
+a session cannot mark it reviewed. A push during a running review leaves the
+completed result stale. Metadata such as new comments does not invalidate the
+code review. Stale polling or an API failure produces **Unknown**. Existing
+sessions without a recorded completed snapshot conservatively show **Not
+reviewed** until the queue completes a round.
+
+The queue fast-forwards clean task branches and preserves dirty or divergent
+worktrees, displaying the required corrective action. It never resets branches,
+cleans files, or checks out the canonical repository. Existing session worktrees
+must be registered beneath the configured `worktreeRoot`. If the server stops,
+active jobs become **Interrupted** on restart; reviewers are not automatically
+relaunched. Inspect the linked session and use **Retry review** when ready;
+live agents and preparation processes block a conflicting retry.
+
+Queue metadata is stored beneath `<primary-session-root>/.queue/` with restricted
+file permissions. Keep that root private when combining accounts. Only the
+configured account identities are exposed, and GitHub operations never switch
+the globally active `gh` account. Queue actions require a token supplied by the
+local page and reject cross-origin submissions.

@@ -1,0 +1,88 @@
+"""HTTP integration tests for the review queue and mutation boundary."""
+import json
+import re
+import threading
+import urllib.error
+import urllib.request
+from unittest.mock import Mock
+
+import pytest
+
+from peanut_review import review_queue
+from peanut_review.web.app import SessionRegistry, make_server
+
+
+@pytest.fixture
+def server(tmp_path):
+    registry = SessionRegistry([tmp_path])
+    queue = Mock()
+    queue.payload.return_value = {"items": [], "accounts": [], "refreshing": False}
+    queue.enqueue.return_value = {"id": "job", "status": "queued"}
+    http = make_server("127.0.0.1", 0, registry, queue=queue, base_url="/pr")
+    thread = threading.Thread(target=http.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{http.server_port}", queue
+    http.shutdown()
+    http.server_close()
+    thread.join()
+
+
+def request(url, path, *, data=None, headers=None):
+    encoded = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(url + path, data=encoded, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req) as response:
+            return response.status, response.read().decode()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read().decode()
+
+
+def token(url):
+    code, html = request(url, "/queue")
+    assert code == 200
+    return re.search(r'PR_QUEUE_TOKEN = "([^"]+)"', html)[1]
+
+
+def test_queue_page_assets_and_navigation(server):
+    url, queue = server
+    code, html = request(url, "/queue")
+    assert code == 200
+    assert 'href="/pr/"' in html
+    assert '/pr/assets/queue.js?v=' in html
+    assert "Your review queue" in html
+    code, html = request(url, "/")
+    assert 'href="/pr/queue"' in html
+    code, javascript = request(url, "/assets/queue.js")
+    assert code == 200 and "PR_QUEUE_TOKEN" in javascript
+    code, payload = request(url, "/api/queue")
+    assert code == 200 and json.loads(payload)["items"] == []
+
+
+def test_queue_post_requires_page_token_and_same_origin(server):
+    url, queue = server
+    assert request(url, "/api/queue/start", data={"key": "x"})[0] == 403
+    headers = {"X-Peanut-Queue-Token": token(url), "Origin": "https://attacker.invalid"}
+    assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 403
+    queue.enqueue.assert_not_called()
+    headers["Origin"] = url
+    assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 202
+    queue.enqueue.assert_called_once_with("x")
+
+
+def test_queue_refresh_does_not_launch_review(server):
+    url, queue = server
+    headers = {"X-Peanut-Queue-Token": token(url)}
+    assert request(url, "/api/queue/refresh", data={}, headers=headers)[0] == 202
+    queue.refresh_async.assert_called_once()
+    queue.enqueue.assert_not_called()
+
+
+def test_queue_rejects_nonlocal_host_and_invalid_actions(server):
+    url, queue = server
+    assert request(url, "/api/queue", headers={"Host": "attacker.invalid"})[0] == 403
+    headers = {"X-Peanut-Queue-Token": token(url)}
+    assert request(url, "/api/queue/start", data=[], headers=headers)[0] == 400
+    assert request(url, "/api/queue/start", data={}, headers=headers)[0] == 400
+    queue.enqueue.side_effect = ValueError("Worktree unavailable")
+    assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 409
+    assert request(url, "/api/queue/unknown", data={}, headers=headers)[0] == 404

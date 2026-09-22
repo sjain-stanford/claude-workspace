@@ -1296,6 +1296,7 @@ def render_index(
 <body class="index">
   <header>
     <h1><a href="{index_href}">🥜 peanut-review</a></h1>
+    <nav class="app-nav" aria-label="Dashboard"><a href="{html.escape(base_url, quote=True)}/queue">Review queue</a><a href="{html.escape(base_url, quote=True)}/" aria-current="page">Sessions</a></nav>
     <span id="session-count" class="meta">{total} session{"s" if total != 1 else ""}</span>
     <span class="meta mono">{roots_str}</span>
     <span class="spacer"></span>
