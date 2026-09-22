@@ -31,6 +31,9 @@ def render_queue(base_url: str, token: str, enabled: bool) -> str:
 <div class="queue-toolbar">
 <input id="queue-search" type="search" placeholder="Search PRs, repositories, authors…" aria-label="Search review queue">
 <select id="queue-account" aria-label="Filter by account"><option value="">All accounts</option></select>
+<select id="queue-request-type" aria-label="Filter by request type">
+<option value="">All request types</option><option value="team">Team request</option><option value="direct">Direct request</option><option value="following">Following</option>
+</select>
 <select id="queue-filter" aria-label="Filter review queue">
 <option value="attention">Needs attention</option><option value="open">All open PRs</option><option value="requested">Review requested</option><option value="stale">Stale reviews</option><option value="running">Running reviews</option><option value="all">Include closed PRs</option>
 </select></div>

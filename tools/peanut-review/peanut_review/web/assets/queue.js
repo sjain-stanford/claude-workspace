@@ -43,6 +43,8 @@
     const query = byId("queue-search").value.trim().toLowerCase();
     const account = byId("queue-account").value;
     if (account && item.account_key !== account) return false;
+    const requestType = byId("queue-request-type").value;
+    if (requestType && requestType !== (item.requested ? item.request_kind : "following")) return false;
     if (query && !`${item.repo} ${item.number} ${item.title || ""} ${item.author || ""}`.toLowerCase().includes(query)) return false;
     const filter = byId("queue-filter").value;
     if (filter !== "all" && item.state && item.state !== "open") return false;
@@ -145,6 +147,7 @@
   byId("queue-refresh").addEventListener("click", () => action("refresh"));
   byId("queue-search").addEventListener("input", render);
   byId("queue-account").addEventListener("change", render);
+  byId("queue-request-type").addEventListener("change", render);
   byId("queue-filter").addEventListener("change", render);
   if (window.PR_QUEUE_ENABLED) {
     refresh();

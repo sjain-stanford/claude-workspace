@@ -446,6 +446,10 @@ session pages. Started reviews and existing account-bound sessions remain
 tracked when their review request disappears; closed PRs are available through
 **Include closed PRs**. Account failures retain cached rows and show an error.
 
+Filter by **Team request**, **Direct request**, or **Following** alongside the
+account, search, and review-status filters. **Following** shows tracked PRs
+without an active review request.
+
 Keep the queue configuration local and gitignored. Save it as
 `<primary-session-root>/.queue/config.json` to load it automatically with the
 normal web launcher, or select another file with `--queue-config`.
