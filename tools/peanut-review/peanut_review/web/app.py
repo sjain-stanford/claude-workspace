@@ -1396,11 +1396,25 @@ def serve(
     for sd in extra_sessions:
         registry.bind(sd)
 
+    # The standard launcher already selects the session root. Reuse its saved
+    # queue configuration so a routine server restart preserves the dashboard.
+    if queue_config is None:
+        saved_queue_config = primary / ".queue" / "config.json"
+        if saved_queue_config.is_file():
+            queue_config = str(saved_queue_config)
+
     queue = None
     if queue_config:
         from ..review_queue import ReviewQueue, load_config
-        if host not in {"127.0.0.1", "localhost"}:
-            raise ValueError("Review queues must bind to localhost (use --host 127.0.0.1)")
+        # Docker's published host-loopback port forwards to the container
+        # interface, not container loopback. Keep the established launcher
+        # default working; HTTP Host and mutation checks still apply.
+        container_bind = host == "0.0.0.0" and Path("/.dockerenv").is_file()
+        if host not in {"127.0.0.1", "localhost"} and not container_bind:
+            raise ValueError(
+                "Review queues must bind to localhost, or 0.0.0.0 inside Docker "
+                "with the container port published on host loopback"
+            )
         queue = ReviewQueue(primary, load_config(queue_config), registry)
     try:
         srv = make_server(host, port, registry, base_url=base_url, queue=queue)
@@ -1419,12 +1433,14 @@ def serve(
         "url": url,
         "base_url": normalized,
         "roots": [str(r) for r in root_list],
+        "queue_config": queue_config,
     }) + "\n")
 
     session_count = registry.page_sessions(limit=1)["total"]
     print(
         f"peanut-review web UI: {url} "
-        f"({session_count} session{'s' if session_count != 1 else ''})",
+        f"({session_count} session{'s' if session_count != 1 else ''}"
+        f"{', review queue enabled' if queue else ''})",
         flush=True,
     )
     previous_term = None

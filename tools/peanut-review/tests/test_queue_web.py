@@ -86,3 +86,84 @@ def test_queue_rejects_nonlocal_host_and_invalid_actions(server):
     queue.enqueue.side_effect = ValueError("Worktree unavailable")
     assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 409
     assert request(url, "/api/queue/unknown", data={}, headers=headers)[0] == 404
+
+
+@pytest.fixture
+def startup(tmp_path, monkeypatch):
+    from peanut_review.web import app
+    http = Mock()
+    http.server_address = ("127.0.0.1", 12345)
+    captured = {}
+    def stop_after_start():
+        captured.update(json.loads((tmp_path / "web.pid").read_text()))
+        raise KeyboardInterrupt
+    http.serve_forever.side_effect = stop_after_start
+    factory = Mock(return_value=http)
+    monkeypatch.setattr(app, "make_server", factory)
+    service = Mock()
+    constructor = Mock(return_value=service)
+    monkeypatch.setattr(review_queue, "ReviewQueue", constructor)
+    return app, factory, constructor, service, captured
+
+
+def save_queue_config(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"accounts": [{"login": "alice"}]}))
+    return path
+
+
+def test_standard_startup_loads_saved_queue_config(tmp_path, startup):
+    app, factory, constructor, service, captured = startup
+    config = save_queue_config(tmp_path / ".queue" / "config.json")
+    app.serve([tmp_path])
+    assert factory.call_args.kwargs["queue"] is service
+    assert constructor.call_args.args[1]["accounts"][0]["login"] == "alice"
+    assert captured["queue_config"] == str(config)
+    service.start.assert_called_once()
+    service.close.assert_called_once()
+
+
+def test_explicit_queue_config_overrides_saved_config(tmp_path, startup):
+    app, factory, constructor, service, captured = startup
+    save_queue_config(tmp_path / ".queue" / "config.json")
+    explicit = tmp_path / "selected.json"
+    explicit.write_text(json.dumps({"accounts": [{"login": "bob"}]}))
+    app.serve([tmp_path], queue_config=str(explicit))
+    assert constructor.call_args.args[1]["accounts"][0]["login"] == "bob"
+    assert captured["queue_config"] == str(explicit)
+
+
+def test_startup_without_saved_config_keeps_session_only_ui(tmp_path, startup):
+    app, factory, constructor, service, captured = startup
+    app.serve([tmp_path])
+    constructor.assert_not_called()
+    assert factory.call_args.kwargs["queue"] is None
+    assert captured["queue_config"] is None
+
+
+def test_invalid_saved_config_fails_instead_of_disabling_queue(tmp_path, startup):
+    app, factory, constructor, service, captured = startup
+    path = save_queue_config(tmp_path / ".queue" / "config.json")
+    path.write_text('{"accounts": []}')
+    with pytest.raises(ValueError, match="accounts"):
+        app.serve([tmp_path])
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize("inside_docker", [True, False])
+def test_queue_supports_container_interface_only_inside_docker(tmp_path, startup, monkeypatch, inside_docker):
+    from pathlib import Path
+    app, factory, constructor, service, captured = startup
+    save_queue_config(tmp_path / ".queue" / "config.json")
+    original_is_file = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda path: inside_docker if str(path) == "/.dockerenv" else original_is_file(path))
+    if inside_docker:
+        app.serve([tmp_path], host="0.0.0.0")
+        assert factory.call_args.args[0] == "0.0.0.0"
+        assert factory.call_args.kwargs["queue"] is service
+        service.start.assert_called_once()
+    else:
+        with pytest.raises(ValueError, match="inside Docker"):
+            app.serve([tmp_path], host="0.0.0.0")
+        factory.assert_not_called()
+        constructor.assert_not_called()

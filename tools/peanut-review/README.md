@@ -106,7 +106,9 @@ PR_ROOT="$PWD/.cache/peanut-review/sessions" \
 ```
 
 Keep `PR_ROOT` aligned with the config's `reviewRoot`; otherwise the CLI and UI
-will show different session sets. To reach the UI through the development
+will show different session sets. If `<PR_ROOT>/.queue/config.json` exists, the
+server automatically enables the review queue using that local configuration.
+An explicit `--queue-config` selects a different file. To reach the UI through the development
 container, enable its forwarding when launching the container:
 
 ```bash
@@ -444,8 +446,11 @@ session pages. Started reviews and existing account-bound sessions remain
 tracked when their review request disappears; closed PRs are available through
 **Include closed PRs**. Account failures retain cached rows and show an error.
 
-Keep the queue configuration local and gitignored. Credentials are read from
-`gh auth` at operation time; never put tokens in this file. For example:
+Keep the queue configuration local and gitignored. Save it as
+`<primary-session-root>/.queue/config.json` to load it automatically with the
+normal web launcher, or select another file with `--queue-config`.
+Credentials are read from `gh auth` at operation time; never put tokens in this
+file. For example:
 
 ```json
 {
@@ -500,8 +505,13 @@ peanut-review serve --host 127.0.0.1 --port 27183 \
   --queue-config /home/me/work/queue.local.json
 ```
 
-Open `http://localhost:27183/queue`. The queue requires a loopback bind; remote
-access can use an SSH localhost port forward. A stripped proxy prefix is still
+Open `http://localhost:27183/queue`. The queue uses a loopback bind on the host.
+Inside Docker, the normal launcher's `0.0.0.0` bind is supported with the
+container port published on host loopback as described above. Restart the
+existing server from the updated checkout after changing its startup
+configuration; a server started in another container does not replace the
+instance reached by your forwarded port. Remote access can use an SSH
+localhost port forward. A stripped proxy prefix is still
 supported through `--base-url`. The browser polls local cached status every
 three seconds; GitHub is polled at `pollSeconds` (minimum 30). **Refresh queue**
 requests a remote poll and never starts reviewers. Search results are paginated;
