@@ -309,34 +309,6 @@ def _run(args: list[str], *, input: str | None = None,
     return res.stdout
 
 
-def git_read(args: list[str], *, cwd: str | Path | None = None) -> str:
-    """Run a clone/fetch with the operation's identity, without switching gh.
-
-    The helper receives the token only through its environment. Disable other
-    credential helpers so a second account on the same host cannot take over.
-    Callers supply a validated HTTPS repository URL and literal argv entries.
-    """
-    credentials = _CREDENTIALS.get()
-    if credentials is None or credentials.account is None:
-        raise RepoAccountError("Git fetch requires an explicitly selected account")
-    import shlex
-    env = _clean_env()
-    env["GH_HOST"] = credentials.hostname
-    key = "GH_TOKEN" if credentials.hostname == GITHUB_HOST or credentials.hostname.endswith(".ghe.com") else "GH_ENTERPRISE_TOKEN"
-    env[key] = credentials.token
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    cmd = ["git", "-c", "credential.helper=", "-c",
-           f"credential.helper=!{shlex.quote(_gh_bin())} auth git-credential", *args]
-    try:
-        result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True,
-                                text=True, timeout=600)
-    except (OSError, subprocess.TimeoutExpired):
-        raise RepoAccountError("Git clone/fetch did not complete; check connectivity and repository access") from None
-    if result.returncode:
-        raise RepoAccountError(result.stderr.replace(credentials.token, "[redacted]").strip())
-    return result.stdout
-
-
 def resolve_pr_spec(spec: str, *, workspace: str | None = None) -> tuple[str, int]:
     """Resolve a PR spec locally; bare numbers use the checkout's origin."""
     stripped = spec.strip()

@@ -220,6 +220,49 @@ def test_queue_discovers_cli_session_and_tracks_completed_revision(review, monke
         q.close()
 
 
+@pytest.mark.parametrize("other_completed", [False, True])
+@pytest.mark.parametrize("remote_base,expected", [("main", "current"), ("release", "stale")])
+def test_queue_uses_latest_completion_across_sessions(review, other_completed, remote_base, expected):
+    directory, session, git = review
+    other_directory = directory.parent / "widget-pr-1-other"
+    other, _ = sess.create_session(
+        workspace=session.workspace, base_ref=session.base_ref, topic_ref=session.current_head,
+        github=replace(session.github, base_ref_name="older-base" if other_completed else "main"),
+        session_id=other_directory.name, session_dir=str(other_directory),
+        agents=[agent.to_dict() for agent in session.agents])
+    if other_completed:
+        complete_round(other_directory, other)
+    complete_round(directory, session)
+    receipt = completion.completed_review(directory, session)
+    # Session activity selects the link, not the most recent completed round.
+    future = time.time_ns() + 1_000_000_000
+    os.utime(other_directory / "session.json", ns=(future, future))
+
+    registry = SessionRegistry([directory.parent])
+    account = session.github.account
+    cfg = {"pollSeconds": 120, "accounts": [{"hostname": account.hostname, "login": account.login,
+        "label": "Work", "repositories": {}}]}
+    q = review_queue.ReviewQueue(directory.parent, cfg, registry)
+    try:
+        q.state["accounts"]["github.com/alice"] = {"identity": asdict(account)}
+        key = review_queue.identity_key(account, session.github.repo, 1)
+        q.state["items"][key] = {
+            "key": key, "account": asdict(account), "repo": session.github.repo, "number": 1,
+            **completion.snapshot(session), "base_ref": remote_base,
+            "state": "open", "checked_at": review_queue.now(),
+        }
+        # Both sessions predate the first poll, so no queue cache can mask the bug.
+        row = q.payload()["items"][0]
+        assert row["session_id"] == other.id
+        assert row["completed_snapshot"] == receipt["snapshot"]
+        assert row["completed_at"] == receipt["completed_at"]
+        assert row["freshness"] == expected
+        context = json.loads(row["driver_task"].split("Context (JSON data):\n")[1])
+        assert context["session"] == str(other_directory)
+    finally:
+        q.close()
+
+
 def test_completion_is_bound_to_account_and_pr(review):
     directory, session, git = review
     complete_round(directory, session)

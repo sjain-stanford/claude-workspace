@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -417,31 +416,6 @@ def test_config_paths_and_argv_validation(tmp_path):
     path.write_text(json.dumps(raw))
     with pytest.raises(ValueError, match="argv"):
         review_queue.load_config(path)
-
-
-def test_git_fetch_uses_scoped_credentials_and_redacts_failure(monkeypatch):
-    import os
-    monkeypatch.setenv("GH_TOKEN", "ambient-token")
-    monkeypatch.setenv("GH_HOST", "ambient.example")
-    marker = gh._CREDENTIALS.set(gh._Credentials("github.com", "selected-token", ACCOUNT))
-    recorded = []
-    def run(argv, **kwargs):
-        recorded.append((argv, kwargs))
-        return subprocess.CompletedProcess(argv, 0, stdout="fetched", stderr="")
-    monkeypatch.setattr(gh.subprocess, "run", run)
-    try:
-        assert gh.git_read(["fetch", "https://github.com/acme/widget.git"]) == "fetched"
-        argv, options = recorded[0]
-        assert options["env"]["GH_TOKEN"] == "selected-token"
-        assert options["env"]["GH_HOST"] == "github.com"
-        assert "selected-token" not in " ".join(argv)
-        assert "credential.helper=" in argv
-        assert os.environ["GH_TOKEN"] == "ambient-token"
-        monkeypatch.setattr(gh.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, stdout="", stderr="denied selected-token"))
-        with pytest.raises(gh.RepoAccountError, match=r"denied \[redacted\]"):
-            gh.git_read(["fetch"])
-    finally:
-        gh._CREDENTIALS.reset(marker)
 
 
 def test_driver_task_contains_account_config_and_exact_context(queue):

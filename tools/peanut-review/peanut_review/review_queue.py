@@ -318,15 +318,19 @@ class ReviewQueue:
             if not pr or pr.account != account:
                 continue
             key = identity_key(account, pr.repo, pr.number)
-            if key in seen:
-                continue
-            seen.add(key)
+            receipt = review_completion.completed_review(path, session)
             with self.lock:
                 item = self.state["items"].setdefault(key, {
                     "key": key, "account": asdict(account), "repo": pr.repo,
                     "number": pr.number, "requested": False,
                 })
-                item["session_id"] = session.id
+                if key not in seen:
+                    item["session_id"] = session.id
+                    seen.add(key)
+                # Completion is independent of the session chosen for further work.
+                if receipt and receipt["completed_at"] >= item.get("completed_at", ""):
+                    item.update(completed_snapshot=receipt["snapshot"],
+                                completed_at=receipt["completed_at"])
 
     def refresh(self) -> None:
         with self.lock:
@@ -474,14 +478,6 @@ class ReviewQueue:
                         expected = {"account": item["account"], "repo": item["repo"].casefold(), "number": item["number"]}
                         if review_completion.target(session) != expected:
                             raise ValueError("Session target does not match this queue item")
-                        receipt = review_completion.completed_review(directory, session)
-                        if receipt and receipt["completed_at"] >= item.get("completed_at", ""):
-                            completed = receipt["snapshot"]
-                            item["completed_snapshot"] = completed
-                            item["completed_at"] = receipt["completed_at"]
-                            with self.lock:
-                                self.state["items"][item["key"]].update(
-                                    completed_snapshot=completed, completed_at=receipt["completed_at"])
                         item["session_progress"] = (self.registry._summary(session_id, directory) or {}).get("progress", {})
                     except (OSError, ValueError, AttributeError):
                         directory = None
