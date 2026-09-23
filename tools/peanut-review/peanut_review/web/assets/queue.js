@@ -55,7 +55,7 @@
     const account = byId("queue-account").value;
     if (account && item.account_key !== account) return false;
     const requestType = byId("queue-request-type").value;
-    if (requestType && requestType !== (item.requested ? item.request_kind : "following")) return false;
+    if (requestType && requestType !== (item.request_kind || "following")) return false;
     if (query && !`${item.repo} ${item.number} ${item.title || ""} ${item.author || ""}`.toLowerCase().includes(query)) return false;
     const filter = byId("queue-filter").value;
     if (filter !== "all" && item.state && item.state !== "open") return false;
@@ -95,7 +95,11 @@
       pr.append(link, node("div", `${item.repo} #${item.number}${item.author ? ` · ${item.author}` : ""}${item.draft ? " · Draft" : ""}${item.state && item.state !== "open" ? ` · ${item.state}` : ""}`, "sub"));
       const identity = node("td");
       const account = data.accounts.find((a) => a.key === item.account_key);
-      identity.append(node("div", account?.label || item.account.login), node("div", item.requested ? `${item.request_kind || "Review"} request` : "Following", "sub"));
+      const requestLabel = { direct: "Direct request", team: "Team request" }[item.request_kind] || "Following";
+      identity.append(node("div", account?.label || item.account.login), node("div", requestLabel, "sub"));
+      if (item.requested) identity.append(node("div", "Review requested", "sub"));
+      else if (item.request_kind) identity.append(node("div", "No pending request", "sub"));
+      if (item.request_kind_error) identity.append(node("div", item.request_kind_error, "queue-detail error"));
       const review = node("td");
       const progress = item.session_progress?.status || "pending";
       review.append(node("span", item.session_progress?.label || "Not started", `badge review-progress progress-${progress}`));

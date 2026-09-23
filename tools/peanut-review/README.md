@@ -442,13 +442,20 @@ through `add-comment --reply-to`.
 
 The **Review queue** tab discovers open PRs requested from each configured
 GitHub account, including team requests. It shares the existing server and
-session pages. Started reviews and existing account-bound sessions remain
-tracked when their review request disappears; closed PRs are available through
+session pages. PRs remain tracked after review submission, but explicitly
+removing your review request (or your team's request) hides the PR once no
+request remains for you. A new request brings it back. Existing review sessions
+and history are preserved on the session pages. Closed PRs are available through
 **Include closed PRs**. Account failures retain cached rows and show an error.
 
 Filter by **Team request**, **Direct request**, or **Following** alongside the
-account, search, and review-status filters. **Following** shows tracked PRs
-without an active review request.
+account, search, and review-status filters. Direct and team categories retain
+the request origin after review submission. Historical requests are recovered
+from the PR timeline; team requests must match a team of the selected account.
+Direct takes precedence when both apply. **Following** is the fallback for
+tracked PRs without a known request origin. The separate **Review requested**
+status filter still selects pending requests. History or membership lookup
+failures appear on the row and are retried without discarding known origins.
 
 Keep the queue configuration local and gitignored. Save it as
 `<primary-session-root>/.queue/config.json` to load it automatically with the

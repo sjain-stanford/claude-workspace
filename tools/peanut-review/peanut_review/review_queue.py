@@ -132,9 +132,96 @@ def fetch_pr(repo: str, number: int) -> dict:
         "state": "merged" if data.get("merged") else data["state"],
         "head_sha": head["sha"], "head_ref": head["ref"],
         "base_sha": base["sha"], "base_ref": base["ref"],
-        "request_kind": "direct" if direct else "team",
+        "request_kind": "direct" if direct else None,
+        "requested_team_ids": [team["id"] for team in data.get("requested_teams", [])],
         "updated_at": data["updated_at"], "checked_at": now(), "error": "",
     }
+
+
+def request_history(repo: str, number: int, account: GitHubAccount) -> list[dict]:
+    """Keep only account-scoped review activity and team request transitions."""
+    events = gh._parse_paginated(gh._api(
+        f"repos/{repo}/issues/{number}/timeline?per_page=100", paginate=True))
+    history = []
+    for event in sorted(events, key=lambda e: e.get("submitted_at") or e.get("created_at") or ""):
+        action = event.get("event")
+        if action not in {"review_requested", "review_request_removed", "reviewed"}:
+            continue
+        reviewer = (event.get("user") if action == "reviewed" else event.get("requested_reviewer")) or {}
+        matches = (reviewer["id"] == account.user_id if reviewer.get("id") is not None
+                   else reviewer.get("login", "").casefold() == account.login.casefold())
+        team_id = (event.get("requested_team") or {}).get("id")
+        if matches or team_id is not None:
+            history.append({"event": action, "team_id": team_id})
+    return history
+
+
+def request_origin(remote: dict, previous: dict, account: GitHubAccount, team_cache: dict) -> dict:
+    """Retain review origin after submission, but honor explicit withdrawals.
+
+    A direct request takes precedence over team requests. Team events count only
+    when the selected account belongs to that team, never merely because some
+    team was requested on the PR. Cache history by the PR's updated timestamp.
+    """
+    kind = previous.get("request_kind")
+    # Older versions unconditionally called every non-direct PR a team request.
+    if kind != "direct" and not previous.get("request_kind_verified"):
+        kind = None
+    result = {"request_kind": kind, "request_kind_verified": True, "request_kind_error": "",
+              "request_withdrawn": previous.get("request_withdrawn", False)}
+    if remote.get("request_kind") == "direct":
+        # A new request restores a withdrawn row. Recheck history on its next
+        # disappearance, even if GitHub's updated_at has not advanced yet.
+        result.update(request_kind="direct", requested=True, request_withdrawn=False,
+                      request_history_updated_at=None)
+        return result
+
+    history = previous.get("request_history")
+    history_ok = True
+    if (history is None or not previous.get("request_history_updated_at")
+            or previous["request_history_updated_at"] != remote["updated_at"]
+            or set(previous.get("requested_team_ids", [])) != set(remote.get("requested_team_ids", []))):
+        try:
+            history = request_history(remote["repo"], remote["number"], account)
+            result.update(request_history=history,
+                          request_history_updated_at=remote["updated_at"])
+        except Exception as error:
+            history_ok = False
+            result["request_kind_error"] = f"Could not check request history: {error}"
+
+    history = history or []
+    current_teams = set(remote.get("requested_team_ids", []))
+    candidate_teams = {event["team_id"] for event in history if event["team_id"] is not None} | current_teams
+    membership_ok = True
+    member_teams = set()
+    if candidate_teams:
+        # One account-scoped membership lookup per poll, including failed lookups.
+        if not team_cache:
+            try:
+                teams = gh._parse_paginated(gh._api("user/teams?per_page=100", paginate=True))
+                team_cache["ids"] = {team["id"] for team in teams}
+            except Exception as error:
+                team_cache["error"] = str(error)
+        if "error" in team_cache:
+            membership_ok = False
+            result["request_kind_error"] = f'Could not check team membership: {team_cache["error"]}'
+        else:
+            member_teams = team_cache["ids"]
+    relevant = [event for event in history if event["team_id"] is None or event["team_id"] in member_teams]
+    if any(event["event"] == "review_requested" and event["team_id"] is None for event in relevant):
+        result["request_kind"] = "direct"
+    elif result["request_kind"] != "direct" and (current_teams & member_teams or any(
+            event["event"] == "review_requested" and event["team_id"] is not None for event in relevant)):
+        result["request_kind"] = "team"
+
+    if membership_ok or not current_teams:
+        # PR metadata is authoritative even while GitHub search is catching up.
+        result["requested"] = bool(current_teams & member_teams)
+    if result.get("requested"):
+        result["request_withdrawn"] = False
+    elif history_ok and membership_ok:
+        result["request_withdrawn"] = bool(relevant and relevant[-1]["event"] == "review_request_removed")
+    return result
 
 
 class ReviewQueue:
@@ -161,6 +248,8 @@ class ReviewQueue:
             if self.state.get("version") != 1:
                 raise ValueError("unsupported review queue state version")
             for item in self.state["items"].values():
+                if item.get("request_kind") == "team" and not item.get("request_kind_verified"):
+                    item["request_kind"] = None
                 job = item.get("job", {})
                 if job.get("status") in ACTIVE_JOB_STATES:
                     job.update(status="interrupted", error="Queue execution retired. Inspect the session with the driver.", finished_at=now())
@@ -254,6 +343,7 @@ class ReviewQueue:
                         previous = self.state["accounts"].get(account_key, {}).get("identity")
                     expected = GitHubAccount(**previous) if previous else None
                     with gh.account_auth(configured["hostname"], configured["login"], expected=expected) as account:
+                        team_cache = {}
                         self._attach_sessions(account)
                         requests = search_requests(account.login)
                         requested = {}
@@ -272,10 +362,12 @@ class ReviewQueue:
                             key = old["key"]
                             try:
                                 remote = fetch_pr(old["repo"], old["number"])
+                                remote.update(request_origin(remote, old, account, team_cache))
                             except Exception as error:
                                 remote = {"error": str(error)}
                             with self.lock:
-                                self.state["items"][key].update(remote, requested=key in requested)
+                                self.state["items"][key].update(
+                                    remote, requested=remote.get("requested", key in requested))
                         with self.lock:
                             self.state["accounts"][account_key] = {"identity": asdict(account), "checked_at": now(), "error": ""}
                 except Exception as error:
@@ -346,10 +438,13 @@ class ReviewQueue:
         rows = []
         for item in items:
             key = f'{item["account"]["hostname"]}/{item["account"]["login"].casefold()}'
-            if key not in active_accounts:
+            if key not in active_accounts or item.get("request_withdrawn"):
                 continue
             item["account_key"] = key
             item.pop("body", None)
+            item.pop("requested_team_ids", None)
+            item.pop("request_history_team_ids", None)
+            item.pop("request_history", None)
             # Old queue jobs remain on disk as history, not as current driver status.
             item.pop("job", None)
             directory = None

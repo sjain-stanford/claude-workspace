@@ -173,7 +173,7 @@ def test_cli_launch_and_wait_all_record_completion_without_queue_worker(review, 
     assert completion.completed_review(directory, session)["snapshot"] == completion.snapshot(session)
 
 
-def test_queue_discovers_cli_session_and_tracks_completed_revision(review):
+def test_queue_discovers_cli_session_and_tracks_completed_revision(review, monkeypatch):
     directory, session, git = review
     registry = SessionRegistry([directory.parent])
     account = session.github.account
@@ -201,6 +201,21 @@ def test_queue_discovers_cli_session_and_tracks_completed_revision(review):
         assert q.payload()["items"][0]["freshness"] == "stale"
         q.state["items"][key].update(completion.snapshot(session), base_sha="f" * 40)
         assert q.payload()["items"][0]["freshness"] == "stale"
+        monkeypatch.setattr(review_queue.gh, "_api", lambda *args, **kwargs:
+                            '[{"event":"review_request_removed","requested_reviewer":{"id":10}}]')
+        item = q.state["items"][key]
+        item.update(review_queue.request_origin(
+            {**item, "request_kind": None, "updated_at": review_queue.now()}, item, account, {}))
+        assert q.payload()["items"] == []  # Rediscovering sessions must not undo withdrawal.
+        assert registry.get(session.id) == directory
+        assert completion.completed_review(directory, sess.load_session(directory)) is not None
+        q._save()
+        q.close()
+        q = review_queue.ReviewQueue(directory.parent, cfg, registry)
+        assert q.payload()["items"] == []
+        assert q.state["items"][key]["session_id"] == session.id
+        q.state["items"][key].update(review_queue.request_origin({"request_kind": "direct"}, item, account, {}))
+        assert q.payload()["items"][0]["session_id"] == session.id
     finally:
         q.close()
 
