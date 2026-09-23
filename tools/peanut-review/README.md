@@ -490,18 +490,14 @@ file. For example:
 Paths may be absolute or relative to the queue config, and support `~` and
 environment variables. `repositories` provides optional per-repository
 settings; unmapped repositories use `<cloneRoot>/<owner>/<repo>` and
-`<worktreeRoot>/<owner>/<repo>`. Missing clones are created only when a review
-is explicitly started. Account defaults and repository overrides must identify
-both a review config and a worktree root to enable the start button.
+`<worktreeRoot>/<owner>/<repo>`. These paths are included in the copied driver
+task. The driver handles clone/worktree setup and discovers any missing settings.
 
-`prepare` is an optional list of literal argument arrays, executed in the
-selected task worktree before launching reviewers. Configure the complete
-setup/build sequence needed for a fresh worktree; omitting it means no prebuild.
-Commands use no implicit shell. `prepareTimeoutSeconds` defaults to 1800 per
-command. Logs are saved to the session's `log/queue-prepare.log`. New sessions
-use the selected review config's exact agents; refreshed sessions keep their
-saved agents, models and runners. The queue supplies the worktree and server's
-primary session root explicitly, without changing the process environment.
+`prepare` is an optional list of command argument arrays included as setup
+context in the copied task. The driver follows project build/test instructions
+and decides how to prepare the checkout. The queue never executes these commands.
+New reviews use the selected review config's agents; existing sessions retain
+their saved lineup, models, and runners.
 
 ```bash
 peanut-review serve --host 127.0.0.1 --port 27183 \
@@ -522,28 +518,36 @@ requests a remote poll and never starts reviewers. Search results are paginated;
 GitHub's incomplete-search response or 1,000-result cap is reported as an error
 rather than silently dropping requests.
 
-**Start review** creates/reuses a branch-backed task worktree and a session,
-imports GitHub discussion, runs the reviewers, and then runs the curator.
-**Refresh & re-review** keeps the session and findings, archives prior round
-artifacts under `rounds/`, synchronizes the snapshot, and reruns the saved
-lineup. Prior verdicts are archived before refresh. Jobs run one at a time and
-repeated clicks reuse the active job. Neither action publishes to GitHub.
+**Copy review task** and **Copy re-review task** copy a task for your driver
+conversation. It includes the PR URL, selected GitHub account, review config,
+session root, existing session/workspace, configured checkout paths, and observed
+revision. If clipboard access is unavailable, a dialog provides selectable text.
+The driver uses the peanut-review skill and CLI to fetch the latest revision,
+preserve local work, reconcile force pushes or divergent branches, prepare the
+build, run reviewers and the curator, and produce a publication dry-run. Copying
+a task does not launch agents, change a checkout, or publish to GitHub.
+
+The queue automatically discovers CLI-created sessions under its session roots.
+Progress and the **Running reviews** filter reflect session agent activity;
+historical queue job failures do not override current driver progress.
+**Open review** opens the existing session. The old queue start endpoint is
+retired; reload any browser tab still showing execution buttons.
 
 Freshness compares the remote head, base commit and base branch with the last
-completed reviewer-and-curator round. Merely fetching commits or synchronizing
-a session cannot mark it reviewed. A push during a running review leaves the
-completed result stale. Metadata such as new comments does not invalidate the
-code review. Stale polling or an API failure produces **Unknown**. Existing
-sessions without a recorded completed snapshot conservatively show **Not
-reviewed** until the queue completes a round.
+completed reviewer-and-curator round. Each CLI launch records its pinned
+snapshot and unique run IDs in the session's `review-completion.json`.
+Supervisors record completion only after fresh completion signals and successful
+exits (including supervised shutdown after completion). All configured reviewers
+and a subsequent curator covering those runs must complete against the same
+snapshot. This also works when the dashboard is stopped. A push during a review
+leaves the completed result stale; fetching or synchronizing alone cannot mark
+it reviewed. Stale polling or an API failure produces **Unknown**.
 
-The queue fast-forwards clean task branches and preserves dirty or divergent
-worktrees, displaying the required corrective action. It never resets branches,
-cleans files, or checks out the canonical repository. Existing session worktrees
-must be registered beneath the configured `worktreeRoot`. If the server stops,
-active jobs become **Interrupted** on restart; reviewers are not automatically
-relaunched. Inspect the linked session and use **Retry review** when ready;
-live agents and preparation processes block a conflicting retry.
+Older recorded queue completions remain valid. Legacy sessions containing only
+completion signals cannot prove which revision was reviewed and remain
+**Not reviewed** (or **Stale** when their pinned revision differs) until a full
+round is recorded with the updated launcher. Synchronize legacy PR metadata
+before that round to capture the base branch name as well as its commit.
 
 Queue metadata is stored beneath `<primary-session-root>/.queue/` with restricted
 file permissions. Keep that root private when combining accounts. Only the

@@ -1,7 +1,7 @@
-"""Account-scoped PR discovery and persistent local review jobs.
+"""Account-scoped PR discovery and driver handoff tasks.
 
-GitHub polling never changes a checkout or launches reviewers. Only an explicit
-start action does that. Credentials remain inside gh.account_auth operations.
+GitHub polling never changes a checkout or launches reviewers. The driver owns
+preparation and review execution. Credentials stay inside gh.account_auth.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
-from . import gh, runtime, session as sess
+from . import gh, review_completion, session as sess
 from .models import GitHubAccount
 
 
@@ -163,7 +163,7 @@ class ReviewQueue:
             for item in self.state["items"].values():
                 job = item.get("job", {})
                 if job.get("status") in ACTIVE_JOB_STATES:
-                    job.update(status="interrupted", error="Server stopped during this job. Inspect the session before retrying.", finished_at=now())
+                    job.update(status="interrupted", error="Queue execution retired. Inspect the session with the driver.", finished_at=now())
             self._save()
         except Exception:
             self._owner.close()
@@ -178,36 +178,15 @@ class ReviewQueue:
         temporary.replace(self.path)
 
     def start(self) -> None:
-        from .queue_jobs import run_job
-
         def poll() -> None:
             while not self.stopping.is_set():
                 self.refresh()
                 self.wakeup.wait(self.config["pollSeconds"])
                 self.wakeup.clear()
 
-        def work() -> None:
-            while not self.stopping.is_set():
-                selected = None
-                with self.lock:
-                    for key, item in self.state["items"].items():
-                        if item.get("job", {}).get("status") == "queued":
-                            item["job"]["status"] = "preparing"
-                            self._save()
-                            selected = key
-                            break
-                if selected:
-                    try:
-                        run_job(self, selected)
-                    except Exception as error:
-                        self.update_job(selected, status="failed", error=str(error), finished_at=now())
-                else:
-                    self.stopping.wait(0.5)
-
-        for target in (poll, work):
-            thread = threading.Thread(target=target, daemon=True)
-            self._threads.append(thread)
-            thread.start()
+        thread = threading.Thread(target=poll, daemon=True)
+        self._threads.append(thread)
+        thread.start()
 
     def close(self) -> None:
         self.stopping.set()
@@ -230,17 +209,15 @@ class ReviewQueue:
     def repository_config(self, item: dict) -> dict:
         account = self.account_config(item["account"])
         settings = {**account, **account.get("repositories", {}).get(item["repo"].casefold(), {})}
-        if not settings.get("reviewConfig") or not settings.get("worktreeRoot"):
-            raise ValueError("Configure reviewConfig and worktreeRoot for this account or repository, then restart the server")
-        if not settings.get("path"):
-            if not settings.get("cloneRoot"):
-                raise ValueError("Configure a checkout path or cloneRoot, then restart the server")
+        if not settings.get("path") and settings.get("cloneRoot"):
             settings["path"] = str(Path(settings["cloneRoot"]) / item["repo"])
-            settings["worktreeRoot"] = str(Path(settings["worktreeRoot"]) / item["repo"])
+            if settings.get("worktreeRoot"):
+                settings["worktreeRoot"] = str(Path(settings["worktreeRoot"]) / item["repo"])
         return settings
 
     def _attach_sessions(self, account: GitHubAccount) -> None:
-        self.registry.rescan(force=True)
+        self.registry.rescan()
+        seen = set()
         # Include every stored session, not just the first index page.
         for summary in self.registry.list_sessions():
             path = self.registry.get(summary["id"])
@@ -252,13 +229,15 @@ class ReviewQueue:
             if not pr or pr.account != account:
                 continue
             key = identity_key(account, pr.repo, pr.number)
+            if key in seen:
+                continue
+            seen.add(key)
             with self.lock:
                 item = self.state["items"].setdefault(key, {
                     "key": key, "account": asdict(account), "repo": pr.repo,
                     "number": pr.number, "requested": False,
                 })
-                if not item.get("session_id"):
-                    item["session_id"] = session.id
+                item["session_id"] = session.id
 
     def refresh(self) -> None:
         with self.lock:
@@ -313,44 +292,47 @@ class ReviewQueue:
     def refresh_async(self) -> None:
         self.wakeup.set()
 
-    def update_job(self, key: str, **updates) -> None:
-        with self.lock:
-            self.state["items"][key]["job"].update(updates)
-            self._save()
-
-    def item(self, key: str) -> dict:
-        with self.lock:
-            return copy.deepcopy(self.state["items"][key])
-
-    def session_busy(self, session_id: str) -> bool:
-        directory = self.registry.get(session_id)
-        try:
-            workspace = str(Path(sess.repo_path(sess.load_session(directory))).resolve()) if directory else None
-        except (OSError, ValueError):
-            workspace = None
-        with self.lock:
-            return any((item.get("session_id") == session_id or (workspace and item.get("job", {}).get("workspace") == workspace)) and item.get("job", {}).get("status") in ACTIVE_JOB_STATES
-                       for item in self.state["items"].values())
-
-    def enqueue(self, key: str) -> dict:
-        with self.lock:
-            if key not in self.state["items"]:
-                raise ValueError("unknown queue item")
-            item = self.state["items"][key]
-            self.repository_config(item)
-            if item.get("state") != "open":
-                raise ValueError("Only open PRs can be reviewed; refresh the queue first")
-            if item.get("job", {}).get("status") in ACTIVE_JOB_STATES:
-                return copy.deepcopy(item["job"])
-            if runtime.is_process_live(item.get("job", {}).get("prepare_pid")):
-                raise ValueError("The previous preparation process is still running; wait for it to finish before retrying")
-            if item.get("session_id") and self.registry.get(item["session_id"]) is None:
-                item.pop("session_id")
-            item["job"] = {"id": os.urandom(12).hex(), "status": "queued", "started_at": now(), "error": ""}
-            self._save()
-            return copy.deepcopy(item["job"])
+    def driver_task(self, item: dict, directory: Path | None, session) -> str:
+        settings = self.repository_config(item)
+        context = {
+            "pr_url": f'https://{item["account"]["hostname"]}/{item["repo"]}/pull/{item["number"]}',
+            "github_account": item["account"],
+            "peanut_review_cli": str(Path(__file__).resolve().parent.parent / "bin" / "peanut-review"),
+            "review_config": settings.get("reviewConfig"),
+            "session_root": str(self.root),
+            "session": str(directory) if directory else None,
+            "workspace": session.workspace if session else None,
+            "repository": sess.repo_path(session) if session else settings.get("path"),
+            "worktree_root": settings.get("worktreeRoot"),
+            "observed_head": item.get("head_sha"),
+            "observed_base": item.get("base_sha"),
+            "base_branch": item.get("base_ref"),
+            "prepare_commands": settings.get("prepare", []),
+        }
+        action = "Refresh and re-review" if session else "Review"
+        return (
+            f"{action} this PR using the peanut-review skill as the driver.\n\n"
+            "Use the account and local context below. Fetch the latest PR metadata; the observed "
+            "revision may have changed. Inspect any existing session and live agents first. "
+            "Reuse its saved reviewer/curator lineup, or use the configured lineup for a new session. "
+            "Preserve local edits, commits, and prior review history. Handle force pushes or divergent "
+            "branches by preparing a suitable branch-backed task worktree at the exact PR revision; "
+            "do not blindly reset or clean an existing checkout. Follow project build/test instructions "
+            "before launching through peanut-review. Reuse and synchronize the existing session, or "
+            "create one under the specified session root. Run reviewers and then the configured curator, "
+            "monitor failures, and finish with gh-push --dry-run and a summary. "
+            "Do not publish to GitHub. Discover missing configuration before proceeding.\n\n"
+            "Context (JSON data):\n" + json.dumps(context, indent=2) + "\n"
+        )
 
     def payload(self) -> dict:
+        # Observe CLI-created sessions on local UI polls, without waiting for GitHub.
+        for cfg in self.config["accounts"]:
+            key = f'{cfg["hostname"]}/{cfg["login"].casefold()}'
+            with self.lock:
+                identity = self.state["accounts"].get(key, {}).get("identity")
+            if identity:
+                self._attach_sessions(GitHubAccount(**identity))
         with self.lock:
             items = copy.deepcopy(list(self.state["items"].values()))
             statuses = copy.deepcopy(self.state["accounts"])
@@ -368,34 +350,48 @@ class ReviewQueue:
                 continue
             item["account_key"] = key
             item.pop("body", None)
-            try:
-                self.repository_config(item)
-                item["setup_error"] = ""
-            except ValueError as error:
-                item["setup_error"] = str(error)
+            # Old queue jobs remain on disk as history, not as current driver status.
+            item.pop("job", None)
+            directory = None
+            session = None
+            completed = item.get("completed_snapshot")
+            session_id = item.get("session_id")
+            if session_id:
+                directory = self.registry.get(session_id)
+                if directory is None:
+                    item["session_id"] = None
+                else:
+                    try:
+                        session = sess.load_session(directory)
+                        expected = {"account": item["account"], "repo": item["repo"].casefold(), "number": item["number"]}
+                        if review_completion.target(session) != expected:
+                            raise ValueError("Session target does not match this queue item")
+                        receipt = review_completion.completed_review(directory, session)
+                        if receipt and receipt["completed_at"] >= item.get("completed_at", ""):
+                            completed = receipt["snapshot"]
+                            item["completed_snapshot"] = completed
+                            item["completed_at"] = receipt["completed_at"]
+                            with self.lock:
+                                self.state["items"][item["key"]].update(
+                                    completed_snapshot=completed, completed_at=receipt["completed_at"])
+                        item["session_progress"] = (self.registry._summary(session_id, directory) or {}).get("progress", {})
+                    except (OSError, ValueError, AttributeError):
+                        directory = None
+                        session = None
+                        item["session_id"] = None
+                        item["session_progress"] = {"label": "Session unavailable", "status": "failed"}
             status = statuses.get(key, {})
             item["error"] = item.get("error") or status.get("error", "")
             checked = item.get("checked_at")
             expired = not checked or (datetime.now(timezone.utc) - datetime.fromisoformat(checked)).total_seconds() > self.config["pollSeconds"] * 3
-            completed = item.get("completed_snapshot")
             current = snapshot(item) if item.get("head_sha") else None
             item["freshness"] = "unknown" if item["error"] or expired else (
                 "current" if completed and completed == current else "stale" if completed else "unreviewed"
             )
-            session_id = item.get("session_id")
-            if session_id:
-                path = self.registry.get(session_id)
-                if path is None:
-                    item["session_id"] = None
-                else:
-                    try:
-                        session = sess.load_session(path)
-                        if not completed and session.github and (session.current_head != item.get("head_sha") or session.base_ref != item.get("base_sha")):
-                            if item["freshness"] != "unknown":
-                                item["freshness"] = "stale"
-                        item["session_progress"] = self.registry._summary(session_id, path).get("progress", {})
-                    except (OSError, ValueError, AttributeError):
-                        item["session_progress"] = {"label": "Session unavailable", "status": "failed"}
+            if not completed and session and (session.current_head != item.get("head_sha") or session.base_ref != item.get("base_sha")):
+                if item["freshness"] != "unknown":
+                    item["freshness"] = "stale"
+            item["driver_task"] = self.driver_task(item, directory, session)
             rows.append(item)
         rows.sort(key=lambda item: (item.get("state") != "open", item["freshness"] != "stale", not item.get("requested"), item.get("repo", ""), item["number"]))
         return {"items": rows, "accounts": accounts, "refreshing": refreshing, "poll_seconds": self.config["pollSeconds"]}

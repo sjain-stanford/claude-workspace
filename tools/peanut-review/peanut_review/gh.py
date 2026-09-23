@@ -387,13 +387,14 @@ class PRInfo:
     hostname: str = GITHUB_HOST
     account: GitHubAccount | None = None
     body: str = ""
+    base_ref_name: str = ""
 
 
 def fetch_pr_info(repo: str, number: int) -> PRInfo:
     out = _run([
         "pr", "view", str(number),
         "--repo", f"{current_account().hostname}/{repo}",
-        "--json", "number,headRefOid,baseRefOid,headRefName,url,title,body",
+        "--json", "number,headRefOid,baseRefOid,headRefName,baseRefName,url,title,body",
     ])
     d = json.loads(out)
     returned_repo, returned_number = parse_pr_spec(d["url"])
@@ -409,6 +410,7 @@ def fetch_pr_info(repo: str, number: int) -> PRInfo:
         head_sha=d["headRefOid"],
         base_sha=d["baseRefOid"],
         head_ref_name=d.get("headRefName") or "",
+        base_ref_name=d.get("baseRefName") or "",
         hostname=current_account().hostname,
         account=current_account(),
     )

@@ -308,6 +308,7 @@ class GitHubPR:
     account: GitHubAccount | None = None
     # None means an older session has not captured the description yet.
     body: str | None = None
+    base_ref_name: str = ""
 
     def to_dict(self) -> dict:
         data = {k: v for k, v in asdict(self).items() if v not in (None, "", 0)}

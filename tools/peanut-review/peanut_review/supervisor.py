@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import runtime
+from . import review_completion, runtime
 from .models import AgentStatus
 from .session import update_agent_status
 
@@ -256,6 +256,7 @@ def supervise_agent(
             },
         )
         update_agent_status(sdir, agent_name, AgentStatus.FAILED.value)
+        review_completion.finish_run(sdir, agent_name, child_env.get("PEANUT_REVIEW_RUN_ID"), successful=False)
         _finish_remote_transport(sdir, agent_name, child_env)
         return 127
 
@@ -400,6 +401,12 @@ def supervise_agent(
         pid=proc.pid,
         pgid=pgid,
         supervisor_pid=os.getpid(),
+    )
+    review_completion.finish_run(
+        sdir, agent_name, child_env.get("PEANUT_REVIEW_RUN_ID"),
+        successful=(not timed_out and (return_code == 0 or stopped_after_round_done)
+                    and _has_new_round_done_signal(sdir, agent_name, initial_round_done_mtime_ns)
+                    and not runtime.read_agent_meta(sdir, agent_name).get("ssh_cleanup_required")),
     )
     return return_code
 

@@ -1423,3 +1423,7 @@ table.queue-table th { position: static; }
 .queue-page .queue-pr a, .queue-page .queue-open { color: var(--accent); text-decoration: none; }
 .queue-page .queue-pr a:hover, .queue-page .queue-open:hover { text-decoration: underline; }
 .app-nav a { text-decoration: none; }
+
+#queue-task-dialog { width: min(760px, 90vw); border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); }
+#queue-task-dialog::backdrop { background: #0008; }
+#queue-task-text { box-sizing: border-box; width: 100%; margin-bottom: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 10px; }

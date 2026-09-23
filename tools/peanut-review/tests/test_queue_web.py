@@ -17,7 +17,6 @@ def server(tmp_path):
     registry = SessionRegistry([tmp_path])
     queue = Mock()
     queue.payload.return_value = {"items": [], "accounts": [], "refreshing": False}
-    queue.enqueue.return_value = {"id": "job", "status": "queued"}
     http = make_server("127.0.0.1", 0, registry, queue=queue, base_url="/pr")
     thread = threading.Thread(target=http.serve_forever, daemon=True)
     thread.start()
@@ -65,8 +64,8 @@ def test_queue_post_requires_page_token_and_same_origin(server):
     assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 403
     queue.enqueue.assert_not_called()
     headers["Origin"] = url
-    assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 202
-    queue.enqueue.assert_called_once_with("x")
+    assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 410
+    queue.enqueue.assert_not_called()
 
 
 def test_queue_refresh_does_not_launch_review(server):
@@ -82,9 +81,9 @@ def test_queue_rejects_nonlocal_host_and_invalid_actions(server):
     assert request(url, "/api/queue", headers={"Host": "attacker.invalid"})[0] == 403
     headers = {"X-Peanut-Queue-Token": token(url)}
     assert request(url, "/api/queue/start", data=[], headers=headers)[0] == 400
-    assert request(url, "/api/queue/start", data={}, headers=headers)[0] == 400
-    queue.enqueue.side_effect = ValueError("Worktree unavailable")
-    assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 409
+    assert request(url, "/api/queue/start", data={}, headers=headers)[0] == 410
+    assert request(url, "/api/queue/start", data={"key": "x"}, headers=headers)[0] == 410
+    queue.enqueue.assert_not_called()
     assert request(url, "/api/queue/unknown", data={}, headers=headers)[0] == 404
 
 

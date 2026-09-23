@@ -715,8 +715,6 @@ class _Handler(BaseHTTPRequestHandler):
         if tail == "/api/agents/kill":
             self._post_agents_kill(session_dir, data)
             return
-        if tail in {"/api/agents/rerun", "/api/curator/launch"} and self.queue and self.queue.session_busy(session_id):
-            return self._error(409, "A queue job is using this session; wait for it to finish")
         if tail == "/api/agents/rerun":
             self._post_agents_rerun(session_dir)
             return
@@ -1129,14 +1127,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.queue.refresh_async()
             return self._json(202, {"refreshing": True})
         if path == "/api/queue/start":
-            key = data.get("key")
-            if not isinstance(key, str):
-                return self._error(400, "queue item key is required")
-            try:
-                job = self.queue.enqueue(key)
-            except ValueError as error:
-                return self._error(409, str(error))
-            return self._json(202, job)
+            return self._error(410, "Queue execution has moved to the driver. Reload the queue and copy a review task.")
         return self._error(404, "unknown queue action")
 
     def _post_agents_kill(self, session_dir: Path, data: dict) -> None:

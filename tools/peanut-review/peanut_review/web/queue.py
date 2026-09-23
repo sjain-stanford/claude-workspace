@@ -26,6 +26,7 @@ def render_queue(base_url: str, token: str, enabled: bool) -> str:
 </header>
 <main class="index-main">
 <div class="queue-heading"><div><h2>Your review queue</h2><p class="meta">Review requests and PRs you are following across your accounts.</p></div><span id="queue-count" class="meta" aria-live="polite"></span></div>
+<p class="meta">Copy a review task into your driver conversation to prepare the checkout and run the review.</p>
 {setup}
 <div id="queue-accounts" class="queue-accounts"></div>
 <div class="queue-toolbar">
@@ -38,11 +39,18 @@ def render_queue(base_url: str, token: str, enabled: bool) -> str:
 <option value="attention">Needs attention</option><option value="open">All open PRs</option><option value="requested">Review requested</option><option value="stale">Stale reviews</option><option value="running">Running reviews</option><option value="all">Include closed PRs</option>
 </select></div>
 <p id="queue-error" class="queue-notice error" role="alert" hidden></p>
+<p id="queue-copy-status" class="meta" role="status"></p>
 <div class="queue-table-wrap"><table class="sessions queue-table">
 <thead><tr><th>Pull request</th><th>Account / request</th><th>Review</th><th>Freshness</th><th>Actions</th></tr></thead>
 <tbody id="queue-rows"></tbody></table></div>
 <div id="queue-empty" class="empty">{"Loading your review queue…" if enabled else "Queue is not configured."}</div>
 </main>
+<dialog id="queue-task-dialog" aria-labelledby="queue-task-title">
+<h2 id="queue-task-title">Copy task to your driver</h2>
+<p>Automatic copying is unavailable. Copy the selected text and paste it into your driver conversation.</p>
+<textarea id="queue-task-text" aria-label="Review task" rows="14" readonly></textarea>
+<button id="queue-task-close" type="button">Close</button>
+</dialog>
 <script>window.PR_BASE_URL = {json.dumps(base_url).replace('<', chr(92) + 'u003c')}; window.PR_QUEUE_TOKEN = {json.dumps(token)}; window.PR_QUEUE_ENABLED = {json.dumps(enabled)};</script>
 <script src="{html.escape(_asset_url(base_url, 'queue.js'), quote=True)}"></script>
 </body></html>'''

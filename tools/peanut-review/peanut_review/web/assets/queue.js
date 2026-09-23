@@ -1,9 +1,8 @@
-// Local review queue. Polling reads cached state; only explicit actions launch work.
+// Local review queue. Review tasks are handed to the user's driver agent.
 (() => {
   "use strict";
   const base = window.PR_BASE_URL || "";
   const byId = (id) => document.getElementById(id);
-  const active = new Set(["queued", "preparing", "reviewing", "curating"]);
   let data = { items: [], accounts: [] };
   let loading = false;
   let submitting = false;
@@ -39,6 +38,18 @@
     byId("queue-error").textContent = message;
     byId("queue-error").hidden = !message;
   }
+  async function copyTask(item) {
+    try {
+      await navigator.clipboard.writeText(item.driver_task);
+      byId("queue-copy-status").textContent = "Task copied. Paste it into your driver conversation.";
+    } catch {
+      const text = byId("queue-task-text");
+      text.value = item.driver_task;
+      byId("queue-task-dialog").showModal();
+      text.focus();
+      text.select();
+    }
+  }
   function visible(item) {
     const query = byId("queue-search").value.trim().toLowerCase();
     const account = byId("queue-account").value;
@@ -50,8 +61,8 @@
     if (filter !== "all" && item.state && item.state !== "open") return false;
     if (filter === "requested") return item.requested;
     if (filter === "stale") return item.freshness === "stale";
-    if (filter === "running") return active.has(item.job?.status);
-    if (filter === "attention") return item.requested || item.freshness !== "current" || active.has(item.job?.status) || ["failed", "interrupted"].includes(item.job?.status);
+    if (filter === "running") return item.session_progress?.status === "running";
+    if (filter === "attention") return item.requested || item.freshness !== "current" || item.session_progress?.status === "running" || item.session_progress?.status === "failed";
     return true;
   }
   function render() {
@@ -86,12 +97,8 @@
       const account = data.accounts.find((a) => a.key === item.account_key);
       identity.append(node("div", account?.label || item.account.login), node("div", item.requested ? `${item.request_kind || "Review"} request` : "Following", "sub"));
       const review = node("td");
-      const status = item.job?.status;
-      const labels = { queued: "Queued", preparing: "Preparing checkout", reviewing: "Reviewers running", curating: "Curator running", done: "Review complete", failed: "Review failed", interrupted: "Review interrupted" };
-      const progress = active.has(status) ? "running" : status === "done" ? "done" : ["failed", "interrupted"].includes(status) ? "failed" : item.session_progress?.status || "pending";
-      review.append(node("span", labels[status] || item.session_progress?.label || "Not started", `badge review-progress progress-${progress}`));
-      const problem = item.job?.error || item.setup_error;
-      if (problem) review.append(node("div", problem, "queue-detail error"));
+      const progress = item.session_progress?.status || "pending";
+      review.append(node("span", item.session_progress?.label || "Not started", `badge review-progress progress-${progress}`));
       const freshness = node("td");
       const freshLabels = { current: "Up to date", stale: "Stale", unknown: "Unknown", unreviewed: "Not reviewed" };
       freshness.append(node("span", freshLabels[item.freshness], `queue-freshness freshness-${item.freshness}`));
@@ -105,12 +112,11 @@
         actions.append(open);
       }
       if (item.state === "open") {
-        const label = active.has(status) ? "In progress" : ["failed", "interrupted"].includes(status) ? "Retry review" : item.session_id ? (item.freshness === "current" ? "Re-review" : "Refresh & re-review") : "Start review";
-        const start = node("button", label);
-        start.type = "button";
-        start.disabled = submitting || active.has(status) || Boolean(item.setup_error);
-        start.addEventListener("click", () => action("start", { key: item.key }));
-        actions.append(start);
+        const copy = node("button", item.session_id ? "Copy re-review task" : "Copy review task");
+        copy.type = "button";
+        copy.disabled = !item.driver_task;
+        copy.addEventListener("click", () => copyTask(item));
+        actions.append(copy);
       }
       row.append(pr, identity, review, freshness, actions);
       body.append(row);
@@ -145,6 +151,7 @@
     finally { submitting = false; await refresh(); render(); }
   }
   byId("queue-refresh").addEventListener("click", () => action("refresh"));
+  byId("queue-task-close").addEventListener("click", () => byId("queue-task-dialog").close());
   byId("queue-search").addEventListener("input", render);
   byId("queue-account").addEventListener("change", render);
   byId("queue-request-type").addEventListener("change", render);

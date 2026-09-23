@@ -11,7 +11,7 @@ from pathlib import Path
 from string import Template
 from typing import Sequence
 
-from . import curator, review_context, store
+from . import curator, review_completion, review_context, store
 from .models import AgentStatus, GitHubPR
 from .session import (
     load_session,
@@ -568,6 +568,7 @@ def launch_agents(
         _prepare_curation_baseline(sdir, session, agents)
     save_session(sdir, session)
 
+    review_run_ids = review_completion.begin_launch(sdir, session, agents) if not dry_run else {}
     results = []
     for index, agent in enumerate(agents):
         prompt_path = prompts[agent.name]
@@ -592,6 +593,9 @@ def launch_agents(
         )
 
         env = os.environ.copy()
+        env.pop("PEANUT_REVIEW_RUN_ID", None)
+        if agent.name in review_run_ids:
+            env["PEANUT_REVIEW_RUN_ID"] = review_run_ids[agent.name]
         bin_dir = str(Path(__file__).resolve().parent.parent / "bin")
         env["PATH"] = bin_dir + ":" + env.get("PATH", "")
         env["GIT_AUTHOR_NAME"] = agent.name

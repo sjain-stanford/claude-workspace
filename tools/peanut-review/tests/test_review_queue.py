@@ -1,18 +1,16 @@
-"""Queue discovery, revision accounting and real Git worktree lifecycle tests."""
+"""Queue discovery, driver handoffs and revision accounting tests."""
 from __future__ import annotations
 
-import copy
 import json
 import subprocess
 from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
-from peanut_review import gh, queue_jobs, review_queue, session as sess, store
-from peanut_review.models import GitHubAccount, GitHubPR
+from peanut_review import gh, review_queue
+from peanut_review.models import GitHubAccount
 from peanut_review.web.app import SessionRegistry
 
 
@@ -147,18 +145,15 @@ def test_expired_cache_does_not_claim_current(queue):
     assert queue.payload()["items"][0]["freshness"] == "unknown"
 
 
-def test_duplicate_start_restart_and_service_ownership(queue):
-    key = add_item(queue)
-    first = queue.enqueue(key)
-    assert queue.enqueue(key) == first
-    assert first["status"] == "queued"
+def test_service_ownership_and_legacy_job_recovery(queue):
+    key = add_item(queue, job={"status": "queued"})
     with pytest.raises(ValueError, match="already serving"):
         review_queue.ReviewQueue(queue.root, queue.config, queue.registry)
     queue.close()
     replacement = review_queue.ReviewQueue(queue.root, queue.config, queue.registry)
     try:
-        assert replacement.item(key)["job"]["status"] == "interrupted"
-        assert replacement.enqueue(key)["id"] != first["id"]
+        assert replacement.state["items"][key]["job"]["status"] == "interrupted"
+        assert "job" not in replacement.payload()["items"][0]
     finally:
         replacement.close()
 
@@ -168,18 +163,12 @@ def test_removed_account_is_not_exposed(queue):
     assert queue.payload()["items"] == []
 
 
-def test_invalid_setup_is_visible_and_cannot_start(queue):
+def test_handoff_works_with_incomplete_checkout_configuration(queue):
     queue.config["accounts"][0].pop("reviewConfig")
-    key = add_item(queue)
-    assert "reviewConfig" in queue.payload()["items"][0]["setup_error"]
-    with pytest.raises(ValueError, match="reviewConfig"):
-        queue.enqueue(key)
-
-
-def test_closed_pr_cannot_start(queue):
-    key = add_item(queue, state="merged")
-    with pytest.raises(ValueError, match="open PR"):
-        queue.enqueue(key)
+    add_item(queue)
+    item = queue.payload()["items"][0]
+    assert '"review_config": null' in item["driver_task"]
+    assert "Discover missing configuration" in item["driver_task"]
 
 
 def test_config_paths_and_argv_validation(tmp_path):
@@ -195,154 +184,6 @@ def test_config_paths_and_argv_validation(tmp_path):
     path.write_text(json.dumps(raw))
     with pytest.raises(ValueError, match="argv"):
         review_queue.load_config(path)
-
-
-@pytest.fixture
-def repository(tmp_path):
-    path = tmp_path / "repo"
-    path.mkdir()
-    queue_jobs.git(path, "init", "-b", "main")
-    queue_jobs.git(path, "config", "user.name", "Test")
-    queue_jobs.git(path, "config", "user.email", "test@example.invalid")
-    (path / "file").write_text("base\n")
-    queue_jobs.git(path, "add", "file")
-    queue_jobs.git(path, "commit", "-m", "base")
-    base = queue_jobs.git(path, "rev-parse", "HEAD")
-    (path / "file").write_text("feature\n")
-    queue_jobs.git(path, "commit", "-am", "feature")
-    head = queue_jobs.git(path, "rev-parse", "HEAD")
-    return path, base, head
-
-
-def configure_job(queue, repository, monkeypatch):
-    path, base, head = repository
-    cfg = queue.config["accounts"][0]
-    cfg["repositories"] = {"acme/widget": {"path": str(path)}}
-    Path(cfg["reviewConfig"]).write_text(json.dumps({
-        "agents": [{"name": "Vera", "model": "test", "runner": "codex", "persona": "vera.md"},
-                   {"name": "Curator", "model": "test", "runner": "codex", "role": "curator"}],
-    }))
-    monkeypatch.setattr(gh, "account_auth", authenticate)
-    monkeypatch.setattr(gh, "git_read", lambda *args, **kwargs: "")
-    monkeypatch.setattr(review_queue, "fetch_pr", lambda repo, number: remote(head_sha=head, base_sha=base))
-    monkeypatch.setattr(queue_jobs.gh_pull, "pull_comments", Mock())
-    def launch_fake(directory, **kwargs):
-        session = sess.load_session(directory)
-        for agent in sess.reviewer_agents(session):
-            (Path(directory) / "signals" / f"{agent.name}.round-done").touch()
-        return []
-    def curate_fake(directory):
-        (Path(directory) / "signals" / "Curator.round-done").touch()
-        return []
-    monkeypatch.setattr(queue_jobs.launch, "launch_agents", launch_fake)
-    monkeypatch.setattr(queue_jobs.launch, "rerun_agents", launch_fake)
-    monkeypatch.setattr(queue_jobs.launch, "launch_curator", curate_fake)
-    key = add_item(queue, head_sha=head, base_sha=base)
-    queue.enqueue(key)
-    return key
-
-
-def test_full_start_and_refresh_preserves_history_and_lineup(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    queue_jobs.run_job(queue, key)
-    item = queue.item(key)
-    directory = queue.registry.get(item["session_id"])
-    session = sess.load_session(directory)
-    workspace = Path(session.workspace)
-    assert workspace.is_relative_to(Path(queue.config["accounts"][0]["worktreeRoot"]))
-    assert workspace != repository[0]
-    assert queue_jobs.git(workspace, "symbolic-ref", "--short", "HEAD").startswith("users/sambhav/")
-    assert item["job"]["status"] == "done"
-    assert queue.payload()["items"][0]["freshness"] == "current"
-    (directory / "result.json").write_text('{"decision":"approve"}')
-    (directory / "log" / "Vera.log").write_text("prior run")
-    first_lineup = [a.to_dict() for a in session.agents]
-    # A later configuration change must not replace an existing session lineup.
-    Path(queue.config["accounts"][0]["reviewConfig"]).write_text('{"agents":[]}')
-    queue.enqueue(key)
-    # Existing sessions should not need the current lineup to remain valid.
-    queue_jobs.run_job(queue, key)
-    job_id = queue.item(key)["job"]["id"]
-    assert (directory / "rounds" / job_id / "result.json").exists()
-    assert (directory / "rounds" / job_id / "log" / "Vera.log").read_text() == "prior run"
-    assert not (directory / "result.json").exists()
-    assert [a.to_dict() for a in sess.load_session(directory).agents] == first_lineup
-
-
-def test_old_review_finishing_after_push_stays_stale(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    def curate_and_push(directory):
-        (Path(directory) / "signals" / "Curator.round-done").touch()
-        queue.state["items"][key]["head_sha"] = "f" * 40
-    monkeypatch.setattr(queue_jobs.launch, "launch_curator", curate_and_push)
-    queue_jobs.run_job(queue, key)
-    assert queue.item(key)["job"]["status"] == "done"
-    assert queue.payload()["items"][0]["freshness"] == "stale"
-
-
-def test_dirty_worktree_is_preserved(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    queue_jobs.run_job(queue, key)
-    directory = queue.registry.get(queue.item(key)["session_id"])
-    workspace = Path(sess.load_session(directory).workspace)
-    (workspace / "file").write_text("user edits\n")
-    queue.enqueue(key)
-    with pytest.raises(ValueError, match="local changes"):
-        queue_jobs.run_job(queue, key)
-    assert (workspace / "file").read_text() == "user edits\n"
-
-
-def test_fast_forward_refresh_and_divergence(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    queue_jobs.run_job(queue, key)
-    directory = queue.registry.get(queue.item(key)["session_id"])
-    workspace = Path(sess.load_session(directory).workspace)
-    path, base, original = repository
-    (path / "file").write_text("remote update\n")
-    queue_jobs.git(path, "commit", "-am", "update")
-    latest = queue_jobs.git(path, "rev-parse", "HEAD")
-    monkeypatch.setattr(review_queue, "fetch_pr", lambda repo, number: remote(head_sha=latest, base_sha=base))
-    queue.enqueue(key)
-    queue_jobs.run_job(queue, key)
-    assert queue_jobs.git(workspace, "rev-parse", "HEAD") == latest
-    monkeypatch.setattr(review_queue, "fetch_pr", lambda repo, number: remote(head_sha=original, base_sha=base))
-    queue.enqueue(key)
-    with pytest.raises(ValueError, match="diverged"):
-        queue_jobs.run_job(queue, key)
-    assert queue_jobs.git(workspace, "rev-parse", "HEAD") == latest
-
-
-def test_running_agent_blocks_checkout_change(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    queue_jobs.run_job(queue, key)
-    monkeypatch.setattr(queue_jobs.runtime, "inspect_agent_runtime", lambda *args: {"reviewer_live": True, "supervisor_live": True})
-    queue.enqueue(key)
-    with pytest.raises(ValueError, match="still using"):
-        queue_jobs.run_job(queue, key)
-
-
-def test_session_discovery_includes_unrequested_existing_reviews(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    queue_jobs.run_job(queue, key)
-    session_id = queue.item(key)["session_id"]
-    queue.state["items"].clear()
-    monkeypatch.setattr(review_queue, "search_requests", lambda login: [])
-    queue.refresh()
-    assert queue.item(key)["session_id"] == session_id
-    assert not queue.item(key)["requested"]
-    # Legacy round-done files alone are not evidence of a reviewed revision.
-    assert queue.payload()["items"][0]["freshness"] == "unreviewed"
-
-
-def test_preparation_failure_stops_before_launch(queue, repository, monkeypatch):
-    import sys
-    key = configure_job(queue, repository, monkeypatch)
-    queue.config["accounts"][0]["prepare"] = [[sys.executable, "-c", "raise SystemExit(2)"]]
-    launch = Mock()
-    monkeypatch.setattr(queue_jobs.launch, "launch_agents", launch)
-    with pytest.raises(ValueError, match="Preparation failed"):
-        queue_jobs.run_job(queue, key)
-    launch.assert_not_called()
 
 
 def test_git_fetch_uses_scoped_credentials_and_redacts_failure(monkeypatch):
@@ -370,62 +211,17 @@ def test_git_fetch_uses_scoped_credentials_and_redacts_failure(monkeypatch):
         gh._CREDENTIALS.reset(marker)
 
 
-def test_canonical_checkout_is_never_updated(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    path, base, head = repository
-    directory = queue.root / "legacy"
-    pr = GitHubPR(repo="acme/widget", number=1, account=ACCOUNT, head_sha=head, base_sha=base)
-    sess.create_session(workspace=str(path), base_ref=base, topic_ref=head, github=pr,
-                        session_id="legacy", session_dir=str(directory), agents=[
-                            {"name": "Vera", "model": "test", "persona": "vera.md", "runner": "codex"},
-                            {"name": "Curator", "model": "test", "runner": "codex", "role": "curator"}])
-    queue.registry.bind(directory)
-    queue.state["items"][key]["session_id"] = "legacy"
-    queue.config["accounts"][0]["worktreeRoot"] = str(path.parent)
-    with pytest.raises(ValueError, match="canonical checkout"):
-        queue_jobs.run_job(queue, key)
-    assert queue_jobs.git(path, "rev-parse", "HEAD") == head
-
-
-def test_setup_failure_can_reuse_created_worktree(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    create = sess.create_session
-    monkeypatch.setattr(sess, "create_session", Mock(side_effect=ValueError("transient setup failure")))
-    with pytest.raises(ValueError, match="transient"):
-        queue_jobs.run_job(queue, key)
-    monkeypatch.setattr(sess, "create_session", create)
-    queue_jobs.run_job(queue, key)
-    assert queue.item(key)["job"]["status"] == "done"
-    assert len(queue_jobs.worktrees(repository[0])) == 2
-
-
-def test_removed_session_can_be_started_again(queue, repository, monkeypatch):
-    import shutil
-    key = configure_job(queue, repository, monkeypatch)
-    queue_jobs.run_job(queue, key)
-    directory = queue.registry.get(queue.item(key)["session_id"])
-    shutil.rmtree(directory)
-    queue.registry.rescan(force=True)
-    queue.enqueue(key)
-    queue_jobs.run_job(queue, key)
-    assert directory.exists()
-    assert queue.item(key)["job"]["status"] == "done"
-
-
-def test_incomplete_curator_never_marks_review_current(queue, repository, monkeypatch):
-    key = configure_job(queue, repository, monkeypatch)
-    monkeypatch.setattr(queue_jobs.launch, "launch_curator", Mock(side_effect=ValueError("Curator unavailable")))
-    with pytest.raises(ValueError, match="Curator unavailable"):
-        queue_jobs.run_job(queue, key)
-    assert "completed_snapshot" not in queue.item(key)
-    assert queue.payload()["items"][0]["freshness"] != "current"
-
-
-def test_preparation_timeout_cleans_up_process(queue, repository, monkeypatch):
-    import sys
-    key = configure_job(queue, repository, monkeypatch)
-    queue.config["accounts"][0].update(prepare=[[sys.executable, "-c", "import time; time.sleep(30)"]], prepareTimeoutSeconds=1)
-    with pytest.raises(ValueError, match="timed out"):
-        queue_jobs.run_job(queue, key)
-    assert queue.item(key)["job"]["prepare_pid"] is None
-    assert "completed_snapshot" not in queue.item(key)
+def test_driver_task_contains_account_config_and_exact_context(queue):
+    add_item(queue)
+    item = queue.payload()["items"][0]
+    task = item["driver_task"]
+    context = json.loads(task.split("Context (JSON data):\n", 1)[1])
+    assert context["github_account"] == asdict(ACCOUNT)
+    assert context["pr_url"] == remote()["url"]
+    assert context["review_config"] == queue.config["accounts"][0]["reviewConfig"]
+    assert context["session_root"] == str(queue.root)
+    assert context["session"] is None
+    assert context["observed_head"] == remote()["head_sha"]
+    assert context["worktree_root"].endswith("worktrees/acme/widget")
+    assert "force pushes" in task and "Do not publish" in task
+    assert "The requested change" not in task  # PR bodies are not driver instructions.
