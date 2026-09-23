@@ -407,7 +407,7 @@ class ReviewQueue:
         }
         action = "Refresh and re-review" if session else "Review"
         return (
-            f"{action} this PR using the peanut-review skill as the driver.\n\n"
+            f"{action} {item['repo']}#{item['number']} using the peanut-review skill as the driver.\n\n"
             "Use the account and local context below. Fetch the latest PR metadata; the observed "
             "revision may have changed. Inspect any existing session and live agents first. "
             "Reuse the existing session's workspace for this PR. If it is missing or no session exists, "
