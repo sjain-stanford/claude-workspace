@@ -530,9 +530,13 @@ conversation. It includes the PR URL, selected GitHub account, review config,
 session root, existing session/workspace, configured checkout paths, and observed
 revision. If clipboard access is unavailable, a dialog provides selectable text.
 The driver uses the peanut-review skill and CLI to fetch the latest revision,
-preserve local work, reconcile force pushes or divergent branches, prepare the
-build, run reviewers and the curator, and produce a publication dry-run. Copying
-a task does not launch agents, change a checkout, or publish to GitHub.
+reuse the existing PR worktree and session, prepare the build, run reviewers and
+the curator, and produce a publication dry-run. It checks existing worktrees
+before creating one. Force pushes and divergent branches are reconciled in the
+same directory: the driver preserves the old branch tip and local edits before
+moving the review branch to the fetched PR head. Build artifacts and review
+history are retained, and saved work is identified in the handoff. Copying a
+task does not launch agents, change a checkout, or publish to GitHub.
 
 The queue automatically discovers CLI-created sessions under its session roots.
 Progress and the **Running reviews** filter reflect session agent activity;
