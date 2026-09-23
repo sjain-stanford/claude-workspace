@@ -448,7 +448,8 @@ request remains for you. A new request brings it back. Existing review sessions
 and history are preserved on the session pages. Closed PRs are available through
 **Include closed PRs**. Account failures retain cached rows and show an error.
 
-The request-type filter defaults to **Direct request**. Select **Team request**
+The request-type filter defaults to **Direct request**, and the review-status
+filter defaults to **All open PRs**. Select **Team request**
 or **All request types** as needed, alongside the account, search, and
 review-status filters. Direct and team categories retain
 the request origin after review submission. Historical requests are recovered

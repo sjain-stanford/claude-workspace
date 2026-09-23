@@ -36,7 +36,7 @@ def render_queue(base_url: str, token: str, enabled: bool) -> str:
 <option value="">All request types</option><option value="team">Team request</option><option value="direct" selected>Direct request</option>
 </select>
 <select id="queue-filter" aria-label="Filter review queue">
-<option value="attention">Needs attention</option><option value="open">All open PRs</option><option value="requested">Review requested</option><option value="stale">Stale reviews</option><option value="running">Running reviews</option><option value="all">Include closed PRs</option>
+<option value="attention">Needs attention</option><option value="open" selected>All open PRs</option><option value="requested">Review requested</option><option value="stale">Stale reviews</option><option value="running">Running reviews</option><option value="all">Include closed PRs</option>
 </select></div>
 <p id="queue-error" class="queue-notice error" role="alert" hidden></p>
 <p id="queue-copy-status" class="meta" role="status"></p>
