@@ -25,7 +25,7 @@ def render_queue(base_url: str, token: str, enabled: bool) -> str:
 <button id="queue-refresh" type="button">Refresh queue</button>
 </header>
 <main class="index-main">
-<div class="queue-heading"><div><h2>Your review queue</h2><p class="meta">Review requests and PRs you are following across your accounts.</p></div><span id="queue-count" class="meta" aria-live="polite"></span></div>
+<div class="queue-heading"><div><h2>Your review queue</h2><p class="meta">Review requests and tracked PRs across your accounts.</p></div><span id="queue-count" class="meta" aria-live="polite"></span></div>
 <p class="meta">Copy a review task into your driver conversation to prepare the checkout and run the review.</p>
 {setup}
 <div id="queue-accounts" class="queue-accounts"></div>
@@ -33,7 +33,7 @@ def render_queue(base_url: str, token: str, enabled: bool) -> str:
 <input id="queue-search" type="search" placeholder="Search PRs, repositories, authors…" aria-label="Search review queue">
 <select id="queue-account" aria-label="Filter by account"><option value="">All accounts</option></select>
 <select id="queue-request-type" aria-label="Filter by request type">
-<option value="">All request types</option><option value="team">Team request</option><option value="direct">Direct request</option><option value="following">Following</option>
+<option value="">All request types</option><option value="team">Team request</option><option value="direct" selected>Direct request</option>
 </select>
 <select id="queue-filter" aria-label="Filter review queue">
 <option value="attention">Needs attention</option><option value="open">All open PRs</option><option value="requested">Review requested</option><option value="stale">Stale reviews</option><option value="running">Running reviews</option><option value="all">Include closed PRs</option>

@@ -448,13 +448,15 @@ request remains for you. A new request brings it back. Existing review sessions
 and history are preserved on the session pages. Closed PRs are available through
 **Include closed PRs**. Account failures retain cached rows and show an error.
 
-Filter by **Team request**, **Direct request**, or **Following** alongside the
-account, search, and review-status filters. Direct and team categories retain
+The request-type filter defaults to **Direct request**. Select **Team request**
+or **All request types** as needed, alongside the account, search, and
+review-status filters. Direct and team categories retain
 the request origin after review submission. Historical requests are recovered
 from the PR timeline; team requests must match a team of the selected account.
-Direct takes precedence when both apply. **Following** is the fallback for
-tracked PRs without a known request origin. The separate **Review requested**
-status filter still selects pending requests. History or membership lookup
+Direct takes precedence when both apply. Tracked PRs without a known request
+origin show **No known request** and remain visible under **All request types**.
+The separate **Review requested** status filter still selects pending requests.
+History or membership lookup
 failures appear on the row and are retried without discarding known origins.
 
 Keep the queue configuration local and gitignored. Save it as
