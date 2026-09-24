@@ -1,6 +1,6 @@
 ---
 name: peanut-review
-description: Orchestrate configured reviewer personas and a dedicated curator through the peanut-review CLI, and address their findings as the developer in local review loops. Use when starting or managing review sessions, or when asked to deduplicate, shorten, validate, dismiss, filter, or decide whether agent review comments are worth pushing.
+description: Set up the local review queue, orchestrate configured reviewer personas and a dedicated curator through the peanut-review CLI, and address their findings as the developer in local review loops. Use when configuring the queue, starting or managing review sessions, or when asked to deduplicate, shorten, validate, dismiss, filter, or decide whether agent review comments are worth pushing.
 ---
 
 # Peanut Review
@@ -79,6 +79,9 @@ state immediately before publishing.
 Codex skills do not have a separate subcommand registry. Treat the first word
 after `/peanut-review` as a routing hint when present:
 
+- `/peanut-review setup-queue`: configure the local review queue from checked-out
+  projects and authenticated GitHub identities using [Queue Setup](#queue-setup).
+  This is setup only; it does not start a review lifecycle.
 - `/peanut-review curate <session-or-pr-context>`: have the configured curator
   clean up an existing review session's comments.
   This is not a new reviewer pass.
@@ -127,6 +130,39 @@ Do not launch or rerun reviewers, patch source, or push to GitHub during
 `curate` unless the user explicitly asks. Launching the dedicated curator
 agent is allowed when the user asks for curation or when a GitHub review
 lifecycle reaches the automatic curation step.
+
+## Queue Setup
+
+For first-time queue setup or mapping updates, follow the README's
+[one-time setup, fictional config, and validation commands](../../tools/peanut-review/README.md#one-time-queue-setup).
+`setup-queue` is a skill routing hint, not a peanut-review CLI subcommand.
+
+- Discover the actual enclosing workspace, running server's session root and
+  queue-config path, and available tool checkout. Preserve existing queue
+  entries. The tracked `.cache/peanut-review/.peanut-review.json` controls agents
+  and review roots; the gitignored `<primary-session-root>/.queue/config.json`
+  controls accounts and checkout mappings. Keep private mappings out of the
+  tracked reviewer config.
+- Inventory all stored `gh` identities and canonical checkouts under
+  `projects/<repo>/` and `projects-emu/<organization>/<repo>/`, excluding worktree
+  trees. Inspect remotes and effective `peanut-review.githubAccount` Git config,
+  including `includeIf`. Preserve saved queue/session identity choices; ask only
+  about unresolved or conflicting mappings. Do not select accounts by Git author
+  email or the active `gh` login. Public and EMU accounts may share `github.com`.
+- For each included repository, map the PR target's `owner/repo` to its canonical
+  `path` and explicit repository-specific `worktreeRoot`. Use
+  `projects/worktrees/<repo>/` for public work and
+  `projects-emu/worktrees/<organization>/<repo>/` for EMU work. Reuse the existing
+  reviewer config and its complete agent lineup. `repositories` supplies checkout
+  hints; it does not restrict which review requests the account discovers.
+- Keep real repository names, identities, and discovery output in gitignored
+  local files; use fictional names in tracked examples. Do not print or save
+  tokens. Validate a candidate with the README's loader command, check resolved
+  paths, then replace the local queue config while preserving a backup. The
+  loader does not verify credentials; dashboard account status does that after
+  startup. Show the startup/restart command, or run it when requested, using the
+  same session root and credential environment. Configuration changes require
+  restarting the server. Finish setup without launching reviews or publishing.
 
 ## Operator Checklist
 

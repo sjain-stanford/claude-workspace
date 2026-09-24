@@ -157,6 +157,20 @@ runners, models, or build/test commands, then generate .peanut-review.json and
 run dry-run validation. Do not launch reviewers yet.
 ```
 
+One-time review queue setup:
+
+```text
+/peanut-review setup-queue
+Set up the local queue config from the canonical checkouts under projects/ and
+projects-emu/ and the authenticated GitHub identities. Preserve existing account
+bindings and reviewer config; ask only about unresolved account/repository
+mappings. Validate the config and show the dashboard startup command.
+```
+
+See [one-time queue setup](#one-time-queue-setup) for the manual steps and a
+fictional public/EMU example. `setup-queue` is a skill routing hint, not a CLI
+subcommand.
+
 GitHub PR orchestration:
 
 ```text
@@ -460,11 +474,88 @@ The separate **Review requested** status filter still selects pending requests.
 History or membership lookup
 failures appear on the row and are retried without discarding known origins.
 
-Keep the queue configuration local and gitignored. Save it as
-`<primary-session-root>/.queue/config.json` to load it automatically with the
-normal web launcher, or select another file with `--queue-config`.
-Credentials are read from `gh auth` at operation time; never put tokens in this
-file. For example:
+### One-time queue setup
+
+Configure the queue once per machine, then update it when accounts or checkout
+locations change. Run discovery in the same environment and OS account as the
+web server so its `gh` credential store and filesystem paths are available.
+
+1. **Locate the existing config and session root.** In `claude-workspace`, the
+   tracked `.cache/peanut-review/.peanut-review.json` selects reviewers, models,
+   runners, and `reviewRoot`. The separate, gitignored queue config selects
+   GitHub accounts and checkout mappings. Save it at
+   `<primary-session-root>/.queue/config.json` for automatic loading, or preserve
+   the running server's explicit `--queue-config` path. Read an existing queue
+   config before editing and merge additions without replacing saved choices.
+   Keep the server's `--root` aligned with the reviewer config's `reviewRoot`.
+
+   These variables assume the standard workspace layout; adjust them to the
+   discovered paths. Use an absolute tool path from the checkout containing the
+   queue implementation if it differs from the main workspace checkout.
+
+   ```bash
+   META_WORKSPACE="$HOME/claude-workspace"
+   PEANUT_REVIEW_DIR="$META_WORKSPACE/tools/peanut-review"
+   PR_BIN="$PEANUT_REVIEW_DIR/bin/peanut-review"
+   REVIEW_CONFIG="$META_WORKSPACE/.cache/peanut-review/.peanut-review.json"
+   PR_ROOT="$META_WORKSPACE/.cache/peanut-review/sessions"
+   QUEUE_CONFIG="$PR_ROOT/.queue/config.json"
+   ```
+
+2. **Discover stored GitHub identities.** List all stored accounts, including
+   inactive accounts on the same host. Ignore inherited token overrides during
+   discovery, as the queue retrieves credentials for each selected login:
+
+   ```bash
+   env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
+     gh auth status --json hosts \
+     --jq '.hosts | to_entries[] | .key as $host | .value[] | {hostname: $host, login, active, state}'
+   ```
+
+   Inspect each account's status; JSON mode can exit successfully even when an
+   account has authentication errors. If a required identity is missing or
+   expired, authenticate it with `gh auth login --hostname <host>`, then repeat
+   discovery. Use the exact login and real GitHub hostname. Public and EMU
+   identities can both be on `github.com`; an SSH alias is not a GitHub hostname.
+   No `gh auth switch` is needed. Never copy tokens into either config.
+
+3. **Inventory canonical checkouts and map identities.** From the workspace
+   root, inspect `projects/<repo>/` and `projects-emu/<organization>/<repo>/`,
+   excluding both `worktrees/` trees. This read-only inventory prints local
+   paths, remotes, and effective account defaults, including Git `includeIf`:
+
+   ```bash
+   for checkout in "$META_WORKSPACE"/projects/* "$META_WORKSPACE"/projects-emu/*/*; do
+     case "$checkout" in
+       "$META_WORKSPACE"/projects/worktrees|"$META_WORKSPACE"/projects-emu/worktrees/*) continue ;;
+     esac
+     [ -e "$checkout/.git" ] || continue
+     git -C "$checkout" rev-parse --show-toplevel
+     git -C "$checkout" remote -v
+     git -C "$checkout" config --show-origin --get peanut-review.githubAccount || true
+   done
+   ```
+
+   Derive `owner/repo` from the remote for the repository receiving PRs. Check
+   `upstream` as well as `origin` when the checkout is a fork; the directory name
+   alone is not a repository identity. Preserve saved queue mappings and session
+   bindings, and use `peanut-review.githubAccount` to fill missing mappings.
+   Resolve conflicts or ambiguous accounts with the user; do not infer a GitHub
+   login from Git author email, SSH username, or whichever account is active.
+   If both identities intentionally review the same repository, map it under
+   both account entries. The queue uses these entries independently.
+
+   Record explicit `path` and repository-specific `worktreeRoot` for each
+   included checkout. Public paths use `projects/<repo>/` and
+   `projects/worktrees/<repo>/`; EMU paths use
+   `projects-emu/<organization>/<repo>/` and
+   `projects-emu/worktrees/<organization>/<repo>/`. These roots contain task
+   worktrees; do not point `path` at a temporary PR worktree.
+
+Keep the inventory and real config local and gitignored. Do not paste internal
+repository names, remotes, paths, or queue output into tracked documentation or
+public artifacts. All names and logins in this example are fictional; replace
+them only in your local config:
 
 ```json
 {
@@ -474,24 +565,29 @@ file. For example:
       "hostname": "github.com",
       "login": "my-public-login",
       "label": "Public",
-      "cloneRoot": "/home/me/work/public",
-      "worktreeRoot": "/home/me/work/worktrees/public",
-      "reviewConfig": "/home/me/work/.peanut-review.json",
+      "cloneRoot": "$HOME/claude-workspace/projects",
+      "worktreeRoot": "$HOME/claude-workspace/projects/worktrees",
+      "reviewConfig": "$HOME/claude-workspace/.cache/peanut-review/.peanut-review.json",
       "repositories": {
-        "example/project": {
-          "path": "/home/me/work/public/project",
-          "worktreeRoot": "/home/me/work/worktrees/project",
-          "prepare": [["cmake", "--build", "build"]]
+        "example-public-org/widget": {
+          "path": "$HOME/claude-workspace/projects/widget",
+          "worktreeRoot": "$HOME/claude-workspace/projects/worktrees/widget"
         }
       }
     },
     {
       "hostname": "github.com",
-      "login": "my-work-login",
-      "label": "Work",
-      "cloneRoot": "/home/me/work/private",
-      "worktreeRoot": "/home/me/work/private-worktrees",
-      "reviewConfig": "/home/me/work/.peanut-review.json"
+      "login": "my-emu-login",
+      "label": "EMU",
+      "cloneRoot": "$HOME/claude-workspace/projects-emu",
+      "worktreeRoot": "$HOME/claude-workspace/projects-emu/worktrees",
+      "reviewConfig": "$HOME/claude-workspace/.cache/peanut-review/.peanut-review.json",
+      "repositories": {
+        "example-emu-org/component": {
+          "path": "$HOME/claude-workspace/projects-emu/example-emu-org/component",
+          "worktreeRoot": "$HOME/claude-workspace/projects-emu/worktrees/example-emu-org/component"
+        }
+      }
     }
   ]
 }
@@ -500,8 +596,13 @@ file. For example:
 Paths may be absolute or relative to the queue config, and support `~` and
 environment variables. `repositories` provides optional per-repository
 settings; unmapped repositories use `<cloneRoot>/<owner>/<repo>` and
-`<worktreeRoot>/<owner>/<repo>`. These paths are included in the copied driver
-task. The driver handles clone/worktree setup and discovers any missing settings.
+`<worktreeRoot>/<owner>/<repo>`. Explicit mappings are needed for the flat
+public checkout layout. When setting `path`, also set `worktreeRoot` to the
+repository-specific directory: the queue does not append `owner/repo` to that
+root when `path` is explicit. `repositories` is a checkout mapping, not a PR
+discovery allowlist; account-wide review requests can include unmapped repos.
+These paths are included in the copied driver task. The driver handles
+clone/worktree setup and discovers any missing settings.
 
 `prepare` is an optional list of command argument arrays included as setup
 context in the copied task. The driver follows project build/test instructions
@@ -509,11 +610,48 @@ and decides how to prepare the checkout. The queue never executes these commands
 New reviews use the selected review config's agents; existing sessions retain
 their saved lineup, models, and runners.
 
+### Validate and start the queue
+
+Edit a candidate beside the saved config so relative paths keep the same
+meaning. Back up an existing config locally, preserve its entries, and validate
+the candidate before replacing it. Use owner-only permissions for the queue
+directory and config (`0700` and `0600`). Confirm the destination is ignored:
+
 ```bash
-peanut-review serve --host 127.0.0.1 --port 27183 \
-  --root /home/me/work/review-sessions \
-  --queue-config /home/me/work/queue.local.json
+git -C "$META_WORKSPACE" check-ignore "$QUEUE_CONFIG"
+
+# Use the candidate filename here before installing it as config.json.
+PYTHONPATH="$PEANUT_REVIEW_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 - "$QUEUE_CONFIG" <<'PY'
+import sys
+from peanut_review.review_queue import load_config
+
+config = load_config(sys.argv[1])
+print(f"Queue config valid: {len(config['accounts'])} account(s)")
+PY
 ```
+
+This checks schema and path expansion without contacting GitHub, starting a
+server, or launching reviewers. It does not prove account access or that paths
+exist. Check the resolved checkout paths and that each `reviewConfig` is readable
+and retains the intended reviewer/curator lineup. Use stable absolute paths or
+`$HOME` in the saved config; `$PWD` depends on where the server starts.
+
+After saving the validated config, start the dashboard:
+
+```bash
+PR_ROOT="$PR_ROOT" "$PEANUT_REVIEW_DIR/bin/peanut_review_serve.sh" \
+  --queue-config "$QUEUE_CONFIG"
+```
+
+The flag is optional for `$PR_ROOT/.queue/config.json`. Startup begins GitHub
+polling with each configured identity. Confirm the account status in `/queue`,
+then use **Copy review task** on an available PR to check its account, checkout,
+worktree root, session root, and reviewer config before handing it to a driver.
+An empty queue can simply mean no matching review requests. Authentication or
+team-membership errors require fixing that account's credentials/access, not
+switching the globally active account. Queue setup does not launch reviewers or
+publish reviews.
 
 Open `http://localhost:27183/queue`. The queue uses a loopback bind on the host.
 Inside Docker, the normal launcher's `0.0.0.0` bind is supported with the
