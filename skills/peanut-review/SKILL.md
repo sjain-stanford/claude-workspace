@@ -1,6 +1,6 @@
 ---
 name: peanut-review
-description: Orchestrate configured reviewer personas and a dedicated curator through the peanut-review CLI, and address their findings as the developer in local review loops. Use when starting or managing review sessions, or when asked to deduplicate, shorten, validate, dismiss, filter, or decide whether agent review comments are worth pushing.
+description: Set up the local review queue, orchestrate configured reviewer personas and a dedicated curator through the peanut-review CLI, and address their findings as the developer in local review loops. Use when configuring the queue, starting or managing review sessions, or when asked to deduplicate, shorten, validate, dismiss, filter, or decide whether agent review comments are worth pushing.
 ---
 
 # Peanut Review
@@ -79,6 +79,9 @@ state immediately before publishing.
 Codex skills do not have a separate subcommand registry. Treat the first word
 after `/peanut-review` as a routing hint when present:
 
+- `/peanut-review setup-queue`: configure the local review queue from checked-out
+  projects and authenticated GitHub identities using [Queue Setup](#queue-setup).
+  This is setup only; it does not start a review lifecycle.
 - `/peanut-review curate <session-or-pr-context>`: have the configured curator
   clean up an existing review session's comments.
   This is not a new reviewer pass.
@@ -128,6 +131,39 @@ Do not launch or rerun reviewers, patch source, or push to GitHub during
 agent is allowed when the user asks for curation or when a GitHub review
 lifecycle reaches the automatic curation step.
 
+## Queue Setup
+
+For first-time queue setup or mapping updates, follow the README's
+[one-time setup, fictional config, and validation commands](../../tools/peanut-review/README.md#one-time-queue-setup).
+`setup-queue` is a skill routing hint, not a peanut-review CLI subcommand.
+
+- Discover the actual enclosing workspace, running server's session root and
+  queue-config path, and available tool checkout. Preserve existing queue
+  entries. The tracked `.cache/peanut-review/.peanut-review.json` controls agents
+  and review roots; the gitignored `<primary-session-root>/.queue/config.json`
+  controls accounts and checkout mappings. Keep private mappings out of the
+  tracked reviewer config.
+- Inventory all stored `gh` identities and canonical checkouts under
+  `projects/<repo>/` and `projects-emu/<organization>/<repo>/`, excluding worktree
+  trees. Inspect remotes and effective `peanut-review.githubAccount` Git config,
+  including `includeIf`. Preserve saved queue/session identity choices; ask only
+  about unresolved or conflicting mappings. Do not select accounts by Git author
+  email or the active `gh` login. Public and EMU accounts may share `github.com`.
+- For each included repository, map the PR target's `owner/repo` to its canonical
+  `path` and explicit repository-specific `worktreeRoot`. Use
+  `projects/worktrees/<repo>/` for public work and
+  `projects-emu/worktrees/<organization>/<repo>/` for EMU work. Reuse the existing
+  reviewer config and its complete agent lineup. `repositories` supplies checkout
+  hints; it does not restrict which review requests the account discovers.
+- Keep real repository names, identities, and discovery output in gitignored
+  local files; use fictional names in tracked examples. Do not print or save
+  tokens. Validate a candidate with the README's loader command, check resolved
+  paths, then replace the local queue config while preserving a backup. The
+  loader does not verify credentials; dashboard account status does that after
+  startup. Show the startup/restart command, or run it when requested, using the
+  same session root and credential environment. Configuration changes require
+  restarting the server. Finish setup without launching reviews or publishing.
+
 ## Operator Checklist
 
 Track these items explicitly. If your harness has a todo list, create this list
@@ -157,8 +193,8 @@ before running commands and keep it current.
 
 Mode-specific checklist:
 
-- [ ] GitHub PR: select or create the branch-backed development worktree under
-      `projects/worktrees/<repo>/` and use it for both review and iteration.
+- [ ] GitHub PR: reuse the existing branch-backed PR worktree and session;
+      discover existing worktrees before creating one when none is available.
 - [ ] GitHub PR: prefer `start --no-launch`, build/test, then `launch`, unless
       the user says the checkout is already built.
 - [ ] GitHub PR: after all reviewers signal `round-done`, let `wait-all`
@@ -217,13 +253,20 @@ config exists, ask before choosing persistent roots, repo layout, reviewers,
 runners, or models.
 
 `peanut-review start` consumes an existing checkout; it does not create a
-worktree. For a GitHub-backed PR session, reuse the branch-backed development
-worktree that owns the change. If one does not exist, create a normal task
-worktree under `projects/worktrees/<repo>/` and use it for both review and
-subsequent development. Do not create a detached or review-only worktree under
-`.cache/peanut-review/`. Run only the following `git worktree add` commands from
-the `claude-workspace` root. When the local PR branch already exists and is not
-checked out elsewhere, use:
+worktree. For a GitHub-backed PR session, reuse its saved workspace and branch.
+If that directory is missing or no session exists, inspect
+`git worktree list --porcelain` in the matching repository and reuse the
+branch-backed worktree associated with this PR. Verify repository, account,
+and PR identity; do not repurpose an unrelated task's checkout. A force push,
+divergent branch, or local edits do not justify creating another worktree.
+Use the synchronization procedure below to reconcile the existing directory.
+
+Create a new worktree only when no suitable existing PR worktree exists or the
+user explicitly requests a separate one. Preserve the workspace's public/EMU
+path conventions. Do not create a detached or review-only worktree under
+`.cache/peanut-review/`. When creation is needed, run the following commands
+from the `claude-workspace` root. When the local PR branch already exists and
+is not checked out elsewhere, use:
 
 ```bash
 git -C projects/<repo> worktree add \
@@ -257,10 +300,36 @@ cd "$WORKTREE"
 ```
 
 Verify that the committed `HEAD` is the intended review snapshot before
-launch. Preserve local modifications and never reset or clean the development
-worktree as part of review setup or synchronization. Peanut-review pins commit
-ranges, so commit intended review changes first or use the local author-owned
-lifecycle for work that is not yet represented by the PR snapshot.
+launch. Peanut-review pins commit ranges, so use the local author-owned
+lifecycle for intended review changes that are not yet represented by the PR.
+
+### Synchronize an existing PR worktree
+
+Keep the directory, branch name, build artifacts, and existing session when
+re-reviewing an updated PR, including after a force push:
+
+1. Inspect the session's live agents and worktree ownership. Wait or report a
+   conflict if another task or active agent is using it; do not move its branch
+   or silently create another worktree to bypass that conflict.
+2. Fetch the latest PR head and base with the session's selected GitHub account.
+   Preserve a divergent branch's old `HEAD` on a uniquely named local backup
+   branch before moving it, retaining both previous PR history and local commits.
+3. Preserve staged and unstaged edits in a named stash or other recoverable
+   backup, recording its object ID or location. Check untracked and ignored files
+   for collisions with paths in the fetched revision, and preserve affected
+   files separately. Keep unaffected build directories in place; do not use a
+   blanket stash of ignored build outputs or delete them to make checkout work.
+4. With the tracked checkout clean, fast-forward the existing branch when
+   possible. For rewritten history, use `git reset --keep <fetched-pr-head>` in
+   the same worktree after those preservation checks. Do not use `reset --hard`
+   or `git clean`, merge old PR history into the new review snapshot, or reapply
+   local edits before review. If synchronization refuses a conflicting path,
+   investigate and preserve that path before retrying.
+5. Verify checkout `HEAD` equals the latest fetched PR head, then run `sync-pr`
+   and `gh-pull` on the same session. If the remote moved again, reconcile the
+   worktree before launching. Follow project build/test instructions and retain
+   the session's saved reviewer/curator lineup. Include backup branch names,
+   stash object IDs, and any saved files in the handoff so local work is recoverable.
 
 For GitHub PR and local review sessions, the config must include a dedicated
 curator agent in `agents`, for example `{"name":"Curator","model":"gpt-5.5-high",
@@ -401,10 +470,9 @@ explicitly asks.
    Treat `gh-push-verdict` the same way: never run it without explicit user
    authorization to publish the verdict.
 
-After author updates have been committed and pushed through the authorized
-normal development workflow in the same worktree, run `sync-pr` and `gh-pull`.
-Never reset or clean the worktree to refresh a session. Rerun reviewers only
-for substantial updates or a human request.
+After PR updates, follow **Synchronize an existing PR worktree** above, then
+run `sync-pr` and `gh-pull` on the existing session. Rerun reviewers only for
+substantial updates or a human request.
 
 ```bash
 "$PR_BIN" --session "$SESSION" sync-pr

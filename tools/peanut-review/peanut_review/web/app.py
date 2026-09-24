@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import signal
 import subprocess
 import threading
@@ -320,7 +321,7 @@ class SessionRegistry:
 ROUTE_RE = re.compile(r"^/([^/]+)(/.*)?$")
 # Top-level path segments that are NOT session ids — reserved for future and
 # current global routes. Guards against a session-id slug called "api".
-RESERVED_ROOTS = {"api"}
+RESERVED_ROOTS = {"api", "queue"}
 VALID_SEVERITIES = {s.value for s in Severity}
 VALID_CATEGORIES = {c.value for c in CommentCategory}
 MAX_DIFF_FOLD_FETCH_LINES = 200
@@ -331,6 +332,8 @@ MAX_SESSION_PAGE_SIZE = 200
 class _Handler(BaseHTTPRequestHandler):
     # Injected at construction — see make_server.
     registry: SessionRegistry
+    queue = None
+    queue_token: str = ""
     # Path prefix the app is mounted under (e.g. "/pr"). Empty = root-mounted.
     # Caddy `handle_path /pr/*` strips the prefix before forwarding, so the
     # router never sees it — this string is only used when emitting URLs.
@@ -419,6 +422,7 @@ class _Handler(BaseHTTPRequestHandler):
             "style.css": "text/css; charset=utf-8",
             "app.js": "text/javascript; charset=utf-8",
             "index.js": "text/javascript; charset=utf-8",
+            "queue.js": "text/javascript; charset=utf-8",
         }
         if name not in content_types:
             return self._error(404, f"unknown asset: {name}")
@@ -450,8 +454,31 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -------- routing --------
 
+    def _local_queue_request(self) -> bool:
+        if self.queue is None:
+            return True
+        try:
+            hostname = urlparse("http://" + self.headers.get("Host", "")).hostname
+        except ValueError:
+            hostname = None
+        if hostname not in {"localhost", "127.0.0.1", "::1"}:
+            self._error(403, "The review queue is only available on localhost")
+            return False
+        return True
+
     def do_GET(self) -> None:  # noqa: N802
+        if not self._local_queue_request():
+            return
         url = urlparse(self.path)
+        if url.path.rstrip("/") == "/queue":
+            from .queue import render_queue
+            self._html(200, render_queue(self.base_url, self.queue_token, self.queue is not None))
+            return
+        if url.path == "/api/queue":
+            if self.queue is None:
+                return self._error(503, "Review queue is not configured")
+            self._json(200, self.queue.payload())
+            return
         if url.path.startswith("/assets/"):
             self._serve_asset(url.path.removeprefix("/assets/"), url.query)
             return
@@ -641,7 +668,11 @@ class _Handler(BaseHTTPRequestHandler):
         self._error(404, f"no route for {tail}")
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._local_queue_request():
+            return
         url = urlparse(self.path)
+        if url.path.startswith("/api/queue/"):
+            return self._post_queue(url.path)
         m = ROUTE_RE.match(url.path)
         if not m or m.group(1) in RESERVED_ROOTS:
             self._error(404, f"no route for {url.path}")
@@ -1075,6 +1106,30 @@ class _Handler(BaseHTTPRequestHandler):
             "summary": r.summary(),
         })
 
+    def _post_queue(self, path: str) -> None:
+        if self.queue is None:
+            return self._error(503, "Review queue is not configured")
+        if not secrets.compare_digest(self.headers.get("X-Peanut-Queue-Token", ""), self.queue_token):
+            return self._error(403, "Reload the review queue before submitting an action")
+        origin = self.headers.get("Origin")
+        if origin and urlparse(origin).netloc != self.headers.get("Host"):
+            return self._error(403, "Queue actions must come from this dashboard")
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 0 or length > 8192:
+                raise ValueError("invalid request size")
+            data = json.loads(self.rfile.read(length)) if length else {}
+            if not isinstance(data, dict):
+                raise ValueError("expected a JSON object")
+        except (ValueError, UnicodeDecodeError):
+            return self._error(400, "invalid queue request")
+        if path == "/api/queue/refresh":
+            self.queue.refresh_async()
+            return self._json(202, {"refreshing": True})
+        if path == "/api/queue/start":
+            return self._error(410, "Queue execution has moved to the driver. Reload the queue and copy a review task.")
+        return self._error(404, "unknown queue action")
+
     def _post_agents_kill(self, session_dir: Path, data: dict) -> None:
         raw = data.get("agents", data.get("agent"))
         if raw is None:
@@ -1257,7 +1312,7 @@ def _normalize_base_url(base_url: str) -> str:
 
 
 def make_server(
-    host: str, port: int, registry: SessionRegistry, *, base_url: str = "",
+    host: str, port: int, registry: SessionRegistry, *, base_url: str = "", queue=None,
 ) -> ThreadingHTTPServer:
     """Build a ThreadingHTTPServer that serves `registry`.
 
@@ -1267,6 +1322,8 @@ def make_server(
     """
     handler_cls = type("Handler", (_Handler,), {
         "registry": registry,
+        "queue": queue,
+        "queue_token": secrets.token_urlsafe(32),
         "base_url": _normalize_base_url(base_url),
     })
     return ThreadingHTTPServer((host, port), handler_cls)
@@ -1305,6 +1362,7 @@ def serve(
     port: int = 0,
     extra_sessions: Iterable[str | Path] = (),
     base_url: str = "",
+    queue_config: str | None = None,
 ) -> None:
     """Blocking multi-session server. Port 0 → OS-assigned.
 
@@ -1329,7 +1387,32 @@ def serve(
     for sd in extra_sessions:
         registry.bind(sd)
 
-    srv = make_server(host, port, registry, base_url=base_url)
+    # The standard launcher already selects the session root. Reuse its saved
+    # queue configuration so a routine server restart preserves the dashboard.
+    if queue_config is None:
+        saved_queue_config = primary / ".queue" / "config.json"
+        if saved_queue_config.is_file():
+            queue_config = str(saved_queue_config)
+
+    queue = None
+    if queue_config:
+        from ..review_queue import ReviewQueue, load_config
+        # Docker's published host-loopback port forwards to the container
+        # interface, not container loopback. Keep the established launcher
+        # default working; HTTP Host and mutation checks still apply.
+        container_bind = host == "0.0.0.0" and Path("/.dockerenv").is_file()
+        if host not in {"127.0.0.1", "localhost"} and not container_bind:
+            raise ValueError(
+                "Review queues must bind to localhost, or 0.0.0.0 inside Docker "
+                "with the container port published on host loopback"
+            )
+        queue = ReviewQueue(primary, load_config(queue_config), registry)
+    try:
+        srv = make_server(host, port, registry, base_url=base_url, queue=queue)
+    except Exception:
+        if queue:
+            queue.close()
+        raise
     bound_port = srv.server_address[1]
     normalized = _normalize_base_url(base_url)
     url = f"http://{host}:{bound_port}{normalized}/"
@@ -1341,19 +1424,32 @@ def serve(
         "url": url,
         "base_url": normalized,
         "roots": [str(r) for r in root_list],
+        "queue_config": queue_config,
     }) + "\n")
 
     session_count = registry.page_sessions(limit=1)["total"]
     print(
         f"peanut-review web UI: {url} "
-        f"({session_count} session{'s' if session_count != 1 else ''})",
+        f"({session_count} session{'s' if session_count != 1 else ''}"
+        f"{', review queue enabled' if queue else ''})",
         flush=True,
     )
+    previous_term = None
+    if queue and threading.current_thread() is threading.main_thread():
+        def stop_queue_server(_signum, _frame):
+            raise KeyboardInterrupt
+        previous_term = signal.signal(signal.SIGTERM, stop_queue_server)
     try:
+        if queue:
+            queue.start()
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if previous_term is not None:
+            signal.signal(signal.SIGTERM, previous_term)
+        if queue:
+            queue.close()
         srv.server_close()
         try:
             pidfile.unlink()

@@ -208,6 +208,7 @@ def test_fetch_pr_info_parses_gh_view_output(gh_shim, body):
             "headRefOid": "abc123",
             "baseRefOid": "def456",
             "headRefName": "feature/add-it",
+            "baseRefName": "main",
             "url": "https://github.com/acme/foo/pull/42",
             "title": "Add a feature",
             "body": body,
@@ -221,6 +222,7 @@ def test_fetch_pr_info_parses_gh_view_output(gh_shim, body):
     assert info.title == "Add a feature"
     assert info.body == (body or "")
     assert info.head_ref_name == "feature/add-it"
+    assert info.base_ref_name == "main"
     args = gh_shim.calls()[0]["argv"]
     assert "body" in args[args.index("--json") + 1].split(",")
 
@@ -814,7 +816,7 @@ def test_start_from_project_config_with_bare_pr_number(gh_shim, tmp_path):
             "stdout": json.dumps({"url": "https://github.com/acme/foo/pull/42"}),
         },
         {
-            "match": ["pr", "view", "42", "number,headRefOid,baseRefOid,headRefName,url,title,body"],
+            "match": ["pr", "view", "42", "number,headRefOid,baseRefOid,headRefName,baseRefName,url,title,body"],
             "stdout": json.dumps({
                 "number": 42,
                 "headRefOid": head,

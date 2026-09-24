@@ -134,6 +134,7 @@ def _github_pr_from_info(
         title=pr_info.title,
         body=pr_info.body,
         head_ref_name=pr_info.head_ref_name,
+        base_ref_name=pr_info.base_ref_name,
         hostname=pr_info.hostname,
         account=pr_info.account,
     )
@@ -1489,6 +1490,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         web_app.serve(
             roots, host=args.host, port=args.port, extra_sessions=extras,
             base_url=args.base_url or "",
+            queue_config=getattr(args, "queue_config", None),
         )
     except (RuntimeError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1922,6 +1924,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # serve
     sp = sub.add_parser("serve", help="Start the multi-session web UI")
+    sp.add_argument("--queue-config", metavar="PATH", help="Local account/repository configuration for the review queue")
     sp.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     sp.add_argument("--port", type=int, default=0,
                     help="Bind port (0 = OS-assigned, default)")

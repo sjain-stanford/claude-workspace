@@ -1380,3 +1380,50 @@ header .gh-push.has-pending {
   border-color: var(--success-border-strong);
   box-shadow: 0 0 0 1px var(--success-glow);
 }
+
+/* Shared dashboard navigation and review queue. */
+.app-nav { display: flex; gap: 6px; margin-left: 12px; }
+.app-nav a { padding: 6px 10px; border-radius: 5px; color: var(--muted); white-space: nowrap; }
+.app-nav a[aria-current="page"] { color: var(--fg); background: var(--hover); }
+.queue-page header { flex-wrap: wrap; gap: 10px; }
+.queue-page .index-main { width: 100%; margin: 0 auto; padding: 28px; box-sizing: border-box; }
+.queue-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.queue-heading h2 { margin: 0 0 6px; font-size: 22px; }
+.queue-heading p { margin: 0; }
+.queue-page .meta { color: var(--muted); font-size: 12px; }
+.queue-accounts { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+.queue-account-card { display: flex; flex-direction: column; gap: 6px; min-width: 240px; max-width: 480px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow-wrap: anywhere; }
+.queue-account-card.account-error { border-color: var(--warning); }
+.queue-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.queue-toolbar input { flex: 1; min-width: 220px; }
+.queue-toolbar input, .queue-toolbar select, .queue-page button { padding: 8px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; }
+.queue-page button { cursor: pointer; }
+.queue-page button:hover:not(:disabled) { border-color: var(--accent); }
+.queue-page button:disabled { opacity: .55; cursor: default; }
+.queue-table-wrap { overflow-x: auto; }
+.queue-table td { vertical-align: top; }
+.queue-table .queue-pr { min-width: 260px; width: 35%; }
+.queue-pr > a { font-weight: 600; font-size: 14px; }
+.queue-pr .sub { margin-top: 7px; }
+.queue-freshness { font-weight: 600; }
+.freshness-stale { color: var(--warning); }
+.freshness-current { color: var(--suggestion); }
+.freshness-unknown, .freshness-unreviewed { color: var(--muted); }
+.queue-actions { min-width: 145px; }
+.queue-actions a, .queue-actions button { display: block; margin-bottom: 8px; }
+.queue-detail { margin-top: 8px; max-width: 360px; font-size: 12px; overflow-wrap: anywhere; }
+.queue-page .error { color: var(--warning); }
+.queue-notice { padding: 12px 16px; border: 1px solid var(--border); border-radius: 5px; }
+@media (max-width: 760px) {
+  .queue-page .index-main { padding: 16px; }
+  .queue-heading { align-items: flex-start; }
+  .queue-account-card { flex: 1; min-width: 180px; }
+}
+table.queue-table th { position: static; }
+.queue-page .queue-pr a, .queue-page .queue-open { color: var(--accent); text-decoration: none; }
+.queue-page .queue-pr a:hover, .queue-page .queue-open:hover { text-decoration: underline; }
+.app-nav a { text-decoration: none; }
+
+#queue-task-dialog { width: min(760px, 90vw); border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); }
+#queue-task-dialog::backdrop { background: #0008; }
+#queue-task-text { box-sizing: border-box; width: 100%; margin-bottom: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 10px; }

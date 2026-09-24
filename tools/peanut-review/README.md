@@ -106,7 +106,9 @@ PR_ROOT="$PWD/.cache/peanut-review/sessions" \
 ```
 
 Keep `PR_ROOT` aligned with the config's `reviewRoot`; otherwise the CLI and UI
-will show different session sets. To reach the UI through the development
+will show different session sets. If `<PR_ROOT>/.queue/config.json` exists, the
+server automatically enables the review queue using that local configuration.
+An explicit `--queue-config` selects a different file. To reach the UI through the development
 container, enable its forwarding when launching the container:
 
 ```bash
@@ -154,6 +156,20 @@ layout, ask before choosing reviewRoot, workspaceRoot, repoRelative, reviewers,
 runners, models, or build/test commands, then generate .peanut-review.json and
 run dry-run validation. Do not launch reviewers yet.
 ```
+
+One-time review queue setup:
+
+```text
+/peanut-review setup-queue
+Set up the local queue config from the canonical checkouts under projects/ and
+projects-emu/ and the authenticated GitHub identities. Preserve existing account
+bindings and reviewer config; ask only about unresolved account/repository
+mappings. Validate the config and show the dashboard startup command.
+```
+
+See [one-time queue setup](#one-time-queue-setup) for the manual steps and a
+fictional public/EMU example. `setup-queue` is a skill routing hint, not a CLI
+subcommand.
 
 GitHub PR orchestration:
 
@@ -435,3 +451,258 @@ There is no interactive agent help channel: blocked reviewers record a
 `Review Blocked` report when possible, exit without `round-done`, and are
 rerun after the environment is fixed. Comment-thread replies remain available
 through `add-comment --reply-to`.
+
+## Review queue
+
+The **Review queue** tab discovers open PRs requested from each configured
+GitHub account, including team requests. It shares the existing server and
+session pages. PRs remain tracked after review submission, but explicitly
+removing your review request (or your team's request) hides the PR once no
+request remains for you. A new request brings it back. Existing review sessions
+and history are preserved on the session pages. Closed PRs are available through
+**Include closed PRs**. Account failures retain cached rows and show an error.
+
+The request-type filter defaults to **Direct request**, and the review-status
+filter defaults to **All open PRs**. Select **Team request**
+or **All request types** as needed, alongside the account, search, and
+review-status filters. Direct and team categories retain
+the request origin after review submission. Historical requests are recovered
+from the PR timeline; team requests must match a team of the selected account.
+Direct takes precedence when both apply. Tracked PRs without a known request
+origin show **No known request** and remain visible under **All request types**.
+The separate **Review requested** status filter still selects pending requests.
+History or membership lookup
+failures appear on the row and are retried without discarding known origins.
+
+### One-time queue setup
+
+Configure the queue once per machine, then update it when accounts or checkout
+locations change. Run discovery in the same environment and OS account as the
+web server so its `gh` credential store and filesystem paths are available.
+
+1. **Locate the existing config and session root.** In `claude-workspace`, the
+   tracked `.cache/peanut-review/.peanut-review.json` selects reviewers, models,
+   runners, and `reviewRoot`. The separate, gitignored queue config selects
+   GitHub accounts and checkout mappings. Save it at
+   `<primary-session-root>/.queue/config.json` for automatic loading, or preserve
+   the running server's explicit `--queue-config` path. Read an existing queue
+   config before editing and merge additions without replacing saved choices.
+   Keep the server's `--root` aligned with the reviewer config's `reviewRoot`.
+
+   These variables assume the standard workspace layout; adjust them to the
+   discovered paths. Use an absolute tool path from the checkout containing the
+   queue implementation if it differs from the main workspace checkout.
+
+   ```bash
+   META_WORKSPACE="$HOME/claude-workspace"
+   PEANUT_REVIEW_DIR="$META_WORKSPACE/tools/peanut-review"
+   PR_BIN="$PEANUT_REVIEW_DIR/bin/peanut-review"
+   REVIEW_CONFIG="$META_WORKSPACE/.cache/peanut-review/.peanut-review.json"
+   PR_ROOT="$META_WORKSPACE/.cache/peanut-review/sessions"
+   QUEUE_CONFIG="$PR_ROOT/.queue/config.json"
+   ```
+
+2. **Discover stored GitHub identities.** List all stored accounts, including
+   inactive accounts on the same host. Ignore inherited token overrides during
+   discovery, as the queue retrieves credentials for each selected login:
+
+   ```bash
+   env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
+     gh auth status --json hosts \
+     --jq '.hosts | to_entries[] | .key as $host | .value[] | {hostname: $host, login, active, state}'
+   ```
+
+   Inspect each account's status; JSON mode can exit successfully even when an
+   account has authentication errors. If a required identity is missing or
+   expired, authenticate it with `gh auth login --hostname <host>`, then repeat
+   discovery. Use the exact login and real GitHub hostname. Public and EMU
+   identities can both be on `github.com`; an SSH alias is not a GitHub hostname.
+   No `gh auth switch` is needed. Never copy tokens into either config.
+
+3. **Inventory canonical checkouts and map identities.** From the workspace
+   root, inspect `projects/<repo>/` and `projects-emu/<organization>/<repo>/`,
+   excluding both `worktrees/` trees. This read-only inventory prints local
+   paths, remotes, and effective account defaults, including Git `includeIf`:
+
+   ```bash
+   for checkout in "$META_WORKSPACE"/projects/* "$META_WORKSPACE"/projects-emu/*/*; do
+     case "$checkout" in
+       "$META_WORKSPACE"/projects/worktrees|"$META_WORKSPACE"/projects-emu/worktrees/*) continue ;;
+     esac
+     [ -e "$checkout/.git" ] || continue
+     git -C "$checkout" rev-parse --show-toplevel
+     git -C "$checkout" remote -v
+     git -C "$checkout" config --show-origin --get peanut-review.githubAccount || true
+   done
+   ```
+
+   Derive `owner/repo` from the remote for the repository receiving PRs. Check
+   `upstream` as well as `origin` when the checkout is a fork; the directory name
+   alone is not a repository identity. Preserve saved queue mappings and session
+   bindings, and use `peanut-review.githubAccount` to fill missing mappings.
+   Resolve conflicts or ambiguous accounts with the user; do not infer a GitHub
+   login from Git author email, SSH username, or whichever account is active.
+   If both identities intentionally review the same repository, map it under
+   both account entries. The queue uses these entries independently.
+
+   Record explicit `path` and repository-specific `worktreeRoot` for each
+   included checkout. Public paths use `projects/<repo>/` and
+   `projects/worktrees/<repo>/`; EMU paths use
+   `projects-emu/<organization>/<repo>/` and
+   `projects-emu/worktrees/<organization>/<repo>/`. These roots contain task
+   worktrees; do not point `path` at a temporary PR worktree.
+
+Keep the inventory and real config local and gitignored. Do not paste internal
+repository names, remotes, paths, or queue output into tracked documentation or
+public artifacts. All names and logins in this example are fictional; replace
+them only in your local config:
+
+```json
+{
+  "pollSeconds": 120,
+  "accounts": [
+    {
+      "hostname": "github.com",
+      "login": "my-public-login",
+      "label": "Public",
+      "cloneRoot": "$HOME/claude-workspace/projects",
+      "worktreeRoot": "$HOME/claude-workspace/projects/worktrees",
+      "reviewConfig": "$HOME/claude-workspace/.cache/peanut-review/.peanut-review.json",
+      "repositories": {
+        "example-public-org/widget": {
+          "path": "$HOME/claude-workspace/projects/widget",
+          "worktreeRoot": "$HOME/claude-workspace/projects/worktrees/widget"
+        }
+      }
+    },
+    {
+      "hostname": "github.com",
+      "login": "my-emu-login",
+      "label": "EMU",
+      "cloneRoot": "$HOME/claude-workspace/projects-emu",
+      "worktreeRoot": "$HOME/claude-workspace/projects-emu/worktrees",
+      "reviewConfig": "$HOME/claude-workspace/.cache/peanut-review/.peanut-review.json",
+      "repositories": {
+        "example-emu-org/component": {
+          "path": "$HOME/claude-workspace/projects-emu/example-emu-org/component",
+          "worktreeRoot": "$HOME/claude-workspace/projects-emu/worktrees/example-emu-org/component"
+        }
+      }
+    }
+  ]
+}
+```
+
+Paths may be absolute or relative to the queue config, and support `~` and
+environment variables. `repositories` provides optional per-repository
+settings; unmapped repositories use `<cloneRoot>/<owner>/<repo>` and
+`<worktreeRoot>/<owner>/<repo>`. Explicit mappings are needed for the flat
+public checkout layout. When setting `path`, also set `worktreeRoot` to the
+repository-specific directory: the queue does not append `owner/repo` to that
+root when `path` is explicit. `repositories` is a checkout mapping, not a PR
+discovery allowlist; account-wide review requests can include unmapped repos.
+These paths are included in the copied driver task. The driver handles
+clone/worktree setup and discovers any missing settings.
+
+`prepare` is an optional list of command argument arrays included as setup
+context in the copied task. The driver follows project build/test instructions
+and decides how to prepare the checkout. The queue never executes these commands.
+New reviews use the selected review config's agents; existing sessions retain
+their saved lineup, models, and runners.
+
+### Validate and start the queue
+
+Edit a candidate beside the saved config so relative paths keep the same
+meaning. Back up an existing config locally, preserve its entries, and validate
+the candidate before replacing it. Use owner-only permissions for the queue
+directory and config (`0700` and `0600`). Confirm the destination is ignored:
+
+```bash
+git -C "$META_WORKSPACE" check-ignore "$QUEUE_CONFIG"
+
+# Use the candidate filename here before installing it as config.json.
+PYTHONPATH="$PEANUT_REVIEW_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 - "$QUEUE_CONFIG" <<'PY'
+import sys
+from peanut_review.review_queue import load_config
+
+config = load_config(sys.argv[1])
+print(f"Queue config valid: {len(config['accounts'])} account(s)")
+PY
+```
+
+This checks schema and path expansion without contacting GitHub, starting a
+server, or launching reviewers. It does not prove account access or that paths
+exist. Check the resolved checkout paths and that each `reviewConfig` is readable
+and retains the intended reviewer/curator lineup. Use stable absolute paths or
+`$HOME` in the saved config; `$PWD` depends on where the server starts.
+
+After saving the validated config, start the dashboard:
+
+```bash
+PR_ROOT="$PR_ROOT" "$PEANUT_REVIEW_DIR/bin/peanut_review_serve.sh" \
+  --queue-config "$QUEUE_CONFIG"
+```
+
+The flag is optional for `$PR_ROOT/.queue/config.json`. Startup begins GitHub
+polling with each configured identity. Confirm the account status in `/queue`,
+then use **Copy review task** on an available PR to check its account, checkout,
+worktree root, session root, and reviewer config before handing it to a driver.
+An empty queue can simply mean no matching review requests. Authentication or
+team-membership errors require fixing that account's credentials/access, not
+switching the globally active account. Queue setup does not launch reviewers or
+publish reviews.
+
+Open `http://localhost:27183/queue`. The queue uses a loopback bind on the host.
+Inside Docker, the normal launcher's `0.0.0.0` bind is supported with the
+container port published on host loopback as described above. Restart the
+existing server from the updated checkout after changing its startup
+configuration; a server started in another container does not replace the
+instance reached by your forwarded port. Remote access can use an SSH
+localhost port forward. A stripped proxy prefix is still
+supported through `--base-url`. The browser polls local cached status every
+three seconds; GitHub is polled at `pollSeconds` (minimum 30). **Refresh queue**
+requests a remote poll and never starts reviewers. Search results are paginated;
+GitHub's incomplete-search response or 1,000-result cap is reported as an error
+rather than silently dropping requests.
+
+**Copy review task** and **Copy re-review task** copy a task for your driver
+conversation. It includes the PR URL, selected GitHub account, review config,
+session root, existing session/workspace, configured checkout paths, and observed
+revision. If clipboard access is unavailable, a dialog provides selectable text.
+The driver uses the peanut-review skill and CLI to fetch the latest revision,
+reuse the existing PR worktree and session, prepare the build, run reviewers and
+the curator, and produce a publication dry-run. It checks existing worktrees
+before creating one. Force pushes and divergent branches are reconciled in the
+same directory: the driver preserves the old branch tip and local edits before
+moving the review branch to the fetched PR head. Build artifacts and review
+history are retained, and saved work is identified in the handoff. Copying a
+task does not launch agents, change a checkout, or publish to GitHub.
+
+The queue automatically discovers CLI-created sessions under its session roots.
+Progress and the **Running reviews** filter reflect session agent activity;
+historical queue job failures do not override current driver progress.
+**Open review** opens the existing session. The old queue start endpoint is
+retired; reload any browser tab still showing execution buttons.
+
+Freshness compares the remote head, base commit and base branch with the last
+completed reviewer-and-curator round. Each CLI launch records its pinned
+snapshot and unique run IDs in the session's `review-completion.json`.
+Supervisors record completion only after fresh completion signals and successful
+exits (including supervised shutdown after completion). All configured reviewers
+and a subsequent curator covering those runs must complete against the same
+snapshot. This also works when the dashboard is stopped. A push during a review
+leaves the completed result stale; fetching or synchronizing alone cannot mark
+it reviewed. Stale polling or an API failure produces **Unknown**.
+
+Older recorded queue completions remain valid. Legacy sessions containing only
+completion signals cannot prove which revision was reviewed and remain
+**Not reviewed** (or **Stale** when their pinned revision differs) until a full
+round is recorded with the updated launcher. Synchronize legacy PR metadata
+before that round to capture the base branch name as well as its commit.
+
+Queue metadata is stored beneath `<primary-session-root>/.queue/` with restricted
+file permissions. Keep that root private when combining accounts. Only the
+configured account identities are exposed, and GitHub operations never switch
+the globally active `gh` account. Queue actions require a token supplied by the
+local page and reject cross-origin submissions.
