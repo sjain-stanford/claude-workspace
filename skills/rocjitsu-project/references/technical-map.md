@@ -59,6 +59,27 @@ This tree is reference context for normal rocjitsu tasks. Do not broaden a
 rocjitsu change into ROCR implementation work unless the task explicitly calls
 for it.
 
+## rocGDB source context
+
+The separate checkout at `<workspace>/projects/rocgdb/` tracks `ROCm/ROCgdb`
+`amd-staging`. Consult it when tracing rocjitsu debugger integration, GPU
+breakpoints, stepping, wave/register inspection, or debugger launch/resume
+behavior. Paths in this table are relative to that checkout:
+
+| Concern | rocGDB location |
+|---|---|
+| Overview, debugger build and runtime requirements | `README-ROCM.md` |
+| Core debugger implementation | `gdb/` |
+| AMD Debugger API integration | `gdb/amd-dbgapi-target.c`, `gdb/amd-dbgapi-target.h` |
+| AMDGPU target and register handling | `gdb/amdgpu-tdep.c`, `gdb/amdgpu-tdep.h` |
+| ROCm debugger regression tests and test helpers | `gdb/testsuite/gdb.rocm/`, `gdb/testsuite/lib/rocm.exp` |
+
+rocGDB uses the separate ROCdbgapi library; see `README-ROCM.md` for dependency
+details. Use the canonical checkout for source context. When the task calls
+for debugger changes, reuse or create a branch-backed worktree under
+`<workspace>/projects/worktrees/rocgdb/` and follow rocGDB's contribution and
+build instructions there.
+
 ## Cross-layer review prompts
 
 ### ISA and execution semantics

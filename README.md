@@ -17,6 +17,7 @@ dynamic binary translation, and dynamic binary instrumentation toolkit.
 claude-workspace/
 ├── projects/         # Public GH repositories (local clone; contents are gitignored)
 │   ├── rocm-systems/ # Active sparse checkout; rocjitsu + ROCR runtime context
+│   ├── rocgdb/       # ROCm debugger source for rocjitsu debugging work
 │   ├── docker/
 │   ├── triton/       # Upstream Triton compiler checkout
 │   └── worktrees/    # Local per-task git worktrees for parallel agents
@@ -108,6 +109,10 @@ logs, patches, and supporting text contain no material derived from
      .github
    cd ../..
 
+   # ROCm debugger source for rocjitsu debugging work
+   git clone --filter=blob:none --branch amd-staging \
+     git@github.com:ROCm/ROCgdb.git projects/rocgdb
+
    # Upstream Triton compiler
    git clone git@github.com:triton-lang/triton.git projects/triton
    ```
@@ -117,8 +122,10 @@ logs, patches, and supporting text contain no material derived from
    context for rocjitsu's HSA, topology, queue, event, and KFD-facing behavior;
    it is not an ordinary rocjitsu edit target. The machine-readable ISA tree is
    needed for regeneration, and `.github/` provides the current rocjitsu CI and
-   corpus qualification workflows. The Triton checkout provides upstream
-   compiler source and development context.
+   corpus qualification workflows. `projects/rocgdb/` provides debugger source
+   context for rocjitsu integration and debugging investigations; see its
+   `README-ROCM.md` for debugger build and runtime requirements. The Triton
+   checkout provides upstream compiler source and development context.
 
 3. **Launch development container:**
    - Open Cursor or VS Code rooted at `claude-workspace` then launch the development docker container (`./projects/docker/run_docker.sh`)
@@ -132,8 +139,12 @@ logs, patches, and supporting text contain no material derived from
      `skills/rocjitsu-build-test/` for verification.
    - Consult `projects/rocm-systems/projects/rocr-runtime/` when behavior depends
      on ROCR or libhsakmt implementation details.
+   - Consult `projects/rocgdb/` for debugger integration, GPU breakpoints,
+     stepping, wave/register inspection, and launch or resume issues.
    - Create branch-backed task worktrees under
      `projects/worktrees/rocm-systems/`; rocjitsu's base branch is `develop`.
+     For debugger changes, use `projects/worktrees/rocgdb/`; the rocGDB checkout
+     tracks `amd-staging`.
 
 ## Agent Workflow
 

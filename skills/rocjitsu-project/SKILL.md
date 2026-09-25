@@ -27,6 +27,10 @@ Paths below are relative to `emulation/rocjitsu/` unless stated otherwise.
    or KFD-facing behavior, verify the contract against the checked-out ROCR
    source at `<rocm-systems>/projects/rocr-runtime/`. Treat it as source context,
    not a rocjitsu build dependency or an ordinary edit target.
+6. For debugger integration, GPU breakpoints, stepping, wave/register inspection,
+   or debugger launch/resume issues, consult `<workspace>/projects/rocgdb/`.
+   See the [rocGDB source map](references/technical-map.md#rocgdb-source-context)
+   for entry points and the debugger worktree convention.
 
 ## Engineering invariants
 

@@ -18,6 +18,12 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
     Use the ROCR runtime source to verify HSA runtime, libhsakmt, topology,
     queue, event, and KFD-facing behavior; it is source context for rocjitsu,
     not an instruction to modify ROCR as part of ordinary rocjitsu work.
+- `projects/rocgdb/` - ROCm debugger source, tracking `ROCm/ROCgdb` `amd-staging`
+  - Use as source context for rocjitsu debugger integration, GPU breakpoints,
+    stepping, wave/register inspection, and debugger launch or resume issues
+  - Start with `README-ROCM.md` and `gdb/`; the rocjitsu skill's technical map
+    lists the AMD debugger integration files and ROCm tests
+  - Create debugger implementation worktrees under `projects/worktrees/rocgdb/`
 - `projects/docker/` - Docker for ML compiler development environment
   - This is the unified development docker for all builds and tests
   - Use as reference but expect Claude/Codex is launched from a dev-container already
