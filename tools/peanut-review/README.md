@@ -219,9 +219,10 @@ Outside a preconfigured workspace, GitHub PR flow usually starts from a
   "repoRelative": "my-repo",
   "reviewAgentTimeoutSeconds": 1200,
   "agents": [
-    {"name": "Vera", "model": "gpt-5.5", "reasoningEffort": "high", "fastMode": false, "persona": "vera.md", "runner": "codex"},
-    {"name": "Irene", "model": "claude-opus-4-7-thinking-medium", "persona": "irene.md", "runner": "cursor"},
-    {"name": "Curator", "model": "gpt-5.5-high", "runner": "cursor", "role": "curator"}
+    {"name": "Vera", "model": "gpt-6-astra", "reasoningEffort": "xhigh", "persona": "vera.md", "runner": "codex"},
+    {"name": "Irene", "model": "claude-opus-5-5-xhigh", "persona": "irene.md", "runner": "cursor"},
+    {"name": "Felix", "model": "grok-4.7-xhigh", "persona": "felix.md", "runner": "cursor"},
+    {"name": "Curator", "model": "gpt-6-astra", "reasoningEffort": "xhigh", "runner": "codex", "role": "curator"}
   ]
 }
 ```
@@ -234,19 +235,38 @@ repository from the current working directory and stores sessions under
 worktrees, pass its absolute path with `--config`.
 
 Supported runners: `cursor`, `opencode`, `codex`.
+Each agent selects its own runner and model, so one session can mix them.
+For Cursor, use an exact model ID from `cursor-agent --list-models` and verify
+authentication with `cursor-agent status`. Cursor model IDs can include the
+effort level, such as `grok-4.7-xhigh` or `claude-opus-5-5-xhigh`.
+Remove `reasoningEffort` and `fastMode` when switching an entry to Cursor;
+both settings are supported only by the Codex runner.
 Codex agents accept an optional per-agent `fastMode` boolean. It defaults to
 `false`; set it to `true` to enable Codex fast mode for a specific agent.
 GitHub PR sessions require a configured agent with `"role": "curator"` because
 the curator model is intentionally owned by project config, not by Python
 defaults.
 
-Cursor runners need permissions in the reviewed workspace before `launch`:
+Agent configuration is copied into each new session. Editing the shared config
+affects new sessions; `launch`, `rerun`, and `curate` on existing sessions retain
+their saved agents.
+
+Cursor runners need permissions in the actual reviewed workspace before
+`launch`, including each new worktree. A `.cursor/cli.json` in the enclosing
+meta workspace does not satisfy the launch check. If the worktree has no config:
 
 ```bash
 mkdir -p "$WORKSPACE/.cursor"
-cp "$PEANUT_REVIEW_DIR/peanut_review/templates/cli.sample.json" \
-  "$WORKSPACE/.cursor/cli.json"
+if [ ! -e "$WORKSPACE/.cursor/cli.json" ]; then
+  cp "$PEANUT_REVIEW_DIR/peanut_review/templates/cli.sample.json" \
+    "$WORKSPACE/.cursor/cli.json"
+fi
 ```
+
+Preserve existing permissions when a config is already present. Ensure its
+allow list includes `Shell(peanut-review **)`, its deny list is non-empty,
+and its deny list does not contain `Shell(**)`. Run `launch --dry-run` before
+the first mixed-runner launch to check the session configuration and permissions.
 
 Selected reviewer agents can instead use an existing persistent SSH
 ControlMaster, an independent remote checkout/build tree, and a reverse-forwarded
