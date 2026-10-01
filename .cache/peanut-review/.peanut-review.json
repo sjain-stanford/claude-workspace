@@ -17,6 +17,12 @@
       "runner": "cursor"
     },
     {
+      "name": "Lisa",
+      "model": "claude-opus-5-5-xhigh",
+      "persona": "lisa.md",
+      "runner": "cursor"
+    },
+    {
       "name": "Merlin",
       "model": "claude-opus-5-5-xhigh",
       "persona": "merlin.md",
