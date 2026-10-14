@@ -47,8 +47,9 @@ Verify:
 **Title**: Use the same style as commit messages — concise, imperative mood, under 72 characters. For single-commit PRs, reuse the commit subject line.
 
 **Description**: Default to one to three short prose paragraphs, including
-for non-trivial fixes and features. Use headings only when the user requests
-them or the repository's template requires them. Prefer prose to bullet lists
+for non-trivial fixes and features. Do not use headings, subheadings, or bold
+section labels in PR descriptions, even when the repository template contains
+them. Answer relevant template prompts in prose. Prefer prose to bullet lists
 for normal PRs.
 
 Lead with the problem and the resulting behavior. Add a brief explanation of
@@ -63,8 +64,8 @@ reproduce the behavior, without listing every check performed. Describe only
 validation actually run, distinguishing an equivalent reproducer from the
 reported one when relevant.
 
-Do not include a "Test Plan" section unless test coverage is not handled by
-CI, per workspace PR preferences.
+Include validation and any manual testing needed beyond CI in the prose;
+do not add a "Test Plan" section.
 
 ### 3. Publish the Prepared PR
 

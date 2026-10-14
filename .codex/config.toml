@@ -3,3 +3,6 @@ approval_policy = "on-request"
 approvals_reviewer = "auto_review"
 model = "gpt-6-astra"
 model_reasoning_effort = "xhigh"
+
+[features]
+api_key_model_discovery = false
