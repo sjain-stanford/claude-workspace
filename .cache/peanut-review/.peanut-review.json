@@ -2,7 +2,7 @@
   "reviewRoot": "$HOME/claude-workspace/.cache/peanut-review/sessions",
   "workspaceRoot": "$PWD",
   "repoRelative": ".",
-  "reviewAgentTimeoutSeconds": 1200,
+  "reviewAgentTimeoutSeconds": 2700,
   "agents": [
     {
       "name": "Felix",
