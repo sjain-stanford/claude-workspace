@@ -98,6 +98,11 @@ generated output merely to make a test pass.
 
 ## Formatting and static analysis
 
+Read and follow `docs/style.md` in the active rocjitsu task worktree when
+adding or changing code, and check changed code against it during verification.
+Passing formatting and static analysis does not replace checking the guide's
+rules that automated tools do not enforce.
+
 Run pre-commit from the `rocm-systems` repository root. Prefer changed files
 for routine iteration; use all files only when requested or when changing the
 format configuration:

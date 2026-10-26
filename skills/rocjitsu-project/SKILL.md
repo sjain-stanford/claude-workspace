@@ -14,9 +14,11 @@ Paths below are relative to `emulation/rocjitsu/` unless stated otherwise.
 
 ## Establish context
 
-1. Read `CONTRIBUTING.md` and the nearest applicable docs before designing or
-   editing. They are the project source of truth and override generic workspace
-   C++ guidance.
+1. Read `CONTRIBUTING.md`, `docs/style.md`, and the nearest applicable docs in
+   the active checkout or task worktree before designing, adding, changing, or
+   reviewing code. Follow `docs/style.md` for implementation and assess changed
+   code against it during reviews. These project rules override generic
+   workspace C++ guidance.
 2. Inspect the current branch, diff, and local changes. Preserve unrelated work.
 3. Identify the affected execution strategy: simulation, dynamic binary
    translation (DBT), or dynamic binary instrumentation (DBI). Do not assume a
@@ -89,6 +91,7 @@ Paths below are relative to `emulation/rocjitsu/` unless stated otherwise.
 
 - `README.md`: supported architectures, feature maturity, entry points
 - `CONTRIBUTING.md`: contribution rules, code placement, style, error handling
+- `docs/style.md`: required coding style for new and changed code and code reviews
 - `docs/architecture.md`: layer and component map
 - `docs/vm-design.md`, `docs/simdojo.md`: simulation and scheduling
 - `docs/dbt-design.md`, `docs/dbi-design.md`: binary transformation

@@ -12,6 +12,9 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
     dynamic binary translation (DBT), and dynamic binary instrumentation (DBI)
   - Read `emulation/rocjitsu/CONTRIBUTING.md` and the relevant project docs
     before editing; use `skills/rocjitsu-project/` for architecture and practice
+  - Before adding, changing, or reviewing rocjitsu code, read and follow
+    `emulation/rocjitsu/docs/style.md` in the active checkout or task worktree.
+    Treat it as authoritative over generic workspace C++ style guidance.
   - The useful sparse-checkout context is `emulation/rocjitsu/`,
     `projects/rocr-runtime/`, `shared/machine-readable-isa/isa/`, and `.github/`.
   - Runtime source context: `projects/rocr-runtime/` (ROCR and libhsakmt)

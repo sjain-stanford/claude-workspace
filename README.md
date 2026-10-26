@@ -135,6 +135,9 @@ logs, patches, and supporting text contain no material derived from
 4. **Start developing:**
 
    - Read `projects/rocm-systems/emulation/rocjitsu/CONTRIBUTING.md`.
+   - Before adding, changing, or reviewing rocjitsu code, read and follow
+     `emulation/rocjitsu/docs/style.md` in the active checkout or task worktree.
+     This project style guide takes precedence over generic workspace C++ guidance.
    - Use `skills/rocjitsu-project/` for project work and
      `skills/rocjitsu-build-test/` for verification.
    - Consult `projects/rocm-systems/projects/rocr-runtime/` when behavior depends

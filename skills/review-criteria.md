@@ -89,7 +89,10 @@ Look for opportunities to simplify verbose code by leveraging C++17 or C++20 fea
 ### rocjitsu Checks
 
 When reviewing `rocm-systems/emulation/rocjitsu`, also load
-`skills/rocjitsu-project/SKILL.md` and inspect the relevant project docs.
+`skills/rocjitsu-project/SKILL.md` and read
+`emulation/rocjitsu/docs/style.md` in the reviewed checkout or task worktree.
+Assess new and changed code against that guide, including rules not enforced
+by formatting tools, and inspect the relevant project docs.
 
 - Generated ISA decoders, encoders, execute bodies, legalization tables, and
   encoding translators must be changed through `amdisa`, not edited directly.
