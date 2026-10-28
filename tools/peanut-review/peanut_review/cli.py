@@ -709,9 +709,10 @@ def cmd_add_comment(args: argparse.Namespace) -> int:
             line = args.line
             end_line = args.end_line
             file_lines, err = sess.validate_comment_location(
-                sess.repo_path(s), file, line,
+                sess.review_repo_path(s), file, line,
                 head_ref=s.current_head,
                 require_pinned=s.github is not None,
+                checkout=sess.repo_path(s),
             )
             if err:
                 print(f"Error: {err}", file=sys.stderr)
@@ -723,7 +724,6 @@ def cmd_add_comment(args: argparse.Namespace) -> int:
         line=line,
         end_line=end_line,
         body=body,
-        severity=args.severity,
         category=category,
         head_sha=s.current_head,
         reply_to=reply_to,
@@ -822,7 +822,6 @@ def cmd_comments(args: argparse.Namespace) -> int:
         comments,
         agent=args.agent,
         file=args.file,
-        severity=args.severity,
         category=args.category,
         since=args.since,
         unresolved=args.unresolved,
@@ -836,7 +835,7 @@ def cmd_comments(args: argparse.Namespace) -> int:
         if not comments:
             print("No comments found.")
             return 0
-        hdr = f"{'ID':<14} {'Agent':<10} {'Sev':<10} {'Cat':<15} {'File':<30} {'Line':>5}    {'Body'}"
+        hdr = f"{'ID':<14} {'Agent':<10} {'Cat':<15} {'File':<30} {'Line':>5}    {'Body'}"
         print(hdr)
         print("-" * len(hdr))
         for c in comments:
@@ -853,7 +852,7 @@ def cmd_comments(args: argparse.Namespace) -> int:
             body = c.body[:60].replace("\n", " ")
             file_col = "[global]" if c.file == sess.GLOBAL_FILE else c.file
             line_col = "" if c.file == sess.GLOBAL_FILE else str(c.line)
-            print(f"{c.id:<14} {c.author:<10} {c.severity:<10} {c.category:<15} {file_col:<30} {line_col:>5} {flag}  {body}")
+            print(f"{c.id:<14} {c.author:<10} {c.category:<15} {file_col:<30} {line_col:>5} {flag}  {body}")
             if args.show_edits and c.versions:
                 for i, v in enumerate(c.versions, 1):
                     vbody = (v.get("body") or "")[:60].replace("\n", " ")
@@ -863,7 +862,7 @@ def cmd_comments(args: argparse.Namespace) -> int:
 
 
 def cmd_edit(args: argparse.Namespace) -> int:
-    """Edit an existing comment's body and/or severity, snapshotting prior
+    """Edit an existing comment's body and/or category, snapshotting prior
     state into Comment.versions. Rewrites the comment's JSONL row in place.
     """
     session_dir = _get_session_dir(args)
@@ -880,7 +879,6 @@ def cmd_edit(args: argparse.Namespace) -> int:
     else:
         body = None
 
-    severity: str | None = args.severity
     category: str | None = None
     if args.category is not None:
         try:
@@ -889,15 +887,15 @@ def cmd_edit(args: argparse.Namespace) -> int:
             print(f"Error: {e}", file=sys.stderr)
             return 1
 
-    if body is None and severity is None and category is None:
-        print("Error: at least one of --body, --body-file, --severity, --category required",
+    if body is None and category is None:
+        print("Error: at least one of --body, --body-file, --category required",
               file=sys.stderr)
         return 1
 
     try:
         edited = store.edit_comment(
             session_dir, args.comment_id,
-            body=body, severity=severity, category=category, edited_by=edited_by,
+            body=body, category=category, edited_by=edited_by,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -968,7 +966,7 @@ def cmd_gh_push(args: argparse.Namespace) -> int:
 
     comments = store.read_all_comments(session_dir)
     anchor_index = _gh_push.build_review_anchor_index(
-        sess.repo_path(s), s.base_ref, s.topic_ref,
+        sess.review_repo_path(s), s.base_ref, s.topic_ref,
     )
     plan = _gh_push.plan_push(comments, anchor_index=anchor_index)
 
@@ -1000,7 +998,7 @@ def cmd_gh_push(args: argparse.Namespace) -> int:
                 kind = f"global (from {promotion.ref})"
             else:
                 kind = "global" if c.file == sess.GLOBAL_FILE else f"{c.file}:{c.line}"
-            print(f"[dry-run] {c.id} ({c.severity}, {c.category}) → {kind}")
+            print(f"[dry-run] {c.id} ({c.category}) → {kind}")
         for c in plan.new_replies:
             if c.file == sess.GLOBAL_FILE:
                 tag = "reply→<unsupported global comment>"
@@ -1199,12 +1197,50 @@ def cmd_wait_all(args: argparse.Namespace) -> int:
     session_dir = _get_session_dir(args)
     s = sess.load_session(session_dir)
     agents = [a.name for a in sess.reviewer_agents(s)]
-    timed_out = polling.wait_all_signals(
-        session_dir, agents, args.event,
-        timeout=args.timeout, poll_interval=args.poll,
-    )
+    max_failures = args.max_reviewer_failures
+    if max_failures < 0 or (max_failures and args.event != runtime.ROUND_DONE_EVENT):
+        print("--max-reviewer-failures must be nonnegative and requires round-done", file=sys.stderr)
+        return 1
+    if not agents:
+        print("No reviewer agents configured", file=sys.stderr)
+        return 1
+    failed = []
+    if args.event == runtime.ROUND_DONE_EVENT:
+        progress_started = False
+
+        def report_progress(completed: int, total: int, failed_count: int) -> None:
+            nonlocal progress_started
+            if progress_started:
+                print("::endgroup::", flush=True)
+            title = f"{completed}/{total} reviewers"
+            if failed_count:
+                title += f" ({failed_count} failed)"
+            print(f"::group::{title}", flush=True)
+            progress_started = True
+
+        failed, timed_out = polling.wait_round_completion(
+            session_dir, agents, timeout=args.timeout, poll_interval=args.poll,
+            on_progress=report_progress,
+        )
+    else:
+        timed_out = polling.wait_all_signals(
+            session_dir, agents, args.event,
+            timeout=args.timeout, poll_interval=args.poll,
+        )
+    if failed:
+        print(f"Reviewers failed without round-done: {', '.join(failed)}", file=sys.stderr)
+    if len(failed) > max_failures or len(failed) == len(agents):
+        print(f"Reviewer failure limit exceeded ({len(failed)}/{len(agents)}, "
+              f"allowed {max_failures}); curator skipped", file=sys.stderr)
+        return 1
     if not timed_out:
-        print(f"All reviewers signaled {args.event}")
+        if failed:
+            print(f"{len(agents) - len(failed)}/{len(agents)} reviewers signaled {args.event}; "
+                  f"continuing with {len(failed)} failed reviewers")
+        else:
+            print(f"All reviewers signaled {args.event}")
+        if args.event == runtime.ROUND_DONE_EVENT:
+            print("::endgroup::", flush=True)
         if (
             args.event == runtime.ROUND_DONE_EVENT
             and s.github is not None
@@ -1219,6 +1255,7 @@ def cmd_wait_all(args: argparse.Namespace) -> int:
 def _run_auto_curator_after_wait(session_dir: str, args: argparse.Namespace) -> int:
     from . import launch
 
+    print("::group::Curator", flush=True)
     s = sess.load_session(session_dir)
     try:
         curator_agent = sess.ensure_curator(s)
@@ -1237,14 +1274,18 @@ def _run_auto_curator_after_wait(session_dir: str, args: argparse.Namespace) -> 
     else:
         print(f"Curator already signaled {args.event}")
 
-    timed_out = polling.wait_all_signals(
-        session_dir, [curator_agent.name], args.event,
+    failed, timed_out = polling.wait_round_completion(
+        session_dir, [curator_agent.name],
         timeout=args.timeout, poll_interval=args.poll,
     )
+    if failed:
+        print(f"Curator failed without round-done: {', '.join(failed)}", file=sys.stderr)
+        return 1
     if timed_out:
         print(f"Timed out waiting for curator: {', '.join(timed_out)}", file=sys.stderr)
         return 1
     print(f"Curator signaled {args.event}")
+    print("::endgroup::", flush=True)
     return 0
 
 
@@ -1326,7 +1367,6 @@ def cmd_verdict(args: argparse.Namespace) -> int:
         agents_summary.append({
             "agent": agent_cfg.name,
             "total": len(ac),
-            "critical": sum(1 for c in ac if c.severity == "critical"),
             "resolved": sum(1 for c in ac if c.resolved),
         })
 
@@ -1370,6 +1410,17 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_retain_git(args: argparse.Namespace) -> int:
+    """Retain pinned Git objects and repair durable session storage."""
+    try:
+        session = sess.repair_review_git(_get_session_dir(args), args.repo)
+    except RuntimeError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    print(f"Git storage: {session.git_common_dir}")
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Show session status."""
     session_dir = _get_session_dir(args)
@@ -1384,6 +1435,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"Workspace: {s.workspace}")
     if s.repo_relative:
         print(f"Repo:      {sess.repo_path(s)}")
+    if s.git_common_dir:
+        print(f"Git storage: {s.git_common_dir}")
     workspace_mismatch, workspace_head = sess.workspace_head_mismatch(s)
     if workspace_head:
         print(f"Workspace HEAD: {workspace_head[:12]}")
@@ -1427,7 +1480,6 @@ def cmd_status(args: argparse.Namespace) -> int:
         print()
         parts = [
             f"{len(live)} total",
-            f"{sum(1 for c in live if c.severity == 'critical')} critical",
             f"{sum(1 for c in live if c.category == 'approve')} approvals",
             f"{sum(1 for c in live if c.category == 'request-changes')} blocking",
             f"{sum(1 for c in live if c.resolved)} resolved",
@@ -1577,7 +1629,7 @@ def cmd_archive(args: argparse.Namespace) -> int:
     for c in comments:
         note_data = json.dumps(dataclasses.asdict(c), indent=2)
         subprocess.run(
-            ["git", "-C", sess.repo_path(s), "notes", "--ref", ref,
+            ["git", "-C", sess.review_repo_path(s), "notes", "--ref", ref,
              "append", "-m", note_data, s.original_head],
             capture_output=True, text=True, timeout=10,
         )
@@ -1759,11 +1811,6 @@ def build_parser() -> argparse.ArgumentParser:
                          "a new global comment)")
     sp.add_argument("--body", help="Comment text (watch for shell-eaten backticks — prefer --body-file)")
     sp.add_argument("--body-file", help="Read comment text from FILE (safer for bodies with backticks or $ chars)")
-    sp.add_argument("--severity", default="suggestion",
-                    choices=["critical", "warning", "suggestion", "nit", "feedback"],
-                    help="Severity (default: suggestion). Use `feedback` "
-                         "for non-actionable observations (questions, FYI, "
-                         "praise) — not as a fallback for unsure findings.")
     sp.add_argument("--category", default="comment",
                     choices=["comment", "approve", "request-changes", "block", "blocking"],
                     help="Review category. approve/request-changes are only valid on global comments")
@@ -1774,11 +1821,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Add a high-level comment not tied to any file/line")
     sp.add_argument("--body", help="Comment text (watch for shell-eaten backticks — prefer --body-file)")
     sp.add_argument("--body-file", help="Read comment text from FILE (safer for bodies with backticks or $ chars)")
-    sp.add_argument("--severity", default="suggestion",
-                    choices=["critical", "warning", "suggestion", "nit", "feedback"],
-                    help="Severity (default: suggestion). Use `feedback` "
-                         "for non-actionable observations (questions, FYI, "
-                         "praise) — not as a fallback for unsure findings.")
     sp.add_argument("--category", default="comment",
                     choices=["comment", "approve", "request-changes", "block", "blocking"],
                     help="Review category (comment, approve, request-changes)")
@@ -1805,7 +1847,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("comments", help="List/filter comments")
     sp.add_argument("--agent", help="Filter by agent")
     sp.add_argument("--file", help="Filter by file")
-    sp.add_argument("--severity", help="Filter by severity")
     sp.add_argument("--category", choices=["comment", "approve", "request-changes", "block", "blocking"],
                     help="Filter by category (comment, approve, request-changes)")
     sp.add_argument("--since", metavar="ID",
@@ -1843,13 +1884,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     # edit
     sp = sub.add_parser("edit",
-                        help="Rewrite a comment's body/severity, keeping the prior version in history")
+                        help="Rewrite a comment's body/category, keeping the prior version in history")
     sp.add_argument("comment_id", help="Comment ID to edit")
     sp.add_argument("--body", help="New comment text (watch for shell-eaten backticks — prefer --body-file)")
     sp.add_argument("--body-file", help="Read new comment text from FILE")
-    sp.add_argument("--severity", default=None,
-                    choices=["critical", "warning", "suggestion", "nit", "feedback"],
-                    help="New severity (omit to keep current)")
     sp.add_argument("--category", default=None,
                     choices=["comment", "approve", "request-changes", "block", "blocking"],
                     help="New category (approve/request-changes require a top-level global comment)")
@@ -1889,6 +1927,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--timeout", type=int, default=600, help="Timeout seconds (default: 600)")
     sp.add_argument("--poll", type=float, default=2.0, help="Poll interval (default: 2)")
     sp.add_argument(
+        "--max-reviewer-failures", type=int, default=0,
+        help="Allow this many terminal reviewer failures for round-done (default: 0); "
+             "unfinished reviewers and curator failure still fail the wait",
+    )
+    sp.add_argument(
         "--no-curate",
         action="store_true",
         help="For GitHub sessions, do not auto-launch the curator after reviewer round-done",
@@ -1914,6 +1957,9 @@ def build_parser() -> argparse.ArgumentParser:
     # migrate
     sp = sub.add_parser("migrate", help="Update HEAD, mark comments stale")
     sp.add_argument("--new-head", help="New HEAD SHA (default: current HEAD)")
+
+    sp = sub.add_parser("retain-git", help="Retain pinned commits independently of the worktree")
+    sp.add_argument("--repo", help="Surviving repository or Git directory for session recovery")
 
     # status
     sp = sub.add_parser("status", help="Show session status")
@@ -2018,6 +2064,7 @@ def main(argv: list[str] | None = None) -> int:
         "verdict": cmd_verdict,
         "migrate": cmd_migrate,
         "status": cmd_status,
+        "retain-git": cmd_retain_git,
         "archive": cmd_archive,
         "serve": cmd_serve,
         "stop": cmd_stop,

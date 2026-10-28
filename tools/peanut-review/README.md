@@ -15,6 +15,9 @@ PR_BIN=$PEANUT_REVIEW_DIR/bin/peanut-review
 
 Use `peanut-review` instead of `$PR_BIN` if it is installed on `PATH`.
 Most flows run from the repo being reviewed, so keep `PR_BIN` absolute.
+Set `PR_PYTHON` to select the Python interpreter for either bundled launcher;
+the web launcher otherwise prefers its `.venv/bin/python`, then `python3`.
+Both launchers import this checkout through `PYTHONPATH`.
 
 In `claude-workspace`, use `skills/peanut-review/` to orchestrate multi-agent
 review sessions and `tools/peanut-review/bin/peanut-review` as the CLI.
@@ -268,6 +271,12 @@ allow list includes `Shell(peanut-review **)`, its deny list is non-empty,
 and its deny list does not contain `Shell(**)`. Run `launch --dry-run` before
 the first mixed-runner launch to check the session configuration and permissions.
 
+Cursor prompts include the shared user guidance from `~/.codex/AGENTS.md`
+(or `$CODEX_HOME/AGENTS.md`) when present. This is loaded on each launch before
+Cursor switches to its private runtime home; `~/` paths in the guidance are
+expanded to the user's actual home so reference checkouts remain discoverable.
+SSH Cursor reviewers use the remote user's guidance and home directory.
+
 Selected reviewer agents can instead use an existing persistent SSH
 ControlMaster, an independent remote checkout/build tree, and a reverse-forwarded
 capability gateway while retaining the same reviewer CLI. Curator, web, and
@@ -353,6 +362,12 @@ SESSION=<printed-session-path>
 "$PR_BIN" --session "$SESSION" wait-all round-done --timeout 900
 ```
 
+`wait-all round-done` reports changing completion counts, such as
+`::group::3/4 reviewers (1 failed)`, and a `::group::Curator` transition.
+Each progress update closes the previous group; a failed phase remains open
+so a calling tool can attribute the failure. Terminal reviewer and curator
+failures are reported without waiting for a missing signal until the deadline.
+
 For GitHub-backed sessions, `wait-all round-done` waits for reviewers, then
 launches the dedicated `Curator` agent and waits for it to finish. Inspect the
 curated result in the web UI, then use the UI's GitHub push modal when ready:
@@ -363,6 +378,38 @@ curated result in the web UI, then use the UI's GitHub push modal when ready:
 "$PR_BIN" --session "$SESSION" edit c_1234abcd --body-file /tmp/comment.md
 "$PR_BIN" --session "$SESSION" delete c_9999ffff
 ```
+
+The curator prepares an `approve` review with `LGTM` when all existing
+substantive findings are addressed and the completed review of the current
+head finds no new substantive issues. Useful naming and organization feedback
+can be substantive; optional polish can remain alongside approval. The curator
+checks imported and historical findings and previews with `gh-push --dry-run`.
+Approvals stay local for the human user to publish through the web UI or CLI.
+
+`wait-all round-done --max-reviewer-failures N` tolerates up to N reviewers
+finishing without a `round-done` signal. It waits for every reviewer to finish
+before curation, reports the failed reviewers, and still fails if any reviewer
+remains unfinished at the deadline or Curator fails. At least one reviewer must
+succeed. The default is zero tolerated failures. Allowing curation after a
+partial reviewer failure does not certify a complete review in the dashboard:
+all configured reviewers and a subsequent curator must still succeed on the
+same snapshot. Failed or incomplete reviews must not receive an LGTM approval.
+
+When **curate** finds that its recorded PR worktree is missing, it reuses the
+saved local branch's worktree if that branch has moved to another directory.
+Otherwise it restores the branch at the original source path using retained
+Git storage. Recovery never creates a detached checkout inside session storage.
+An existing checkout or branch at a different revision, a dirty replacement
+worktree, or live session agents blocks recovery: preserve local work and
+synchronize the existing PR worktree before curating. Saved commits, comments,
+PR account identity and reviewer configuration stay unchanged.
+
+Recovery restores source only. Existing wrapper configuration and build output
+are preserved, but missing build environments or Cursor permissions must be
+prepared before launch. Older sessions without retained Git storage first need
+`retain-git --repo <surviving-repository>`. A legacy session without a recorded
+local branch can use its PR head branch when available; otherwise synchronize
+it to the existing branch-backed PR worktree to record that identity.
 
 The web UI also exposes manual **curate** and **rerun all** controls in the
 Agents section when you need to rerun comment curation or start a fresh
@@ -435,6 +482,25 @@ differs until `sync-pr` (GitHub sessions) or `migrate` (local sessions) is run
 explicitly. Agent launch/rerun is refused for a GitHub session while its
 workspace is checked out at a different commit.
 
+New and synchronized sessions record `git_common_dir` separately from the
+execution `workspace` and `repo_relative`. Pinned diffs, folded source context,
+and GitHub comment anchors read the shared Git directory, so linked worktrees
+can be recycled without breaking saved reviews. Session-specific refs under
+`refs/peanut-review/` retain reviewed commits, including earlier revisions,
+against Git garbage collection. Keep the shared repository available; these
+refs are not automatically pruned when session directories are deleted.
+
+To repair an older session whose worktree has already been removed, supply a
+surviving repository containing its recorded commits:
+
+```bash
+"$PR_BIN" --session "$SESSION" retain-git --repo /path/to/main/repository
+```
+
+This updates durable Git storage without changing the execution workspace,
+reviewed commits, comments, or agent configuration. Reviewer reruns still need
+a valid execution checkout; synchronize a replacement workspace before rerunning.
+
 Rerun agents only for substantial changes. Use `rerun`, not `launch`, so stale
 round signals are cleared before the selected reviewers start:
 
@@ -448,10 +514,10 @@ round signals are cleared before the selected reviewers start:
 ```bash
 "$PR_BIN" --session "$SESSION" status
 "$PR_BIN" --session "$SESSION" note --message "Ran targeted tests; passed."
-"$PR_BIN" --session "$SESSION" add-comment --file path/to/file.py --line 42 --severity warning --body-file /tmp/body.md
+"$PR_BIN" --session "$SESSION" add-comment --file path/to/file.py --line 42 --body-file /tmp/body.md
 "$PR_BIN" --session "$SESSION" comments --unresolved   # use this to find c_... ids
 "$PR_BIN" --session "$SESSION" curate                 # launch the comment curator
-"$PR_BIN" --session "$SESSION" add-global-comment --severity suggestion --body "A few comments."
+"$PR_BIN" --session "$SESSION" add-global-comment --body "A few comments."
 "$PR_BIN" --session "$SESSION" add-global-comment --category request-changes --body-file /tmp/blocking.md
 "$PR_BIN" --session "$SESSION" add-comment --reply-to <global-comment-id> --body "Response"
 ```
@@ -460,6 +526,20 @@ Replies to anchored comments remain in their GitHub thread. Because GitHub
 does not support threading review-level comments, replying to a global comment
 creates a new global comment that quotes the original body as a Markdown
 blockquote before the response.
+
+Comments describe impact and uncertainty in prose; severity fields, filters,
+CLI flags and web badges have been retired. Review categories (`comment`,
+`approve`, `request-changes`) still control GitHub review decisions. Existing
+sessions remain readable. Reads leave stored JSONL untouched; the first rewrite
+of a legacy comment file saves its original bytes in a sibling
+`<author>.jsonl.pre-severity-removal` backup before dropping severity metadata,
+including historical severity fields. New commands must omit `--severity`.
+
+Reviewer scratch files, drafts, standalone test programs and new caches belong
+under an agent-specific `<session>/tmp/` directory; the curator uses
+`<session>/tmp/curator/`. Existing build directories remain usable. Lisa, Irene
+and Merlin can record an explicit out-of-scope note and finish without running
+tests when their persona's domain does not apply. A scope skip is not an approval.
 
 `note` is a report-only channel for non-review output such as test execution
 and comment curation. Review findings and discussion belong in comments.

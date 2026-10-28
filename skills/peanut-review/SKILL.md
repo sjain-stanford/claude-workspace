@@ -18,8 +18,8 @@ curator. Launched agents perform only their assigned reviewer or curator role.
 - **Configured reviewers** inspect the patch, discover and validate findings,
   post new review threads, and reassess fixes and rebuttals on later rounds.
 - **Configured curator** validates and curates existing reviewer findings,
-  including wording, severity, deduplication, deletion, and anchor repair. Its
-  authoritative instructions are in
+  including wording, deduplication, deletion, anchor repair, and local approval
+  decisions. Its authoritative instructions are in
   `tools/peanut-review/peanut_review/templates/curator-prompt.md`.
 - **Driver** prepares the session and build, launches and monitors configured
   agents, reads their results, and reports progress. In a local development
@@ -60,6 +60,12 @@ Use `--author Orchestrator` for driver-authored replies and reports, and
 driver actions inherit the human's Git identity. Driver comments are limited
 to `add-comment --reply-to <c_id>` and an overall verdict that summarizes the
 configured agents' outcome; the verdict must not introduce new findings.
+
+The curator may prepare one local `LGTM` approval after verifying the full
+finding history and completed review of the current head. Useful naming and
+organization concerns can remain substantive; optional polish can coexist with
+approval. Keep the approval local for the human user to publish. A scope skip
+or a failed, blocked, or incomplete review is not approval evidence.
 
 ## Remote Publishing Requires Explicit Authorization
 
@@ -571,8 +577,8 @@ enough.
    writes `result.json` but does not close the session or prevent later reruns.
 
    ```bash
-   "$PR_BIN" --session "$SESSION" verdict --approve --body "All critical issues addressed"
-   "$PR_BIN" --session "$SESSION" verdict --request-changes --body "Outstanding critical issue in X"
+   "$PR_BIN" --session "$SESSION" verdict --approve --body "All substantive findings addressed"
+   "$PR_BIN" --session "$SESSION" verdict --request-changes --body "X can lose data; please address before merging"
    ```
 
    Summarize the complete result and local commits, then stop so the user has a
@@ -603,6 +609,24 @@ and live processes as the real health checks. `process=...` is supervisor-owned
 runtime status; `review=done` means the agent posted `round-done`. There is no
 separate session lifecycle state: web progress is derived from reviewer and
 Curator runtime status, and an optional verdict is stored independently.
+
+`wait-all round-done` reports successful/failed completion counts and stops
+waiting on terminal failures. Its `--max-reviewer-failures N` option defaults to
+zero; use a nonzero allowance only when requested. Allowing curation after a
+failure does not make the dashboard certify a complete review or authorize an
+approval. Recover failed reviewers and complete the configured review loop.
+
+Saved snapshots retain their Git objects independently of the worktree.
+`retain-git --repo <surviving-repository>` repairs older session storage. Curator
+recovery reuses the saved branch's worktree or restores a missing checkout at
+its recorded path; it never resets a moved branch or overwrites local work.
+For mismatched or dirty worktrees, follow the synchronization procedure above.
+Prepare any missing build environment or Cursor permissions before launching.
+
+Use prose for impact and uncertainty; comment commands no longer accept
+`--severity`. Keep agent scratch files in `<session>/tmp/`, with separate agent
+directories. Explicit persona-directed scope skips are exempt from tests and
+must record a reason in a note before signaling completion.
 
 The authoritative reviewer prompt is
 `tools/peanut-review/peanut_review/templates/agent-prompt.md`; do not maintain
