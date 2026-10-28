@@ -16,6 +16,8 @@ from peanut_review.models import AgentConfig, AgentRole, Comment, GitHubPR
 
 
 def _mock_git(workspace, *args):
+    if args == ("rev-parse", "--path-format=absolute", "--git-common-dir"):
+        return "/tmp/fakerepo/.git"
     if args[:2] == ("rev-parse", "--verify"):
         return "abc123def456"
     if args[0] == "diff" and "--stat" in args:
@@ -751,6 +753,50 @@ def test_cursor_agents_get_isolated_homes_without_mcp_config(tmp_path):
     assert not (Path(results[1]["cursor_home"]) / ".cursor" / "mcp.json").exists()
 
 
+@pytest.mark.parametrize("custom_codex_home", [False, True])
+def test_cursor_prompt_inherits_live_global_guidance(tmp_path, monkeypatch, custom_codex_home):
+    user_home = tmp_path / "user home"
+    user_home.mkdir()
+    monkeypatch.setenv("HOME", str(user_home))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    codex_dir = user_home / ".codex"
+    if custom_codex_home:
+        codex_dir = tmp_path / "custom codex"
+        monkeypatch.setenv("CODEX_HOME", str(codex_dir))
+    codex_dir.mkdir()
+    guidance = codex_dir / "AGENTS.md"
+    guidance.write_text("Use ~/projects/isa-manuals for ISA references.\n")
+    sd = _make_session_dir([
+        AgentConfig(name="lisa", model="test", runner="cursor"),
+        AgentConfig(name="vera", model="test", runner="codex"),
+        AgentConfig(name="Curator", model="test", runner="cursor", role="curator"),
+    ])
+
+    prompts = launch.render_all_prompts(sd, agent_names=["lisa", "vera", "Curator"])
+    expected_path = str(user_home / "projects" / "isa-manuals")
+    for name in ["lisa", "Curator"]:
+        text = prompts[name].read_text()
+        assert str(guidance) in text
+        assert expected_path in text
+        assert "~/projects/isa-manuals" not in text
+    assert "# Shared user instructions" not in prompts["vera"].read_text()
+
+    guidance.write_text("Use ~/llvm/main for LLVM references.\n")
+    text = launch.render_all_prompts(sd, agent_names=["lisa"])["lisa"].read_text()
+    assert str(user_home / "llvm" / "main") in text
+    assert expected_path not in text
+
+
+@pytest.mark.parametrize("contents", [None, "", " \n"])
+def test_cursor_global_guidance_is_optional(tmp_path, monkeypatch, contents):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    if contents is not None:
+        (tmp_path / ".codex").mkdir()
+        (tmp_path / ".codex" / "AGENTS.md").write_text(contents)
+    assert launch._cursor_global_instructions() == ""
+
+
 def test_cursor_launch_fails_when_cli_json_missing(tmp_path):
     workspace = str(tmp_path / "repo")
     Path(workspace).mkdir()
@@ -865,7 +911,7 @@ def test_agents_use_cli_prompt_template():
     assert "# Pull request context" not in rendered
 
 
-@pytest.mark.parametrize("custom_template", [False, True])
+@pytest.mark.parametrize("custom_template", [False, True, "${PR_CONTEXT}", "$PR_CONTEXT", "$$PR_CONTEXT"])
 @pytest.mark.parametrize("body", [
     None, "", "Preserve ${AGENT}, $HOME, and `code`.\n\n```sh\necho example\n```\n",
 ])
@@ -891,7 +937,7 @@ def test_pr_context_reaches_reviewers_and_curator(tmp_path, custom_template, bod
     template = None
     if custom_template:
         template = tmp_path / "custom.md"
-        template.write_text("Custom instructions for ${AGENT}.\n")
+        template.write_text("Custom instructions for ${AGENT}.\n" + (custom_template if isinstance(custom_template, str) else ""))
 
     prompts = launch.render_all_prompts(sd, template, agent_names=["Vera", "Curator"])
 
@@ -910,6 +956,62 @@ def test_pr_context_reaches_reviewers_and_curator(tmp_path, custom_template, bod
             assert "````text\n" in prompt
         if custom_template:
             assert f"Custom instructions for {name}." in prompt
+
+
+@pytest.mark.parametrize("body", [None, "", "## Intent\n\nKeep `$PATH`, ${SESSION}, and ✓.\n"])
+def test_pr_context_reaches_all_reviewers_and_curator(tmp_path, body):
+    from peanut_review import session as sess
+
+    agents = [
+        AgentConfig(name=runner, model="test", runner=runner, persona="vera.md")
+        for runner in ["cursor", "opencode", "codex"]
+    ] + [
+        AgentConfig(name="Curator", model="test", role="curator"),
+        AgentConfig(name="remote", model="test", runner="codex", ssh_target="host"),
+    ]
+    sd = tmp_path / "session"
+    with patch("peanut_review.session._run_git", side_effect=_mock_git):
+        sess.create_session(
+            workspace=str(tmp_path),
+            agents=[agent.to_dict() for agent in agents],
+            ssh_targets={"host": {
+                "host": "reviewer@host",
+                "controlPath": "/tmp/peanut-review-context.sock",
+                "gatewayUrl": "http://127.0.0.1:27184",
+                "workspaceRoot": "/srv/review",
+                "repoRelative": "repo",
+                "buildRoots": ["/srv/review/build"],
+                "peanutReviewBin": "/opt/peanut-review/bin/peanut-review",
+                "runtimeRoot": "/srv/runtime",
+            }},
+            session_dir=str(sd),
+            github=GitHubPR(repo="acme/foo", number=42, title="PR intent", body=body),
+        )
+
+    assert sess.load_session(sd).github.body == body
+    prompts = launch.render_all_prompts(
+        sd, agent_names=[agent.name for agent in agents],
+        remote_launch_ids={"remote": "launch1"},
+    )
+    assert set(prompts) == {agent.name for agent in agents}
+    for name, prompt in prompts.items():
+        expected_scratch = (
+            "/srv/runtime/" + sess.load_session(sd).id + "/launch1/tmp"
+            if name == "remote" else str(sd / "tmp" / ("curator" if name == "Curator" else name))
+        )
+        assert expected_scratch in prompt.read_text()
+        assert "${SCRATCH_DIR}" not in prompt.read_text()
+        assert "peanut://" + sess.load_session(sd).id + "/tmp" not in prompt.read_text()
+    for prompt in prompts.values():
+        text = prompt.read_text()
+        assert "Title: PR intent" in text
+        assert "URL: https://github.com/acme/foo/pull/42" in text
+        if body is None:
+            assert "Description not captured in this session" in text
+        elif body == "":
+            assert "No PR description provided" in text
+        else:
+            assert body in text
 
 
 def test_prompt_uses_persona_filename_independent_of_agent_display_name():

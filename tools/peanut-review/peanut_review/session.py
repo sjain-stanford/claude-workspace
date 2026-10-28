@@ -1,6 +1,7 @@
 """Session creation, loading, discovery, and updates."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -42,14 +43,14 @@ def _validate_session_id(sid: str) -> None:
         raise ValueError(f"session id {sid!r} collides with a reserved route")
 
 
-def _run_git(workspace: str, *args: str) -> str:
+def _run_git(workspace: str, *args: str, timeout: int = 10) -> str:
     """Run a git command in the workspace, return stdout stripped.
 
     Raises RuntimeError on non-zero exit.
     """
     result = subprocess.run(
         ["git", "-C", workspace, *args],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=timeout,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -95,6 +96,138 @@ def repo_path(session: Session) -> str:
     return session.repo_path()
 
 
+def review_repo_path(session: Session) -> str:
+    """Return durable Git storage for pinned reads, with legacy fallback."""
+    return session.git_common_dir or repo_path(session)
+
+
+def retain_review_git(session: Session, repository: str | None = None) -> bool:
+    """Keep reviewed commits reachable after a linked worktree is removed.
+
+    References are cumulative across session revisions. Their namespace is
+    independent of branch names and shared by all worktrees of the repository.
+    Resolve every commit before writing refs or updating session metadata.
+    """
+    source = repository or repo_path(session)
+    common_dir = _run_git(source, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if not Path(common_dir).is_absolute():
+        raise RuntimeError("git returned a non-absolute common directory")
+    commits = {
+        resolve_git_ref(common_dir, ref)
+        for ref in (session.base_ref, session.topic_ref, session.current_head, session.original_head)
+        if ref
+    }
+    namespace = hashlib.sha256(
+        f"{session.id}\0{session.created_at}".encode()
+    ).hexdigest()[:32]
+    for commit in sorted(commits):
+        _run_git(common_dir, "update-ref", f"refs/peanut-review/{namespace}/{commit}", commit)
+    changed = session.git_common_dir != common_dir
+    session.git_common_dir = common_dir
+    return changed
+
+
+def repair_review_git(session_dir: str | Path, repository: str | None = None) -> Session:
+    """Retain a saved snapshot without changing its workspace or review identity."""
+    with _session_lock(session_dir):
+        session = load_session(session_dir)
+        retain_review_git(session, repository or review_repo_path(session))
+        save_session(session_dir, session)
+        return session
+
+
+def _workspace_branch(repository: str) -> str:
+    try:
+        return _run_git(repository, "symbolic-ref", "--quiet", "--short", "HEAD")
+    except RuntimeError:
+        return ""
+
+
+def prepare_curator_workspace(session_dir: str | Path) -> Session:
+    """Recover a missing PR worktree without replacing an existing checkout.
+
+    Reuse the recorded branch wherever it is checked out, or restore it at the
+    session's original repository path. Never reset a branch, overwrite local
+    files, or create a detached checkout under session storage.
+    """
+    from . import runtime
+
+    with _session_lock(session_dir):
+        session = load_session(session_dir)
+        if session.github is None:
+            return session
+        mismatch, head = workspace_head_mismatch(session)
+        if head is not None and not mismatch:
+            return session
+        live = [
+            a.name for a in session.agents
+            if runtime.inspect_agent_runtime(session_dir, a)["process_state"]
+            in {runtime.PROCESS_LAUNCHING, runtime.PROCESS_RUNNING}
+        ]
+        if live:
+            raise ValueError("cannot restore curator workspace while agents are live: " + ", ".join(live))
+        original = Path(repo_path(session))
+        if head is not None or original.exists() or original.is_symlink():
+            raise ValueError(
+                f"curator workspace differs from the pinned review: {original}; "
+                "preserve local work and synchronize the existing PR worktree before curating"
+            )
+        try:
+            retain_review_git(session, review_repo_path(session))
+            storage = session.git_common_dir
+            head = resolve_git_ref(storage, session.current_head)
+            branch = session.workspace_branch or session.github.head_ref_name
+            if not branch:
+                raise ValueError(
+                    "session has no recorded branch; synchronize it to its branch-backed PR worktree"
+                )
+            _run_git(storage, "check-ref-format", "--branch", branch)
+            branch_ref = f"refs/heads/{branch}"
+            worktrees = []
+            for record in _run_git(storage, "worktree", "list", "--porcelain", "-z").split("\0\0"):
+                fields = dict(field.split(" ", 1) for field in record.split("\0") if " " in field)
+                if fields.get("branch") == branch_ref:
+                    worktrees.append(Path(fields["worktree"]))
+            if len(worktrees) > 1:
+                raise ValueError(f"multiple worktrees own {branch}; reconcile them before curating")
+            checkout = worktrees[0] if worktrees else original
+            if worktrees:
+                common = _run_git(str(checkout), "rev-parse", "--path-format=absolute", "--git-common-dir")
+                if (
+                    checkout.is_symlink()
+                    or Path(common).resolve() != Path(storage).resolve()
+                    or resolve_git_ref(str(checkout)) != head
+                    or _run_git(str(checkout), "status", "--porcelain", "--untracked-files=all",
+                                "--ignore-submodules=none")
+                ):
+                    raise ValueError(f"existing PR worktree is not clean at the pinned commit: {checkout}")
+            else:
+                # An existing branch may have advanced even though its worktree is gone.
+                refs = _run_git(storage, "for-each-ref", "--format=%(refname)", branch_ref).splitlines()
+                if branch_ref in refs:
+                    if resolve_git_ref(storage, branch_ref) != head:
+                        raise ValueError(f"saved branch {branch} has moved; synchronize its PR worktree")
+                    args = (str(checkout), branch)
+                else:
+                    args = ("-b", branch, str(checkout), head)
+                _run_git(storage, "worktree", "add", *args, timeout=180)
+            if checkout != original:
+                # Preserve a wrapper layout when the moved worktree still uses it.
+                relative = Path(session.repo_relative)
+                root = checkout
+                for _ in relative.parts:
+                    root = root.parent
+                if root / relative != checkout:
+                    root, relative = checkout, Path(".")
+                session.workspace = str(root)
+                session.repo_relative = normalize_repo_relative(relative)
+            session.workspace_branch = branch
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+            raise ValueError(f"cannot restore pinned curator workspace: {error}") from error
+        save_session(session_dir, session)
+        return session
+
+
 def retarget_review_snapshot(
     session: Session,
     new_base: str,
@@ -129,7 +262,11 @@ def retarget_review_snapshot(
     if session.diff_stat != diff_stat:
         session.diff_stat = diff_stat
         changed = True
-    return changed
+    branch = _workspace_branch(repo)
+    if session.workspace_branch != branch:
+        session.workspace_branch = branch
+        changed = True
+    return retain_review_git(session, repo) or changed
 
 
 def retarget_review_head(session: Session, new_head: str) -> bool:
@@ -210,6 +347,7 @@ def create_session(
         created_at=_now_iso(),
         workspace=workspace_abs,
         repo_relative=repo_rel,
+        workspace_branch=_workspace_branch(repo),
         base_ref=base_sha,
         topic_ref=head_sha,
         original_head=head_sha,
@@ -222,6 +360,7 @@ def create_session(
         github=github,
     )
 
+    retain_review_git(session, repo)
     save_session(sdir, session)
     return session, str(sdir)
 
@@ -409,6 +548,8 @@ def _copy_session_fields(dst: Session, src: Session) -> None:
     dst.created_at = src.created_at
     dst.workspace = src.workspace
     dst.repo_relative = src.repo_relative
+    dst.git_common_dir = src.git_common_dir
+    dst.workspace_branch = src.workspace_branch
     dst.base_ref = src.base_ref
     dst.topic_ref = src.topic_ref
     dst.original_head = src.original_head
@@ -478,6 +619,7 @@ def validate_comment_location(
     *,
     head_ref: str | None = None,
     require_pinned: bool = False,
+    checkout: str | None = None,
 ) -> tuple[list[str] | None, str | None]:
     """Validate file/line for a comment. Returns (lines, error_message).
 
@@ -486,6 +628,8 @@ def validate_comment_location(
     the separate note store instead of __meta__ comments.
     On success, returns (file_lines, None).
     On error, returns (None, error_string).
+    `checkout` supplies the legacy working-file fallback for local comments
+    when `repository` points at shared Git storage instead of a worktree.
     """
     if file == META_FILE or file == GLOBAL_FILE:
         return None, None
@@ -506,7 +650,7 @@ def validate_comment_location(
             return lines, None
 
     if not head_ref or not require_pinned:
-        file_path = Path(repository) / file
+        file_path = Path(checkout or repository) / file
         if not file_path.exists():
             return None, f"file not found in repository: {file}"
         lines = file_path.read_text().splitlines()

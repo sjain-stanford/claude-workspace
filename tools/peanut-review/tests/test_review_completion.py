@@ -80,6 +80,33 @@ def test_failed_reviewer_or_curator_never_completes_round(review):
     assert completion.completed_review(directory, session) is None
 
 
+def test_allowed_reviewer_failure_can_curate_without_certifying_completion(review, monkeypatch):
+    from peanut_review import polling, runtime
+
+    directory, session, _ = review
+    ids = completion.begin_launch(directory, session, sess.reviewer_agents(session))
+    polling.write_signal(directory, "Vera", "round-done")
+    finish(directory, {"Vera": ids["Vera"]})
+    runtime.update_agent_meta(directory, "Irene", {"exit_code": 1})
+    finish(directory, {"Irene": ids["Irene"]}, successful=False)
+    launches = []
+
+    def curate(path):
+        launches.append(path)
+        curator_ids = completion.begin_launch(directory, session, sess.curator_agents(session))
+        polling.write_signal(directory, "Curator", "round-done")
+        finish(directory, curator_ids)
+        return []
+
+    monkeypatch.setattr(launch, "launch_curator", curate)
+    command = ["--session", str(directory), "wait-all", "round-done", "--timeout", "1"]
+    assert cli.main(command) == 1
+    assert not launches
+    assert cli.main([*command, "--max-reviewer-failures", "1"]) == 0
+    assert len(launches) == 1
+    assert completion.completed_review(directory, sess.load_session(directory)) is None
+
+
 def test_sync_and_partial_rerun_cannot_certify_new_snapshot(review):
     directory, session, git = review
     complete_round(directory, session)
