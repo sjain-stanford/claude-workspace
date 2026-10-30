@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync Repositories"
+  short_description: "Refresh canonical clones and preserve pinned worktrees"
+  default_prompt: "Use $sync-repos to fetch default branches and fast-forward local defaults in projects and projects-emu, preserve pinned worktrees, and report the results."
