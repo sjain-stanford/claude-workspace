@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clean Up Worktrees"
+  short_description: "Retire idle worktrees and peanut-review sessions"
+  default_prompt: "Use $cleanup-worktrees to remove eligible idle worktrees and retire peanut-review sessions for landed PRs or work inactive for 30 days, preserving active work and recovery data."

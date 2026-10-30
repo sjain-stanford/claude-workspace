@@ -88,6 +88,7 @@ references.
 - `skills/self-review/` - Use when asked to self-review local branch changes (before creating a PR)
 - `skills/stage-and-commit/` - Use when asked to commit local changes (enforces `Signed-off-by` trailers)
 - `skills/sync-repos/` - Fetch canonical clones' default branches and fast-forward local defaults while preserving pinned worktrees; supports fetch-only mode
+- `skills/cleanup-worktrees/` - Remove idle worktrees and retire peanut-review sessions for landed, stale, or abandoned work, with preview and recovery records
 - `skills/review-criteria.md` - Shared review checklist and standards (used by pr-review and self-review)
 - `skills/llvm-coding-standards.md` - LLVM C++ reference used only when the target project adopts it
 

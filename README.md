@@ -37,6 +37,7 @@ claude-workspace/
 │   ├── self-review/
 │   ├── stage-and-commit/
 │   ├── sync-repos/
+│   ├── cleanup-worktrees/
 │   ├── review-criteria.md
 │   └── llvm-coding-standards.md
 ├── tools/            # Workspace tools
