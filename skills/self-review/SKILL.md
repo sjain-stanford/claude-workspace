@@ -18,7 +18,10 @@ only when the user asks to incorporate or summarize that session.
 ```
 
 - **Default**: Reviews changes between the repository's actual target branch and
-  `HEAD` (`develop` for rocjitsu); infer it from branch/PR/upstream context
+  `HEAD`; resolve it from task context and the workspace's `LOCAL_CONTEXT.md`
+  (if present). Use the designated internal base for NPI rocjitsu; `develop`
+  applies only to public rocjitsu work. An older PR or upstream setting does
+  not override the current local routing.
 - **Custom base**: Use `--base <ref>` to specify a different base reference (e.g., `--base origin/feature`)
 - Include staged and unstaged changes plus relevant untracked source files
   unless the user explicitly requests only committed changes.

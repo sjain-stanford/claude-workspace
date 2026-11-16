@@ -30,13 +30,15 @@ git worktree list
 ```
 
 Reuse the branch-backed task worktree that owns the PR branch. If none exists,
-create one under `<workspace-root>/projects/worktrees/<repo>/`; preserve the
-PR branch name. Do not switch the canonical checkout or discard local changes.
+create one using the workspace's public or internal worktree convention and
+`LOCAL_CONTEXT.md` routing (if present); preserve the PR branch name.
+Do not switch the canonical checkout or discard local changes.
 Identify the remote for the PR's base repository, including for fork PRs.
 Fetch its base branch before collecting the diff, including when reusing an
 existing worktree.
 
-For a PR branch that is not already local, run from `projects/<repo>`:
+For a public PR branch that is not already local, run from `projects/<repo>`
+(use the designated internal paths for an internal PR):
 
 ```shell
 git fetch <base-remote> <baseRefName>
@@ -49,8 +51,10 @@ If the local branch exists, add its worktree using that branch instead of
 without overwriting local commits or uncommitted work. Ask only if the intended
 review snapshot cannot be inferred safely.
 
-From the selected worktree, use the resolved base (`develop` for rocjitsu),
-never a hardcoded `main`:
+From the selected worktree, review against the PR's declared base. For NPI
+rocjitsu, also compare that base with the required PR target in
+`LOCAL_CONTEXT.md` and flag a mismatch; do not silently review a different
+range or retarget the PR during a report-only review.
 
 ```shell
 git diff <base-remote>/<baseRefName>...HEAD

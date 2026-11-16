@@ -146,8 +146,10 @@ logs, patches, and supporting text contain no material derived from
      on ROCR or libhsakmt implementation details.
    - Consult `projects/rocgdb/` for debugger integration, GPU breakpoints,
      stepping, wave/register inspection, and launch or resume issues.
-   - Create branch-backed task worktrees under
-     `projects/worktrees/rocm-systems/`; rocjitsu's base branch is `develop`.
+   - For public rocjitsu work, create branch-backed task worktrees under
+     `projects/worktrees/rocm-systems/` using base branch `develop`.
+     For NPI work, follow `LOCAL_CONTEXT.md` for the internal repository,
+     development and qualification base, worktree root, and required PR target.
      For debugger changes, use `projects/worktrees/rocgdb/`; the rocGDB checkout
      tracks `amd-staging`.
 

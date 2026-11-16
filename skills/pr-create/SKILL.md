@@ -13,9 +13,13 @@ Creates GitHub pull requests following workspace conventions: a few concise para
 /pr-create [--repo <repo-name>] [--base <base-branch>]
 ```
 
-- `repo` (optional): Sub-repo name under `projects/`. Inferred from current context if omitted.
-- `base` (optional): Base branch for the PR. Infer the repository's target
-  branch when omitted (`develop` for rocjitsu); do not assume `main`.
+- `repo` (optional): Repository inferred from the active task and workspace
+  routing, including internal repositories under `projects-emu/`.
+- `base` (optional): Base branch for the PR. When omitted, resolve it from
+  task context and the workspace's `LOCAL_CONTEXT.md` (if present).
+  For NPI rocjitsu, use the designated internal repository and PR target;
+  `develop` applies only to public rocjitsu work. Do not infer the target from
+  the remote's default branch or an older PR's base.
 
 ## Process
 
@@ -38,6 +42,9 @@ Verify:
 - Branch is not the resolved base branch (must be on a feature branch)
 - The diff and commits contain only the intended work. Confirm the PR's base
   repository and push remote, including when the branch lives in a fork.
+- Confirm that the selected base matches the current task's routing before
+  computing the diff or publishing; reconcile an obsolete development base
+  while preserving local changes and commits.
 - Determine whether the branch is published and whether the remote has the
   same commit as `HEAD`; a remote decoration in the last five commits is not
   sufficient to establish this.
@@ -71,8 +78,9 @@ do not add a "Test Plan" section.
 
 Write the complete description to a temporary file with a quoted heredoc (or
 use a structured tool argument). Review the title, body, diff, and commit
-history before the remote write. In this workspace, verify that they contain
-no material derived from `projects-emu/`.
+history before the remote write. For a public destination, verify that they
+contain no material derived from `projects-emu/`. Internal changes must target
+the designated internal repository and branch.
 
 ```bash
 PR_BODY=$(mktemp)
@@ -118,9 +126,8 @@ Return the PR URL to the user.
 A typical PR body:
 
 ```markdown
-Resolve the review diff against the PR's declared base branch so rocjitsu PRs
-are reviewed against develop. Reuse the branch's development worktree for
-follow-up fixes.
+Resolve the review diff against the PR's declared base branch. Reuse the
+branch's development worktree for follow-up fixes.
 
 Checked the documented commands against the local worktree layout.
 ```

@@ -5,6 +5,10 @@ description: Build and verify rocjitsu changes with focused CMake/Ninja targets,
 
 # rocjitsu Build and Test
 
+Resolve the source repository and qualification branch using the workspace's
+`LOCAL_CONTEXT.md` (if present) and `rocjitsu-project` guidance. NPI
+qualification must use the designated internal base and task worktree.
+
 Run commands from the active rocjitsu source directory
 (`.../rocm-systems/emulation/rocjitsu`), using a build directory inside that
 same task worktree. Do not modify source while performing a report-only build

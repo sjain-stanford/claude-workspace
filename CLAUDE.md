@@ -6,8 +6,10 @@ Meta workspace for Claude Code and Codex-assisted development across multiple re
 
 Each subdirectory under `projects/` is an independent git repository. Sub-repos are gitignored in the meta workspace repo and are cloned locally for development and/or context.
 
-- `projects/rocm-systems/` - **Primary active checkout**, tracking `ROCm/rocm-systems` `develop`
+- `projects/rocm-systems/` - **Canonical public checkout**, tracking `ROCm/rocm-systems` `develop`
   - Active project: `emulation/rocjitsu/`
+  - Resolve NPI development, qualification, and PR routing from
+    `LOCAL_CONTEXT.md`; the public checkout and base do not apply to NPI work.
   - rocjitsu is a C++20 AMD GPU emulation toolkit with full-system simulation,
     dynamic binary translation (DBT), and dynamic binary instrumentation (DBI)
   - Read `emulation/rocjitsu/CONTRIBUTING.md` and the relevant project docs
@@ -67,7 +69,9 @@ Each subdirectory under `projects/` is an independent git repository. Sub-repos 
 
 At task start, read `LOCAL_CONTEXT.md` once if present, resolving
 the path from this workspace root even when working in a sub-repo or worktree.
-It describes available local knowledge sources and when to consult them.
+It describes available local knowledge sources and repository/branch routing.
+Its task-specific routing takes precedence over generic public-checkout
+examples below, including development bases, worktree roots, and PR targets.
 Follow its routing to relevant pages as needed; do not preload the collection.
 If the file is absent, continue with the tracked project instructions.
 
@@ -165,26 +169,31 @@ mechanisms unless the user explicitly approves a specific alternative.
 
 Use git worktrees for autonomous feature work so independent agents do not share one mutable checkout. The canonical checkouts under `projects/<repo>/` are for reading, planning, review, and context only unless the user explicitly directs otherwise. For Bead-driven implementation, create a task worktree under `projects/worktrees/<repo>/<bead-id>-<short-slug>/` before modifying files.
 
-Recommended pattern:
+Recommended pattern for public repositories, after resolving the target base:
 
 ```bash
 cd projects/<repo>
-git fetch origin
+git fetch <base-remote> <base-branch>
 git worktree add \
   ../worktrees/<repo>/<bead-id>-<short-slug> \
-  -b users/sambhav/<feature> origin/develop
+  -b users/sambhav/<feature> <base-remote>/<base-branch>
 ```
 
 Use concise, descriptive branch features, for example
 `users/sambhav/rocjitsu-waitcnt-semantics`. Confirm the target repository's
-actual base branch instead of assuming `main`; rocjitsu uses `develop`. Run build, test, lint, commit, and PR
-commands from the worktree directory. At handoff, leave the Bead with the
-worktree path, branch name, commit/PR state, verification performed, and any
+actual base branch instead of assuming `main`; public rocjitsu uses `develop`,
+while NPI rocjitsu follows `LOCAL_CONTEXT.md` for its base and PR target.
+Run build, test, lint, commit, and PR commands from the worktree directory.
+At handoff, leave the Bead with the worktree path, branch name, commit/PR state,
+verification performed, and any
 remaining follow-up. Remove completed worktrees only after the branch/PR no
 longer needs local follow-up.
 
 ## PR Preferences
 
+- Resolve the base repository and branch from task-specific routing in
+  `LOCAL_CONTEXT.md` before creating a PR. NPI rocjitsu PRs must use its
+  designated internal target, even if the repository default differs.
 - Default to one to three short prose paragraphs, including for non-trivial
   changes. Explain the problem, the resulting behavior, and relevant validation
   concisely. Do not use headings, subheadings, or bold section labels in PR

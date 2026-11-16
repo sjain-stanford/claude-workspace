@@ -5,10 +5,16 @@ description: Work on, debug, review, or explain ROCm rocjitsu in rocm-systems/em
 
 # rocjitsu Project
 
-Use the active `rocm-systems` checkout. In this workspace the canonical checkout is
-`projects/rocm-systems`, and implementation work belongs in a branch-backed
-worktree under `projects/worktrees/rocm-systems/<task-slug>/` unless the user
-explicitly asks to modify the canonical checkout.
+Resolve the intended repository, development base, PR target, and worktree
+root from the workspace's `LOCAL_CONTEXT.md` (if present) before selecting a
+checkout. Its NPI routing applies to development, qualification, and PRs;
+do not substitute the public base or the remote's default branch.
+
+For public rocjitsu work, the canonical checkout is `projects/rocm-systems`,
+with base `develop`; implementation work belongs in a branch-backed worktree
+under `projects/worktrees/rocm-systems/<task-slug>/`. Internal work follows
+the local routing and the workspace's `projects-emu/` worktree convention.
+Only modify a canonical checkout when the user explicitly requests it.
 
 Paths below are relative to `emulation/rocjitsu/` unless stated otherwise.
 

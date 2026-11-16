@@ -248,6 +248,12 @@ PR-number names.
 
 ## Config And Permissions
 
+Resolve the repository, worktree root, and intended base from workspace
+instructions and `LOCAL_CONTEXT.md` (if present). NPI rocjitsu local sessions
+use the designated internal base. For GitHub sessions, retain the PR's declared
+range and flag any mismatch with the current required PR target. The public
+path examples below do not override internal worktree routing.
+
 When `.peanut-review.json` exists, use it as-is. In this workspace, use the
 shared config at `.cache/peanut-review/.peanut-review.json`, run from the
 branch-backed development worktree under `projects/worktrees/<repo>/`, and
