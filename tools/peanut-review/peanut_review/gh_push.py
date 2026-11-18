@@ -15,12 +15,8 @@ from dataclasses import dataclass, field, replace
 import hashlib
 from pathlib import Path
 import re
-import subprocess
 
 from . import gh, models, session as sess, store
-
-
-DEFAULT_DIFF_CONTEXT = 3
 
 
 _SINGLE_INLINE_NEUTRAL_TEMPLATES = (
@@ -131,73 +127,47 @@ class PushResult:
         return ", ".join(parts) + "."
 
 
-_HUNK_RE = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+_HUNK_RE = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
 
 def build_review_anchor_index(
-    repo_path: str | Path,
-    base_ref: str,
-    topic_ref: str,
-    *,
-    context: int = DEFAULT_DIFF_CONTEXT,
+    pr: models.GitHubPR,
+    expected_head: str,
 ) -> ReviewAnchorIndex:
-    """Build the GitHub-style new-side review-anchor line set.
+    """Use GitHub's patches, including its omissions and truncation limits.
 
-    The main renderer intentionally uses full-file context so humans can see
-    local comments anywhere in a changed file. GitHub review comments are more
-    restrictive: anchors must land on new-side lines that appear in the review
-    diff hunk. Use a normal unified diff here so planning catches those anchors
-    before the create-review API rejects the batch.
+    A local diff can contain lines GitHub cannot resolve in a review. Missing
+    patches have no inline anchors; only lines actually returned in a hunk
+    are eligible. Do not interpret a failed fetch as an empty review diff.
     """
-    result = subprocess.run(
-        [
-            "git", "-C", str(repo_path),
-            "diff", f"-U{context}", "--no-color",
-            f"{base_ref}...{topic_ref}",
-        ],
-        capture_output=True, text=True, timeout=30,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        if not detail:
-            detail = f"git diff exited {result.returncode}"
-        return ReviewAnchorIndex({}, error=detail)
+    try:
+        with gh.pr_auth(pr):
+            info = gh.fetch_pr_info(pr.repo, pr.number)
+            if info.head_sha != expected_head or info.base_sha != pr.base_sha:
+                return ReviewAnchorIndex({}, error=(
+                    "PR revision changed; synchronize the review session before publishing"
+                ))
+            files = gh.fetch_pr_files(pr.repo, pr.number)
+    except (gh.GhError, gh.RepoAccountError, ValueError) as e:
+        return ReviewAnchorIndex({}, error=str(e))
 
     lines_by_path: dict[str, set[int]] = {}
-    current_path: str | None = None
-    new_ln = 0
-    for line in result.stdout.splitlines():
-        if line.startswith("diff --git"):
-            current_path = None
-            continue
-        if line.startswith("--- "):
-            continue
-        if line.startswith("+++ "):
-            raw_path = line[4:].strip()
-            if raw_path == "/dev/null":
-                current_path = None
-                continue
-            current_path = raw_path[2:] if raw_path.startswith("b/") else raw_path
-            lines_by_path.setdefault(current_path, set())
-            continue
-        if line.startswith("@@"):
-            m = _HUNK_RE.match(line)
-            if m:
-                new_ln = int(m.group(1))
-            continue
-        if current_path is None:
-            continue
-        if line.startswith("\\"):
-            continue
-        if line.startswith("+"):
-            lines_by_path[current_path].add(new_ln)
-            new_ln += 1
-        elif line.startswith("-"):
-            continue
-        else:
-            lines_by_path[current_path].add(new_ln)
-            new_ln += 1
-
+    for file in files:
+        lines = lines_by_path.setdefault(file["filename"], set())
+        new_ln = 0
+        remaining = 0
+        for line in (file.get("patch") or "").splitlines():
+            match = _HUNK_RE.match(line)
+            if match:
+                new_ln = int(match.group(1))
+                remaining = int(match.group(2) or 1)
+            elif remaining and line.startswith(("+", " ")):
+                lines.add(new_ln)
+                new_ln += 1
+                remaining -= 1
+            elif not line.startswith(("-", "\\")):
+                # Ignore metadata and stop at truncation markers.
+                remaining = 0
     return ReviewAnchorIndex(lines_by_path)
 
 
@@ -288,6 +258,15 @@ def filter_plan(plan: PushPlan, comment_ids: set[str]) -> PushPlan:
         },
         ext_map=dict(plan.ext_map),
     )
+
+
+def plan_session_push(session: models.Session, comments: list[models.Comment]) -> PushPlan:
+    """Validate new inline feedback using the same path for preview and push."""
+    plan = plan_push(comments)
+    if session.github and any(c.file != sess.GLOBAL_FILE for c in plan.new_top):
+        index = build_review_anchor_index(session.github, session.current_head)
+        plan = plan_push(comments, anchor_index=index)
+    return plan
 
 
 def _review_comment_payload(c: models.Comment) -> dict:
@@ -567,6 +546,8 @@ def execute_push(
     plan: PushPlan,
 ) -> PushResult:
     """Verify the session account and use one credential for the entire push."""
+    if plan.anchor_validation_error:
+        raise ValueError(f"Cannot validate review anchors: {plan.anchor_validation_error}")
     with gh.pr_auth(ghpr):
         return _execute_push(session_dir, session, ghpr, plan)
 

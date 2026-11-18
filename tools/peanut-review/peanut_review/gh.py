@@ -394,6 +394,12 @@ def fetch_review_comments(repo: str, number: int) -> list[dict]:
     return _parse_paginated(raw)
 
 
+def fetch_pr_files(repo: str, number: int) -> list[dict]:
+    """Changed files with the patches GitHub exposes for review. Paginated."""
+    raw = _api(f"repos/{repo}/pulls/{number}/files", paginate=True)
+    return _parse_paginated(raw)
+
+
 def fetch_issue_comments(repo: str, number: int) -> list[dict]:
     """PR-level (issue) comments. Paginated."""
     raw = _api(f"repos/{repo}/issues/{number}/comments", paginate=True)
@@ -480,15 +486,17 @@ def fetch_review_thread_resolutions(repo: str, number: int) -> list[dict]:
 
 
 def _parse_paginated(raw: str) -> list[dict]:
-    """`gh api --paginate` concatenates JSON arrays back-to-back as
-    `][`. Split and merge. Empty result returns []."""
-    raw = raw.strip()
-    if not raw:
-        return []
-    # Sequential JSON arrays from paginate: `[...][...]` → `[...,...]`.
-    merged = "[" + raw[1:-1].replace("][", ",") + "]" if raw.startswith("[") else raw
-    parsed = json.loads(merged)
-    return parsed if isinstance(parsed, list) else [parsed]
+    """Decode concatenated JSON pages without rewriting strings inside them."""
+    decoder = json.JSONDecoder()
+    items: list[dict] = []
+    offset = 0
+    while offset < len(raw):
+        if raw[offset].isspace():
+            offset += 1
+            continue
+        page, offset = decoder.raw_decode(raw, offset)
+        items.extend(page if isinstance(page, list) else [page])
+    return items
 
 
 def post_review_comment(

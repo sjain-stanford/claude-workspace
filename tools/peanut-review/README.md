@@ -540,6 +540,14 @@ round signals are cleared before the selected reviewers start:
 "$PR_BIN" --session "$SESSION" add-comment --reply-to <global-comment-id> --body "Response"
 ```
 
+Publishing validates new inline anchors against the patches returned by GitHub,
+including omitted or truncated large-file diffs. Comments outside those patches
+appear in the preview as global comments with their original file and line
+references, then join the review summary when published. Their local anchors
+and wording stay intact. A failed diff fetch or changed PR revision blocks
+publication until validation succeeds; dry-runs also perform these read-only
+GitHub checks.
+
 Replies to anchored comments remain in their GitHub thread. Because GitHub
 does not support threading review-level comments, replying to a global comment
 creates a new global comment that quotes the original body as a Markdown

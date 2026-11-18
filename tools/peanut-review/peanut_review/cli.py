@@ -965,10 +965,7 @@ def cmd_gh_push(args: argparse.Namespace) -> int:
     s, ghpr = pair
 
     comments = store.read_all_comments(session_dir)
-    anchor_index = _gh_push.build_review_anchor_index(
-        sess.review_repo_path(s), s.base_ref, s.topic_ref,
-    )
-    plan = _gh_push.plan_push(comments, anchor_index=anchor_index)
+    plan = _gh_push.plan_session_push(s, comments)
 
     if plan.total == 0:
         suffixes = []
@@ -989,9 +986,10 @@ def cmd_gh_push(args: argparse.Namespace) -> int:
             return 1
         if plan.anchor_validation_error:
             print(
-                "[dry-run] anchor validation skipped: "
+                "[dry-run] cannot validate review anchors: "
                 f"{plan.anchor_validation_error}"
             )
+            return 1
         for c in plan.new_top:
             promotion = plan.promoted_anchors.get(c.id)
             if promotion is not None:
@@ -1021,7 +1019,7 @@ def cmd_gh_push(args: argparse.Namespace) -> int:
 
     try:
         result = _gh_push.execute_push(session_dir, s, ghpr, plan)
-    except gh.RepoAccountError as e:
+    except (gh.RepoAccountError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     for item in result.items:

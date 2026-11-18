@@ -884,10 +884,7 @@ class _Handler(BaseHTTPRequestHandler):
         if s.github is None:
             return self._error(400, "session is not GitHub-backed")
         comments = store.read_all_comments(session_dir)
-        anchor_index = gh_push.build_review_anchor_index(
-            review_repo_path(s), s.base_ref, s.topic_ref,
-        )
-        plan = gh_push.plan_push(comments, anchor_index=anchor_index)
+        plan = gh_push.plan_session_push(s, comments)
         by_id = {c.id: c for c in comments}
         agent_authors = _agent_authors(s)
         new_top_ids = {c.id for c in plan.new_top}
@@ -1029,10 +1026,7 @@ class _Handler(BaseHTTPRequestHandler):
         if s.github is None:
             return self._error(400, "session is not GitHub-backed")
         comments = store.read_all_comments(session_dir)
-        anchor_index = gh_push.build_review_anchor_index(
-            review_repo_path(s), s.base_ref, s.topic_ref,
-        )
-        plan = gh_push.plan_push(comments, anchor_index=anchor_index)
+        plan = gh_push.plan_session_push(s, comments)
         try:
             selected_ids = _selected_push_ids(data)
         except ValueError as e:

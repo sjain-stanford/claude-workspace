@@ -1942,7 +1942,7 @@
       ghBody.innerHTML = `<p class="error">Failed to load plan: ${esc(String(e))}</p>`;
       return;
     }
-    ghIdentity = plan.github_identity || null;
+    ghIdentity = plan.anchor_validation_error ? null : (plan.github_identity || null);
     ghPreviewItems = new Map(allPlanItems(plan).map((it) => [String(it.id), it]));
     const total = plan.total || 0;
     const orphans = (plan.new_replies || []).filter((r) => r.orphaned).length;
@@ -1977,7 +1977,7 @@
         html += `<p class="muted">Skipping ${plan.skipped_imported_reviews} imported review${plan.skipped_imported_reviews === 1 ? "" : "s"} (already backed by GitHub review objects).</p>`;
       }
       if (plan.anchor_validation_error) {
-        html += `<p class="warn">Anchor validation skipped: ${esc(plan.anchor_validation_error)}</p>`;
+        html += `<p class="warn">Publishing disabled; cannot validate review anchors: ${esc(plan.anchor_validation_error)}</p>`;
       } else if (plan.promoted) {
         html += `<p class="warn">${plan.promoted} comment${plan.promoted === 1 ? "" : "s"} outside the GitHub review diff will be promoted to global.</p>`;
       }

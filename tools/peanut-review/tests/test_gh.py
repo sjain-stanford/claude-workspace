@@ -82,6 +82,33 @@ def gh_shim(tmp_path: Path, monkeypatch):
     class Shim:
         def set_fixtures(self, fxs: list[dict]) -> None:
             fixtures = list(fxs)
+            session_path = tmp_path / "sess" / "session.json"
+            if session_path.exists():
+                session = sess.load_session(session_path.parent)
+                if session.github:
+                    fixtures.extend([
+                        {
+                            "match": ["pr", "view", "42"],
+                            "stdout": json.dumps({
+                                "number": 42,
+                                "url": session.github.url,
+                                "title": "t",
+                                "headRefOid": session.current_head,
+                                "baseRefOid": session.github.base_sha,
+                            }),
+                        },
+                        {
+                            "match": ["api", "repos/acme/foo/pulls/42/files"],
+                            "stdout": json.dumps([{
+                                "filename": "src/x.py",
+                                "patch": (
+                                    "@@ -37,7 +37,7 @@\n" + " context\n" * 7
+                                    if (Path(session.workspace) / "src/x.py").exists() else
+                                    "@@ -0,0 +1,80 @@\n" + "+value\n" * 80
+                                ),
+                            }]),
+                        },
+                    ])
             fixtures.append({"match": ["auth", "token"], "stdout": "test-token"})
             has_active_account = any(
                 "api" in fx.get("match", []) and "user" in fx.get("match", [])
@@ -126,13 +153,20 @@ def gh_shim(tmp_path: Path, monkeypatch):
                 })
             fixtures_path.write_text(json.dumps(fixtures))
 
-        def calls(self, *, include_identity: bool = False) -> list[dict]:
+        def calls(self, *, include_identity: bool = False, include_validation: bool = False) -> list[dict]:
             if not calls_path.exists():
                 return []
             calls = [
                 json.loads(line)
                 for line in calls_path.read_text().splitlines() if line
             ]
+            if not include_validation:
+                calls = [c for c in calls if not (
+                    c["argv"][:3] == ["pr", "view", "42"]
+                    and "number,headRefOid,baseRefOid,headRefName,baseRefName,url,title,body" in c["argv"]
+                    and (tmp_path / "sess" / "session.json").exists()
+                    or c["argv"][:2] == ["api", "repos/acme/foo/pulls/42/files"]
+                )]
             if include_identity:
                 return calls
             return [c for c in calls if c["argv"][:2] not in (["api", "user"], ["auth", "token"])]
@@ -1485,8 +1519,7 @@ def test_gh_error_surfaces_response_body(gh_shim):
 
 
 def test_gh_push_uses_current_head_as_commit_id(gh_shim, tmp_path):
-    """Push pins to the SHA agents *actually reviewed* (Session.current_head),
-    not Session.github.head_sha which may have moved if the PR got force-pushed."""
+    """Push pins to the reviewed SHA once it matches the live PR head."""
     sd = _make_gh_session(tmp_path)
     s = sess.load_session(sd)
     s.current_head = "AGENTS_REVIEWED_THIS_SHA"
@@ -1701,18 +1734,21 @@ def test_gh_push_skips_meta_comments(gh_shim, tmp_path):
     assert "skipped 1 __meta__" in out.getvalue()
 
 
-def test_gh_push_dry_run_does_not_call_gh(gh_shim, tmp_path):
+def test_gh_push_dry_run_only_reads_github(gh_shim, tmp_path):
     sd = _make_gh_session(tmp_path)
     store.append_comment(sd, models.Comment(
         author="vera", file="src/x.py", line=10, body="x",
     ))
+    gh_shim.set_fixtures([])
 
     out = io.StringIO()
     with redirect_stdout(out):
         rc = main(["--session", sd, "gh-push", "--dry-run"])
     assert rc == 0
     assert "[dry-run]" in out.getvalue()
-    assert gh_shim.calls() == []
+    calls = gh_shim.calls(include_validation=True)
+    assert any(c["argv"][1] == "repos/acme/foo/pulls/42/files" for c in calls)
+    assert not any("-X" in c["argv"] for c in calls)
     # Comment is still local-only.
     assert store.read_all_comments(sd)[0].external_id is None
     assert sess.load_session(sd).last_github_push_at is None
@@ -2463,3 +2499,96 @@ def test_gh_push_verdict_dry_run(gh_shim, tmp_path):
     assert rc == 0
     assert "[dry-run] APPROVE" in out.getvalue()
     assert gh_shim.calls() == []
+
+
+@pytest.mark.parametrize('patch_text', [None, '@@ -0,0 +1,100 @@\n+one\n+two'])
+def test_gh_push_uses_github_patch_limits(gh_shim, tmp_path, patch_text):
+    sd = _make_gh_session(tmp_path)
+    omitted = models.Comment(author='vera', file='large.txt', line=50, body='large finding')
+    inline = models.Comment(author='vera', file='src/x.py', line=10, body='inline finding')
+    for comment in (omitted, inline):
+        store.append_comment(sd, comment)
+    gh_shim.set_fixtures([
+        {
+            'match': ['api', 'repos/acme/foo/pulls/42/files'],
+            # gh --paginate emits one JSON array per page.
+            'stdout': json.dumps([{'filename': 'large.txt', 'patch': patch_text}])
+            + '\n' + json.dumps([{
+                'filename': 'src/x.py', 'patch': '@@ -9,2 +9,2 @@\n context\n+new',
+            }]),
+        },
+        _review_post_fixture(300),
+        _review_comments_fixture(300, [_review_comment_raw(1, body='inline finding')]),
+    ])
+    preview = gh_push.plan_session_push(sess.load_session(sd), store.read_all_comments(sd))
+    assert set(preview.promoted_anchors) == {omitted.id}
+    assert preview.anchor_validation_error is None
+    assert main(['--session', sd, 'gh-push']) == 0
+    posts = [c for c in gh_shim.calls() if '-X' in c['argv']]
+    assert len(posts) == 1
+    payload = json.loads(posts[0]['stdin'])
+    assert payload['body'] == 'Original anchor: `large.txt:50`\n\nlarge finding'
+    assert payload['comments'] == [{
+        'body': 'inline finding', 'path': 'src/x.py', 'line': 10, 'side': 'RIGHT',
+    }]
+    stored = {c.id: c for c in store.read_all_comments(sd)}
+    assert stored[omitted.id].file == 'large.txt'
+    assert stored[omitted.id].line == 50
+    assert stored[omitted.id].body == omitted.body
+    assert stored[omitted.id].external_source == 'github-review'
+    assert stored[inline.id].external_id == '1'
+    assert gh_push.plan_session_push(sess.load_session(sd), list(stored.values())).total == 0
+
+
+@pytest.mark.parametrize('dry_run', [False, True])
+@pytest.mark.parametrize('failure', ['fetch', 'head', 'base'])
+def test_gh_push_blocks_unvalidated_anchors(gh_shim, tmp_path, failure, dry_run):
+    sd = _make_gh_session(tmp_path)
+    store.append_comment(sd, models.Comment(
+        author='vera', file='src/x.py', line=10, body='keep local',
+    ))
+    fixtures = [{
+        'match': ['api', 'repos/acme/foo/pulls/42/files'],
+        'rc': 1, 'stderr': 'temporary GitHub error',
+    }] if failure == 'fetch' else [{
+        'match': ['pr', 'view', '42'],
+        'stdout': json.dumps({
+            'number': 42, 'title': 't', 'url': 'https://github.com/acme/foo/pull/42',
+            'headRefOid': 'changed' if failure == 'head' else 'abc',
+            'baseRefOid': 'changed' if failure == 'base' else 'def',
+        }),
+    }]
+    gh_shim.set_fixtures(fixtures)
+    args = ['--session', sd, 'gh-push'] + (['--dry-run'] if dry_run else [])
+    assert main(args) == 1
+    assert not any('-X' in c['argv'] for c in gh_shim.calls(include_validation=True))
+    assert store.read_all_comments(sd)[0].external_id is None
+
+
+def test_review_anchor_parser_only_accepts_returned_new_lines(gh_shim, tmp_path):
+    sd = _make_gh_session(tmp_path)
+    gh_shim.set_fixtures([{
+        'match': ['api', 'repos/acme/foo/pulls/42/files'],
+        'stdout': json.dumps([
+            {'filename': 'renamed name.txt', 'previous_filename': 'old.txt', 'patch':
+                '@@ -1,2 +1,3 @@\n---old\n+++new\n context\n+third\n'
+                '\\ No newline at end of file\n'
+                '@@ -20 +21 @@\n-old\n+new\n'
+                '@@ -30,2 +31,0 @@\n-deleted\n-deleted\n'
+                '@@ -40,3 +41,3 @@\n+available\n... truncated ...\n+unavailable'},
+            {'filename': 'binary.bin'},
+        ]),
+    }])
+    s = sess.load_session(sd)
+    index = gh_push.build_review_anchor_index(s.github, s.current_head)
+    assert index.error is None
+    assert index.lines_by_path == {'renamed name.txt': {1, 2, 3, 21, 41}, 'binary.bin': set()}
+    assert not index.can_anchor(models.Comment(file='renamed name.txt', line=3, end_line=21))
+
+
+@pytest.mark.parametrize('separator', ['', '\n', '\n  '])
+def test_paginated_patches_preserve_brackets_in_content(separator):
+    first = {'filename': 'a.txt', 'patch': '@@ -0,0 +1 @@\n+][ brackets'}
+    second = {'filename': 'b.txt'}
+    raw = json.dumps([first]) + separator + json.dumps([second])
+    assert gh._parse_paginated(raw) == [first, second]

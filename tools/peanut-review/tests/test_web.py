@@ -1137,7 +1137,7 @@ def _post(url: str, body: dict) -> tuple[int, dict]:
         return e.code, json.loads(e.read())
 
 
-def _mark_github_backed(session_dir: Path) -> None:
+def _mark_github_backed(session_dir: Path, monkeypatch) -> None:
     s = sess.load_session(session_dir)
     s.github = GitHubPR(
         account=GitHubAccount("github.com", "review-bot", 123),
@@ -1149,6 +1149,14 @@ def _mark_github_backed(session_dir: Path) -> None:
         title="t",
     )
     sess.save_session(session_dir, s)
+    monkeypatch.setattr(web_app.gh, "fetch_pr_info", lambda *a: web_app.gh.PRInfo(
+        repo=s.github.repo, number=42, url=s.github.url, title="t",
+        head_sha=s.current_head, base_sha=s.github.base_sha,
+    ))
+    monkeypatch.setattr(web_app.gh, "fetch_pr_files", lambda *a: [
+        {"filename": "foo.py", "patch": "@@ -1,2 +1,2 @@\n old\n+new"},
+        {"filename": "long.py", "patch": "@@ -117,7 +117,7 @@\n" + " context\n" * 7},
+    ])
 
 
 def test_server_root_renders_index(session_dir: Path):
@@ -1295,7 +1303,7 @@ def test_server_gh_preview_defaults_humans_on_agents_off(
     session_dir: Path,
     monkeypatch,
 ):
-    _mark_github_backed(session_dir)
+    _mark_github_backed(session_dir, monkeypatch)
     repo = sess.repo_path(sess.load_session(session_dir))
     _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
     monkeypatch.setattr(web_app.gh, "account_auth", lambda *a, **kw: nullcontext(GitHubAccount("github.com", "review-bot", 123)))
@@ -1336,7 +1344,7 @@ def test_server_gh_preview_marks_unreviewable_anchor_for_global_promotion(
         agents=[{"name": "felix", "model": "m", "persona": "felix.md"}],
         session_dir=str(sd),
     )
-    _mark_github_backed(sd)
+    _mark_github_backed(sd, monkeypatch)
     parent = Comment(
         author="jakub", file="long.py", line=5, body="far from hunk",
     )
@@ -1371,7 +1379,7 @@ def test_server_gh_preview_disables_push_for_mismatched_account(
     session_dir: Path,
     monkeypatch,
 ):
-    _mark_github_backed(session_dir)
+    _mark_github_backed(session_dir, monkeypatch)
     repo = sess.repo_path(sess.load_session(session_dir))
     _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
     def reject_account(*args, **kwargs):
@@ -1394,7 +1402,7 @@ def test_server_gh_preview_handles_missing_gh_binary(
     session_dir: Path,
     monkeypatch,
 ):
-    _mark_github_backed(session_dir)
+    _mark_github_backed(session_dir, monkeypatch)
     repo = sess.repo_path(sess.load_session(session_dir))
     _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
     monkeypatch.setenv(web_app.gh.GH_BIN_ENV, "/missing/gh")
@@ -1414,7 +1422,7 @@ def test_server_gh_push_rejects_mismatched_active_account(
     session_dir: Path,
     monkeypatch,
 ):
-    _mark_github_backed(session_dir)
+    _mark_github_backed(session_dir, monkeypatch)
     repo = sess.repo_path(sess.load_session(session_dir))
     _git(repo, "config", "--local", "peanut-review.githubAccount", "review-bot")
     def reject_account(*args, **kwargs):
@@ -1439,7 +1447,7 @@ def test_server_gh_push_filters_to_selected_comment_ids(
     session_dir: Path,
     monkeypatch,
 ):
-    _mark_github_backed(session_dir)
+    _mark_github_backed(session_dir, monkeypatch)
     agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
     human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
     store.append_comment(session_dir, agent_comment)
@@ -1471,7 +1479,7 @@ def test_server_gh_push_default_excludes_agent_comments(
     session_dir: Path,
     monkeypatch,
 ):
-    _mark_github_backed(session_dir)
+    _mark_github_backed(session_dir, monkeypatch)
     agent_comment = Comment(author="felix", file="foo.py", line=2, body="agent")
     human_comment = Comment(author="jakub", file="foo.py", line=2, body="human")
     store.append_comment(session_dir, agent_comment)
@@ -2531,5 +2539,72 @@ def test_server_filter_comments_since_id(session_dir: Path):
         data = json.loads(raw)
         assert len(data) == 1
         assert data[0]["body"] == "r2"
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_preview_and_push_promote_missing_github_patch(session_dir, monkeypatch):
+    _mark_github_backed(session_dir, monkeypatch)
+    monkeypatch.setattr(web_app.gh, 'account_auth', lambda *a, **kw: nullcontext(
+        GitHubAccount('github.com', 'review-bot', 123)))
+    monkeypatch.setattr(web_app.gh, 'fetch_pr_files', lambda *a: [{'filename': 'foo.py'}])
+    submitted = []
+
+    def post_review(*args, **kwargs):
+        submitted.append(kwargs)
+        return {'id': 300, 'html_url': 'https://h/r/300'}
+
+    monkeypatch.setattr(web_app.gh, 'post_pr_review', post_review)
+    comment = Comment(author='jakub', file='foo.py', line=2, body='finding')
+    store.append_comment(session_dir, comment)
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        url = f'http://127.0.0.1:{port}/{session_id}/api/gh'
+        code, raw = _get(url + '/preview')
+        assert code == 200
+        preview = json.loads(raw)
+        assert preview['promoted'] == 1
+        assert preview['new_top'][0]['original_ref'] == 'foo.py:2'
+        code, result = _post(url + '/push', {
+            'comment_ids': [comment.id], 'github_identity': preview['github_identity'],
+        })
+        assert code == 200
+        assert result['pushed'] == 1
+        assert result['promoted'] == 1
+        assert submitted == [{
+            'event': 'COMMENT', 'body': 'Original anchor: `foo.py:2`\n\nfinding',
+            'commit_id': None, 'comments': None,
+        }]
+        stored = store.read_all_comments(session_dir)[0]
+        assert (stored.file, stored.line, stored.body) == ('foo.py', 2, 'finding')
+    finally:
+        srv.shutdown()
+
+
+def test_server_gh_push_blocks_patch_fetch_failure(session_dir, monkeypatch):
+    _mark_github_backed(session_dir, monkeypatch)
+    monkeypatch.setattr(web_app.gh, 'account_auth', lambda *a, **kw: nullcontext(
+        GitHubAccount('github.com', 'review-bot', 123)))
+
+    def fail_fetch(*args):
+        raise web_app.gh.GhError(['gh', 'api', 'files'], 1, 'fetch failed')
+
+    monkeypatch.setattr(web_app.gh, 'fetch_pr_files', fail_fetch)
+    comment = Comment(author='jakub', file='foo.py', line=2, body='finding')
+    store.append_comment(session_dir, comment)
+    srv, session_id, port = _start_server(session_dir)
+    try:
+        url = f'http://127.0.0.1:{port}/{session_id}/api/gh'
+        code, raw = _get(url + '/preview')
+        assert code == 200
+        preview = json.loads(raw)
+        assert 'fetch failed' in preview['anchor_validation_error']
+        assert preview['promoted'] == 0
+        code, result = _post(url + '/push', {
+            'comment_ids': [comment.id], 'github_identity': preview['github_identity'],
+        })
+        assert code == 409
+        assert 'Cannot validate review anchors' in result['error']
+        assert store.read_all_comments(session_dir)[0].external_id is None
     finally:
         srv.shutdown()
