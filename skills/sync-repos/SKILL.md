@@ -1,6 +1,6 @@
 ---
 name: sync-repos
-description: Fetch origin default branches across this workspace's canonical clones and fast-forward their local default branches, excluding task and pinned worktrees. Use for bulk repository refreshes; supports fetch-only requests.
+description: Fetch and fast-forward origin default branches and explicitly configured extra branches across this workspace's canonical clones, excluding task and pinned worktrees. Use for bulk repository refreshes and fetch-only requests.
 ---
 
 # Sync Repositories
@@ -12,14 +12,16 @@ the workspace instructions and read `LOCAL_CONTEXT.md` once if present.
 
 ## Invocation
 
-- `$sync-repos`: fetch and fast-forward local default branches in both roots.
-- `$sync-repos fetch-only`: fetch remote-tracking default branches only.
+- `$sync-repos`: fetch and fast-forward the selected branches in both roots.
+- `$sync-repos fetch-only`: refresh remote-tracking refs for the selected branches.
 - `$sync-repos projects only`: limit the full refresh to `projects/`.
 
 Honor explicit scope and mode overrides. A request to fetch alone does not
 authorize local branch updates. Invoking the full refresh authorizes updating
 the canonical clones directly; do not create implementation worktrees for this
-maintenance. Update default branches only, not every local branch.
+maintenance. Select each origin's default branch and any extra branch explicitly
+listed for sync in `LOCAL_CONTEXT.md`. Apply the same fetch, update, and
+verification rules to each selected branch. Report each branch separately.
 
 ## Discover and inspect
 
@@ -48,19 +50,19 @@ Parse the `ref: refs/heads/<branch>` entry. Do not assume `main`, `master`, the
 checked-out branch, or a cached `origin/HEAD` is correct. If discovery fails,
 report that repository and continue with the others.
 
-Record the default branch's local and remote-tracking SHAs, all local branch
+Record the selected branches' local and remote-tracking SHAs, all local branch
 refs, and `git worktree list --porcelain` before mutation. Inspect the current
 branch, `git status --porcelain=v1 --untracked-files=normal`, and any ongoing
 merge, rebase, cherry-pick, revert, or bisect before a local update.
 
 ## Fetch
 
-Fetch only the discovered default branch, explicitly updating its remote-tracking
-ref. The variables below stand for validated discovery results:
+Fetch each selected branch by explicitly updating its remote-tracking ref.
+For each branch, use its validated name in the refspec below:
 
 ```bash
 git fetch --no-tags --no-recurse-submodules --no-auto-maintenance origin \
-  "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
+  "+refs/heads/${branch}:refs/remotes/origin/${branch}"
 ```
 
 The leading `+` allows the remote-tracking ref to reflect upstream rewrites;
@@ -73,9 +75,9 @@ rewritten, was newly created, or was already current. If fetching fails, skip
 the local update for that repository. In fetch-only mode, proceed to verification
 and reporting without moving local branches or checked-out files.
 
-## Update local default branches
+## Update local branches
 
-Compare each local default branch to the successfully fetched SHA. Use
+Compare each selected local branch to the successfully fetched SHA. Use
 `git rev-list --left-right --count <local-sha>...<fetched-sha>` to distinguish
 behind, ahead, and diverged histories. If any Git operation is in progress,
 skip local updates for that repository.
@@ -83,42 +85,45 @@ skip local updates for that repository.
 - Equal SHAs: report already current, even if unrelated local files are dirty.
 - Local-only commits: preserve them; report ahead or diverged and skip the update.
 - Behind only: update using the rules below.
-- No local default branch: create a tracking branch only when no Git operation
+- No local branch: create a tracking branch only when no Git operation
   is in progress; leave the current checkout unchanged.
 
-For a default branch checked out in the canonical clone, require a clean status
-and no Git operation in progress. Recheck the branch, HEAD, and status immediately
-before updating; if they changed since inspection, skip the repository. Apply
-the exact fetched commit with:
+For a selected branch checked out in the canonical clone, require no staged or
+unstaged changes to tracked files and no Git operation in progress. Allow
+untracked files and rely on Git to reject any update that would overwrite them.
+Recheck the branch, HEAD, and tracked status immediately before updating. If
+they changed since inspection, skip the update. Apply the exact fetched commit
+with:
 
 ```bash
 git -c submodule.recurse=false merge --ff-only --no-autostash --no-edit \
   --no-overwrite-ignore --no-stat "$fetched_sha"
 ```
 
-If the default branch is checked out in any other worktree, skip its local
+If the selected branch is checked out in any other worktree, skip its local
 update. If it is checked out nowhere, verify that the saved local SHA is an
 ancestor of the fetched SHA, recheck worktree ownership, and update only that
 ref with a compare-and-swap operation:
 
 ```bash
-git update-ref "refs/heads/${default_branch}" "$fetched_sha" "$local_sha"
+git update-ref "refs/heads/${branch}" "$fetched_sha" "$local_sha"
 ```
 
 Do not switch a canonical clone from a different branch or detached HEAD.
 Do not reset, rebase, stash, clean, discard changes, or create merge commits to
-make an update succeed. Preserve dirty or conflicted repositories and continue
-with independent repositories; report what prevented each skipped update.
+make an update succeed. If Git blocks an update because of a file collision,
+preserve the files and report the collision. Continue with independent
+repositories and report what prevented each skipped update.
 
 ## Verify and report
 
 Verify updated local branches equal their fetched tips and only the intended
-default-branch refs moved. Confirm linked worktrees' HEADs and branches are
+branch refs moved. Confirm linked worktrees' HEADs and branches are
 unchanged, and that existing local changes remain intact. Remember that fetched
 remote-tracking refs are shared with linked worktrees even though their HEADs
 and files stay pinned.
 
-Report totals and a table grouped by workspace root: repository, default branch,
+Report totals and a table grouped by workspace root: repository, branch,
 fetch result, and local update result when applicable. Include commit counts
 for advances and concise reasons for skips or failures. Distinguish commits
 newly fetched from commits advanced locally; these counts can differ. Make clear
